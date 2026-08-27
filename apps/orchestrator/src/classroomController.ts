@@ -57,6 +57,7 @@ import {
   recordAnswer,
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
+import { rememberAgentUtterance, stripSelfEcho } from './agent/echo.js';
 import { publish, publishTo, publishToTeachers } from './state/eventBus.js';
 import {
   AGENT_UID,
@@ -214,11 +215,13 @@ export interface IngestOptions {
   isFinal: boolean;
   turnId?: number;
   language?: string;
+  /** How sure the relaying client was about `uid` — see TranscriptSegment. */
+  attributionConfidence?: number;
 }
 
 export async function ingestTranscript(
   session: ClassroomSession,
-  { uid, text, isFinal, turnId, language }: IngestOptions,
+  { uid, text, isFinal, turnId, language, attributionConfidence }: IngestOptions,
 ): Promise<void> {
   const now = Date.now();
 
@@ -285,14 +288,28 @@ export async function ingestTranscript(
 
   if (!isFinal) return;
 
+  // Athena's own TTS, played out of a shared speaker, can be picked up by
+  // anyone's open mic and come back looking exactly like a human turn — most
+  // plausibly in the common setup this project targets: a teacher and students
+  // in the same room on laptop speakers rather than headphones. Stripped before
+  // any of it is stored or analysed, so an echo can neither pollute the
+  // transcript nor coincidentally contain her own name and make her answer
+  // herself.
+  const spokenText = stripSelfEcho(session, text);
+  if (spokenText.length === 0) {
+    broadcastFloor(session);
+    return;
+  }
+
   const segment = appendTranscript(session, {
     participantId: participant.participantId,
     uid,
     speaker: participant.role,
-    text,
+    text: spokenText,
     at: now,
     language,
     turnId,
+    attributionConfidence,
   });
   publish(session.sessionId, { kind: 'echosphere:transcript', segment });
 
@@ -306,7 +323,7 @@ export async function ingestTranscript(
   // saying "Athena, can you hear me?" with the floor open still got no
   // response, because this whole check used to live inside a
   // role==='student'-only branch below.
-  const addressed = isAddressedToAgent(text, session.policy.wakePhrase);
+  const addressed = isAddressedToAgent(spokenText, session.policy.wakePhrase);
   const studentInvocationBlocked =
     addressed && participant.role === 'student' && !session.policy.studentsMayInvoke;
 
@@ -335,7 +352,7 @@ export async function ingestTranscript(
   // A student finished speaking. Two more things can follow beyond the
   // addressing check above: they answered an open quiz, or they said
   // something confused.
-  maybeScoreVoiceAnswer(session, participant.participantId, text);
+  maybeScoreVoiceAnswer(session, participant.participantId, spokenText);
 
   if (addressed) {
     const stats = (participant as { stats?: { questionsAsked: number } }).stats;
@@ -347,7 +364,7 @@ export async function ingestTranscript(
   recordConfusedQuestion(
     session,
     participant.participantId,
-    addressed ? stripWakePhrase(text, session.policy.wakePhrase) : text,
+    addressed ? stripWakePhrase(spokenText, session.policy.wakePhrase) : spokenText,
   );
   broadcastFloor(session);
 
@@ -372,6 +389,10 @@ function ingestAgentTurn(
   // Only the spoken half is stored. The control object never reached the room's
   // ears, so it must not appear in the transcript the room can read either.
   if (spoken.length > 0) {
+    // Recorded so a later human turn that is actually this speech leaking back
+    // in through an open mic can be recognised and stripped.
+    rememberAgentUtterance(session, spoken);
+
     const segment = appendTranscript(session, {
       participantId: null,
       uid: AGENT_UID,

@@ -217,7 +217,7 @@ export function ClassroomAudio({
   }, [localMicrophoneTrack, micEnabled]);
 
   /**
-   * Who spoke most recently, by RTC uid.
+   * Who spoke most recently, by RTC uid, plus how sure we are.
    *
    * The toolkit reports every human turn as uid "0" — it was built for a 1:1
    * call, so it has no notion of which of several people is talking. Without
@@ -225,10 +225,20 @@ export function ClassroomAudio({
    * is how one student's question showed up twice: once as them, once as the
    * teacher.
    *
-   * Agora's volume indicator does know. Tracking the loudest speaker gives the
-   * relay a real uid to attribute the turn to, which is what §3.8 needs.
+   * A sibling Agora ConvoAI project (a 3-contestant game show with the same
+   * "who actually spoke" problem) solves it with each participant's own device
+   * self-reporting its mic level over HTTP — the loudest self-report wins, and
+   * a too-close call is surfaced as a first-class "contested" result rather
+   * than a confident guess. This project has no separate per-participant
+   * device to ask, only whatever a single listening browser can measure of
+   * everyone else's remote track — so the SIGNAL here is necessarily weaker.
+   * What is worth carrying over is the OUTPUT shape: track the runner-up, not
+   * only the winner, and attach a confidence score using their
+   * `best / (best + second)` formula, so a close call reaches the transcript
+   * marked uncertain instead of stated as fact.
    */
   const dominantSpeakerRef = useRef<string | null>(null);
+  const attributionConfidenceRef = useRef<number>(1);
 
   useEffect(() => {
     if (!joinSuccess) return;
@@ -249,7 +259,7 @@ export function ClassroomAudio({
     const LEVEL_THRESHOLD = 0.06;
 
     const id = window.setInterval(() => {
-      let loudest: { speakerUid: string; level: number } | null = null;
+      const candidates: { speakerUid: string; level: number }[] = [];
 
       // The local track is a candidate too. Only the teacher's browser runs
       // this relay, so "local" here means the teacher's own mic — without
@@ -258,7 +268,7 @@ export function ClassroomAudio({
       // misattributing the teacher's own next turn to whoever spoke last.
       const localLevel = localMicrophoneTrack?.getVolumeLevel() ?? 0;
       if (localLevel >= LEVEL_THRESHOLD) {
-        loudest = { speakerUid: uid, level: localLevel };
+        candidates.push({ speakerUid: uid, level: localLevel });
       }
 
       for (const user of remoteUsers) {
@@ -266,13 +276,20 @@ export function ClassroomAudio({
         if (!track) continue;
         const level = track.getVolumeLevel();
         if (level < LEVEL_THRESHOLD) continue;
-        if (!loudest || level > loudest.level) {
-          loudest = { speakerUid: String(user.uid), level };
-        }
+        candidates.push({ speakerUid: String(user.uid), level });
       }
 
-      if (!loudest || loudest.speakerUid === agentUid) return;
-      dominantSpeakerRef.current = loudest.speakerUid;
+      const [best, second] = candidates.sort((a, b) => b.level - a.level);
+      if (!best || best.speakerUid === agentUid) return;
+
+      dominantSpeakerRef.current = best.speakerUid;
+      // Confidence only reflects a genuine two-way comparison. With nobody else
+      // audible there is nothing to be uncertain against, so it reads as 1 —
+      // matching the source project's own "only one candidate, a fact not a
+      // score" case.
+      attributionConfidenceRef.current = second
+        ? best.level / (best.level + second.level)
+        : 1;
     }, POLL_MS);
 
     return () => window.clearInterval(id);
@@ -313,6 +330,8 @@ export function ClassroomAudio({
         text: string;
         speakerUid: string;
         turnId: number;
+        /** Undefined for the agent's own turns — there is nothing to guess there. */
+        attributionConfidence: number | undefined;
         /** When this turn was last published, for the max-hold ceiling. */
         lastFlushAt: number;
         timer: ReturnType<typeof setTimeout>;
@@ -378,6 +397,7 @@ export function ClassroomAudio({
           text: normalizeTranscriptSpacing(entry.text),
           isFinal: true,
           turnId: entry.turnId,
+          attributionConfidence: entry.attributionConfidence,
         })
         .catch(() => undefined);
     };
@@ -416,6 +436,9 @@ export function ClassroomAudio({
         const speakerUid =
           existing?.speakerUid ??
           (isAgent ? agentUid : (dominantSpeakerRef.current ?? uid));
+        const attributionConfidence =
+          existing?.attributionConfidence ??
+          (isAgent ? undefined : attributionConfidenceRef.current);
 
         // A newer turn means every earlier one is definitively finished.
         for (const [otherKey, otherEntry] of pendingTurnsRef.current) {
@@ -426,6 +449,7 @@ export function ClassroomAudio({
           text,
           speakerUid,
           turnId,
+          attributionConfidence,
           // Seeded with the current time, not zero: a fresh turn has nothing
           // worth publishing yet, and starting the clock at zero made the
           // ceiling fire on the very first fragment of every turn.

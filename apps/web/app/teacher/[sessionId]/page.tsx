@@ -184,20 +184,24 @@ export default function TeacherDashboardPage() {
   }, [identity, sessionId, router]);
 
   if (!identity) {
-    return <main className="p-6 text-sm text-neutral-500">Loading…</main>;
+    return (
+      <main className="eco-room flex min-h-screen items-center justify-center p-6 text-sm text-[var(--eco-cream-dim)]">
+        Loading…
+      </main>
+    );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 p-4">
+    <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-4 p-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
             {view.room?.title ?? "Classroom"}
           </h1>
-          <p className="text-xs text-neutral-500">
+          <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
             Teacher view · {identity.displayName} ·{" "}
             {view.connected ? "connected" : "reconnecting…"} · share code{" "}
-            <code className="font-mono">{sessionId}</code>
+            <span style={{ color: "var(--eco-glow)" }}>{sessionId}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -205,18 +209,22 @@ export default function TeacherDashboardPage() {
           <button
             type="button"
             onClick={() => setMicEnabled((on) => !on)}
-            className={`rounded-md border px-3 py-1.5 text-sm ${
+            className="eco-mic-button flex h-9 w-9 items-center justify-center border text-xs font-medium transition-colors"
+            style={
               micEnabled
-                ? "border-neutral-900 bg-neutral-900 text-white"
-                : "border-neutral-300"
-            }`}
+                ? { borderColor: "var(--eco-glow)", background: "var(--eco-glow-dim)", color: "var(--eco-glow-bright)" }
+                : { borderColor: "var(--eco-rule)", color: "var(--eco-cream-faint)" }
+            }
+            aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
+            title={micEnabled ? "Mic on" : "Mic off"}
           >
-            {micEnabled ? "Mic on" : "Mic off"}
+            {micEnabled ? "●" : "○"}
           </button>
           <button
             type="button"
             onClick={() => void leave()}
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-dim)]"
+            style={{ borderColor: "var(--eco-rule)" }}
           >
             Leave
           </button>
@@ -224,7 +232,10 @@ export default function TeacherDashboardPage() {
       </header>
 
       {notice && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: "var(--eco-amber)", background: "var(--eco-amber-dim)", color: "var(--eco-cream)" }}
+        >
           {notice}
         </p>
       )}
@@ -232,14 +243,17 @@ export default function TeacherDashboardPage() {
       {!view.room?.agentId && <AgentAbsentNotice isTeacher />}
 
       {transcriptionError && (
-        <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: "var(--eco-red)", background: "var(--eco-red-dim)", color: "var(--eco-cream)" }}
+        >
           Transcription could not start: {transcriptionError}. Athena cannot hear
           the room. Reload the page; if it persists, check the browser console.
         </p>
       )}
 
       {view.room?.agentId && !transcriptionLive && !transcriptionError && (
-        <p className="rounded-md border border-neutral-300 bg-neutral-50 p-3 text-sm text-neutral-700">
+        <p className="eco-panel-sunken px-4 py-3 text-sm text-[var(--eco-cream-dim)]">
           Connecting the transcript pipeline…
         </p>
       )}
@@ -278,9 +292,9 @@ export default function TeacherDashboardPage() {
             onEndSession={() => void endSession()}
           />
 
-          <section className="flex flex-col gap-2 rounded-md border border-neutral-200 p-4">
-            <h2 className="text-sm font-semibold">Lesson material</h2>
-            <p className="text-xs text-neutral-500">
+          <section className="eco-panel flex flex-col gap-2 p-4">
+            <h2 className="eco-label">Lesson material</h2>
+            <p className="text-xs text-[var(--eco-cream-faint)]">
               Paste slides or notes. Athena grounds her answers in this and uses
               your terminology.
               {lessonInfo && lessonInfo.chunks > 0 && (
@@ -292,13 +306,15 @@ export default function TeacherDashboardPage() {
               )}
             </p>
             <input
-              className="rounded border border-neutral-300 px-2 py-1 text-sm"
+              className="rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+              style={{ borderColor: "var(--eco-rule)", background: "var(--eco-ink-sunken)" }}
               value={lessonName}
               onChange={(e) => setLessonName(e.target.value)}
               placeholder="Source name, e.g. week-4-slides"
             />
             <textarea
-              className="min-h-28 rounded border border-neutral-300 px-2 py-1 text-sm"
+              className="min-h-28 rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+              style={{ borderColor: "var(--eco-rule)", background: "var(--eco-ink-sunken)" }}
               value={lessonText}
               onChange={(e) => setLessonText(e.target.value)}
               placeholder="Paste the lesson text here…"
@@ -307,7 +323,8 @@ export default function TeacherDashboardPage() {
               type="button"
               disabled={busy || lessonText.trim().length === 0}
               onClick={() => void uploadLesson()}
-              className="self-start rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+              className="self-start rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-40"
+              style={{ background: "var(--eco-glow)", color: "var(--eco-ink)" }}
             >
               Index material
             </button>
@@ -372,14 +389,16 @@ export default function TeacherDashboardPage() {
 /** Post-class report (§3.9), rendered inline once the lesson ends. */
 function ReportView({ report }: { report: SessionReport }) {
   return (
-    <section className="flex flex-col gap-4 rounded-md border border-neutral-300 bg-neutral-50 p-5">
-      <h2 className="text-lg font-semibold">Post-class summary</h2>
-      <p className="text-sm">{report.narrative}</p>
+    <section className="eco-panel flex flex-col gap-4 p-5">
+      <h2 className="eco-display text-xl text-[var(--eco-cream)]">
+        Post-class summary
+      </h2>
+      <p className="text-sm text-[var(--eco-cream)]">{report.narrative}</p>
 
       {report.topicsCovered.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium">Topics covered</h3>
-          <p className="text-sm text-neutral-600">
+          <h3 className="eco-label-dim mb-1">Topics covered</h3>
+          <p className="text-sm text-[var(--eco-cream-dim)]">
             {report.topicsCovered.join(", ")}
           </p>
         </div>
@@ -387,12 +406,13 @@ function ReportView({ report }: { report: SessionReport }) {
 
       {report.commonMisconceptions.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">Common misconceptions</h3>
-          <ul className="flex flex-col gap-1 text-sm text-neutral-700">
+          <h3 className="eco-label-dim mb-1">Common misconceptions</h3>
+          <ul className="flex flex-col gap-1 text-sm text-[var(--eco-cream-dim)]">
             {report.commonMisconceptions.map((m) => (
               <li key={m.topic}>
-                <strong>{m.topic}</strong> — {m.description}{" "}
-                <span className="text-neutral-500">
+                <strong className="text-[var(--eco-cream)]">{m.topic}</strong>{" "}
+                — {m.description}{" "}
+                <span className="text-[var(--eco-cream-faint)]">
                   ({m.studentNames.join(", ")})
                 </span>
               </li>
@@ -402,25 +422,31 @@ function ReportView({ report }: { report: SessionReport }) {
       )}
 
       <div className="flex flex-col gap-1">
-        <h3 className="text-sm font-medium">Per student</h3>
+        <h3 className="eco-label-dim mb-1">Per student</h3>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-left text-sm">
+          <table className="eco-numerals w-full min-w-[36rem] text-left text-sm">
             <thead>
-              <tr className="border-b border-neutral-300 text-xs uppercase text-neutral-500">
-                <th className="py-1 pr-3">Student</th>
-                <th className="py-1 pr-3">Level</th>
-                <th className="py-1 pr-3">Asked</th>
-                <th className="py-1 pr-3">Quiz</th>
-                <th className="py-1">Note</th>
+              <tr
+                className="border-b text-xs uppercase text-[var(--eco-cream-faint)]"
+                style={{ borderColor: "var(--eco-rule)" }}
+              >
+                <th className="py-1 pr-3 font-medium">Student</th>
+                <th className="py-1 pr-3 font-medium">Level</th>
+                <th className="py-1 pr-3 font-medium">Asked</th>
+                <th className="py-1 pr-3 font-medium">Quiz</th>
+                <th className="py-1 font-medium">Note</th>
               </tr>
             </thead>
             <tbody>
               {report.perStudent.map((s) => (
                 <tr
                   key={s.participantId}
-                  className="border-b border-neutral-200"
+                  className="border-b text-[var(--eco-cream-dim)]"
+                  style={{ borderColor: "var(--eco-rule)" }}
                 >
-                  <td className="py-1 pr-3">{s.displayName}</td>
+                  <td className="py-1 pr-3 text-[var(--eco-cream)]">
+                    {s.displayName}
+                  </td>
                   <td className="py-1 pr-3">{s.proficiency}</td>
                   <td className="py-1 pr-3">{s.questionsAsked}</td>
                   <td className="py-1 pr-3">
@@ -436,8 +462,8 @@ function ReportView({ report }: { report: SessionReport }) {
 
       {report.suggestedFollowUp.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h3 className="text-sm font-medium">Suggested follow-up</h3>
-          <ul className="list-disc pl-5 text-sm text-neutral-700">
+          <h3 className="eco-label-dim mb-1">Suggested follow-up</h3>
+          <ul className="list-disc pl-5 text-sm text-[var(--eco-cream-dim)]">
             {report.suggestedFollowUp.map((s) => (
               <li key={s}>{s}</li>
             ))}

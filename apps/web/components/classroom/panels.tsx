@@ -15,8 +15,12 @@ import type {
   TranscriptSegment,
 } from '@echosphere/shared-types';
 import type { BlockedAttempt, QuizCardState } from '@/hooks/useClassroom';
+import { seatColorVar } from '@/lib/seatColor';
 
-// ─── Floor indicator (§3.3) ──────────────────────────────────────────────────
+/** Below this, a spoken-attribution guess is a close call, not a fact. */
+const UNCERTAIN_ATTRIBUTION_THRESHOLD = 0.62;
+
+// ─── Floor indicator (§3.3) — the on-air lamp ────────────────────────────────
 
 const FLOOR_LABEL: Record<FloorSnapshot['state'], string> = {
   TEACHER_HOLDS_FLOOR: 'Teacher is speaking',
@@ -25,11 +29,11 @@ const FLOOR_LABEL: Record<FloorSnapshot['state'], string> = {
   STUDENT_QUESTION_PENDING: 'Waiting on Athena',
 };
 
-const FLOOR_TONE: Record<FloorSnapshot['state'], string> = {
-  TEACHER_HOLDS_FLOOR: 'bg-blue-100 text-blue-900 border-blue-300',
-  OPEN_FLOOR: 'bg-neutral-100 text-neutral-700 border-neutral-300',
-  AGENT_SPEAKING: 'bg-violet-100 text-violet-900 border-violet-300',
-  STUDENT_QUESTION_PENDING: 'bg-amber-100 text-amber-900 border-amber-300',
+const FLOOR_LAMP: Record<FloorSnapshot['state'], string> = {
+  TEACHER_HOLDS_FLOOR: 'eco-lamp-amber',
+  OPEN_FLOOR: 'eco-lamp-off',
+  AGENT_SPEAKING: 'eco-lamp-glow eco-pulse',
+  STUDENT_QUESTION_PENDING: 'eco-lamp-amber eco-pulse',
 };
 
 export function FloorIndicator({
@@ -41,24 +45,33 @@ export function FloorIndicator({
 }) {
   if (!floor) return null;
   return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`rounded-full border px-3 py-1 text-xs font-medium ${FLOOR_TONE[floor.state]}`}
-      >
-        {FLOOR_LABEL[floor.state]}
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="eco-panel-sunken flex items-center gap-2 px-3 py-1.5">
+        <span className={`eco-lamp ${FLOOR_LAMP[floor.state]}`} />
+        <span className="text-xs font-medium text-[var(--eco-cream)]">
+          {FLOOR_LABEL[floor.state]}
+        </span>
       </span>
       {policy && !policy.studentsMayInvoke && !policy.muted && (
-        <span className="rounded-full border border-neutral-300 bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-700">
+        <span className="eco-panel-sunken px-3 py-1.5 text-xs font-medium text-[var(--eco-cream-dim)]">
           Listening only
         </span>
       )}
       {policy?.muted && (
-        <span className="rounded-full border border-red-300 bg-red-100 px-3 py-1 text-xs font-medium text-red-900">
+        <span
+          className="flex items-center gap-1.5 rounded-[0.625rem] border px-3 py-1.5 text-xs font-medium"
+          style={{
+            borderColor: 'var(--eco-red)',
+            background: 'var(--eco-red-dim)',
+            color: 'var(--eco-red)',
+          }}
+        >
+          <span className="eco-lamp eco-lamp-red" />
           AI muted
         </span>
       )}
       {policy && policy.verbosity !== 'normal' && (
-        <span className="rounded-full border border-neutral-300 px-3 py-1 text-xs text-neutral-600">
+        <span className="eco-panel-sunken px-3 py-1.5 text-xs capitalize text-[var(--eco-cream-dim)]">
           {policy.verbosity}
         </span>
       )}
@@ -81,33 +94,44 @@ export function RosterPanel({
   const students = participants.filter((p) => p.role === 'student');
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold">In the room</h2>
-      <ul className="flex flex-col gap-1 text-sm">
+    <section className="eco-panel flex flex-col gap-3 p-4">
+      <h2 className="eco-label">In the room</h2>
+      <ul className="flex flex-col gap-2.5 text-sm">
         {teacher && (
-          <li className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
-            {teacher.displayName}
-            <span className="text-xs text-neutral-500">teacher</span>
+          <li className="flex items-center gap-2.5">
+            <span
+              className="eco-seat-dot"
+              style={{ background: seatColorVar(teacher.participantId) }}
+            />
+            <span className="text-[var(--eco-cream)]">{teacher.displayName}</span>
+            <span className="text-xs text-[var(--eco-cream-faint)]">teacher</span>
           </li>
         )}
-        <li className="flex items-center gap-2">
+        <li className="flex items-center gap-2.5">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${agentPresent ? 'bg-violet-500' : 'bg-neutral-300'}`}
+            className={`eco-lamp ${agentPresent ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
           />
-          Athena
-          <span className="text-xs text-neutral-500">
+          <span className="text-[var(--eco-cream)]">Athena</span>
+          <span className="text-xs text-[var(--eco-cream-faint)]">
             {agentPresent ? 'AI co-teacher' : 'not started'}
           </span>
         </li>
         {students.map((student) => (
-          <li key={student.participantId} className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-neutral-400" />
-            {student.displayName}
+          <li key={student.participantId} className="flex items-center gap-2.5">
+            <span
+              className="eco-seat-dot"
+              style={{ background: seatColorVar(student.participantId) }}
+            />
+            <span className="text-[var(--eco-cream)]">{student.displayName}</span>
             {onSetProficiency ? (
               <select
                 aria-label={`Explanation level for ${student.displayName}`}
-                className="ml-auto rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                className="ml-auto rounded-md border px-1.5 py-0.5 text-xs"
+                style={{
+                  borderColor: 'var(--eco-rule)',
+                  background: 'var(--eco-ink-sunken)',
+                  color: 'var(--eco-cream)',
+                }}
                 value={student.proficiency ?? 'intermediate'}
                 onChange={(e) =>
                   onSetProficiency(student.participantId, e.target.value)
@@ -118,7 +142,7 @@ export function RosterPanel({
                 <option value="advanced">advanced</option>
               </select>
             ) : (
-              <span className="ml-auto text-xs text-neutral-500">
+              <span className="ml-auto text-xs text-[var(--eco-cream-faint)]">
                 {student.proficiency}
               </span>
             )}
@@ -143,8 +167,17 @@ export function AgentAbsentNotice({
   isTeacher: boolean;
 }) {
   return (
-    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      <strong>Athena is not in the room yet.</strong>{' '}
+    <div
+      className="rounded-[0.625rem] border px-4 py-3 text-sm"
+      style={{
+        borderColor: 'var(--eco-amber)',
+        background: 'var(--eco-amber-dim)',
+        color: 'var(--eco-cream)',
+      }}
+    >
+      <strong style={{ color: 'var(--eco-amber)' }}>
+        Athena is not in the room yet.
+      </strong>{' '}
       {isTeacher
         ? 'Press "Bring Athena in" above to start her. Live transcription runs through her, so nothing will be transcribed until she joins.'
         : 'Live transcription runs through her, so nothing will appear here until your teacher brings her in. You can still be heard by everyone.'}
@@ -177,6 +210,11 @@ export function TranscriptFeed({
     return match?.displayName ?? `Participant ${segment.uid}`;
   };
 
+  const seatOf = (segment: TranscriptSegment): string =>
+    segment.speaker === 'agent'
+      ? 'var(--eco-glow)'
+      : seatColorVar(segment.participantId ?? segment.uid);
+
   // `min-h-0` at every level of the flex chain is what actually lets the scroll
   // area own the leftover height. Without it a flex child refuses to shrink
   // below its content and the transcript collapses to a sliver no matter how
@@ -184,40 +222,60 @@ export function TranscriptFeed({
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold">Live transcript</h2>
+        <h2 className="eco-label">Live transcript</h2>
         {transcript.length > 0 && (
-          <span className="text-xs text-neutral-400">
+          <span className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
             {transcript.length} turn{transcript.length === 1 ? '' : 's'}
           </span>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-neutral-200 bg-white p-4">
+      <div className="eco-panel min-h-0 flex-1 overflow-y-auto p-4">
         {transcript.length === 0 ? (
-          <p className="text-sm text-neutral-400">
+          <p className="text-sm text-[var(--eco-cream-faint)]">
             {agentPresent
               ? 'Nothing spoken yet. The transcript fills in as people talk.'
               : 'Transcription starts when Athena joins the room.'}
           </p>
         ) : (
-          <ul className="flex flex-col gap-3">
-            {transcript.map((segment) => (
-              <li key={segment.segmentId} className="flex flex-col gap-0.5">
-                <span
-                  className={`text-xs font-semibold uppercase tracking-wide ${
-                    segment.speaker === 'agent'
-                      ? 'text-violet-600'
-                      : segment.speaker === 'teacher'
-                        ? 'text-blue-600'
-                        : 'text-neutral-500'
-                  }`}
+          <ul className="flex flex-col gap-3.5">
+            {transcript.map((segment) => {
+              const uncertain =
+                segment.attributionConfidence !== undefined &&
+                segment.attributionConfidence < UNCERTAIN_ATTRIBUTION_THRESHOLD;
+              return (
+                <li
+                  key={segment.segmentId}
+                  className="flex gap-3 border-l-2 pl-3"
+                  style={{ borderColor: seatOf(segment) }}
                 >
-                  {nameOf(segment)}
-                </span>
-                <span className="text-[15px] leading-relaxed text-neutral-800">
-                  {segment.text}
-                </span>
-              </li>
-            ))}
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="text-xs font-semibold uppercase tracking-wide"
+                        style={{ color: seatOf(segment) }}
+                      >
+                        {nameOf(segment)}
+                      </span>
+                      {uncertain && (
+                        <span
+                          className="rounded px-1 text-[0.625rem] font-medium uppercase tracking-wide"
+                          style={{
+                            background: 'var(--eco-amber-dim)',
+                            color: 'var(--eco-amber)',
+                          }}
+                          title="Two people were speaking at close to the same volume — this attribution is a best guess, not a fact."
+                        >
+                          unclear who
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[15px] leading-relaxed text-[var(--eco-cream)]">
+                      {segment.text}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
         <div ref={endRef} />
@@ -241,32 +299,38 @@ export function QuizCards({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold">Quiz</h2>
+      <h2 className="eco-label">Quiz</h2>
       {quizzes.slice(-3).map(({ quiz, myAnswer, myResult, correctAnswer, results }) => (
-        <article
-          key={quiz.quizId}
-          className="flex flex-col gap-2 rounded-md border border-neutral-200 p-3"
-        >
-          <p className="text-sm font-medium">{quiz.question}</p>
-          <ul className="flex flex-col gap-1">
+        <article key={quiz.quizId} className="eco-panel flex flex-col gap-2 p-3.5">
+          <p className="text-sm font-medium text-[var(--eco-cream)]">
+            {quiz.question}
+          </p>
+          <ul className="flex flex-col gap-1.5">
             {(quiz.options ?? []).map((option) => {
               const chosen = myAnswer === option;
               const isCorrect = correctAnswer === option;
+              const revealed = correctAnswer && isCorrect;
+              const wrongChoice = chosen && myResult === 'incorrect';
               return (
                 <li key={option}>
                   <button
                     type="button"
                     disabled={!canAnswer || myAnswer !== undefined}
                     onClick={() => onAnswer(quiz.quizId, option)}
-                    className={`w-full rounded border px-3 py-1.5 text-left text-sm disabled:cursor-default ${
-                      correctAnswer && isCorrect
-                        ? 'border-green-400 bg-green-50'
-                        : chosen
-                          ? myResult === 'correct'
-                            ? 'border-green-400 bg-green-50'
-                            : 'border-red-400 bg-red-50'
-                          : 'border-neutral-300'
-                    }`}
+                    className="w-full rounded-lg border px-3 py-1.5 text-left text-sm transition-colors disabled:cursor-default"
+                    style={{
+                      borderColor: revealed
+                        ? 'var(--eco-green)'
+                        : wrongChoice
+                          ? 'var(--eco-red)'
+                          : 'var(--eco-rule)',
+                      background: revealed
+                        ? 'var(--eco-green-dim)'
+                        : wrongChoice
+                          ? 'var(--eco-red-dim)'
+                          : 'var(--eco-ink-sunken)',
+                      color: 'var(--eco-cream)',
+                    }}
                   >
                     {option}
                   </button>
@@ -275,17 +339,22 @@ export function QuizCards({
             })}
           </ul>
           {myResult && (
-            <p className="text-xs text-neutral-600">
+            <p
+              className="text-xs font-medium"
+              style={{
+                color: myResult === 'correct' ? 'var(--eco-green)' : 'var(--eco-red)',
+              }}
+            >
               {myResult === 'correct' ? 'Correct.' : 'Not quite.'}
             </p>
           )}
           {Object.keys(results).length > 0 && (
-            <p className="text-xs text-neutral-500">
+            <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
               {Object.values(results).filter(Boolean).length} of{' '}
               {Object.keys(results).length} answered correctly
             </p>
           )}
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-[var(--eco-cream-faint)]">
             You can also answer out loud — say the option or its letter.
           </p>
         </article>
@@ -310,44 +379,55 @@ export function GapPanel({
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold">Who needs help</h2>
+      <h2 className="eco-label">Who needs help</h2>
       {gaps.length === 0 ? (
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-[var(--eco-cream-faint)]">
           No repeated misconceptions detected yet.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {gaps.map((gap) => {
             const count = gap.affectedStudentIds.length;
-            const tone =
-              count >= 3
-                ? 'border-red-300 bg-red-50'
-                : count === 2
-                  ? 'border-amber-300 bg-amber-50'
-                  : 'border-neutral-200';
+            const severe = count >= 3;
+            const moderate = count === 2;
             return (
               <li
                 key={gap.gapId}
-                className={`flex flex-col gap-1 rounded-md border p-3 ${tone}`}
+                className="flex flex-col gap-1 rounded-[0.625rem] border p-3"
+                style={{
+                  borderColor: severe
+                    ? 'var(--eco-red)'
+                    : moderate
+                      ? 'var(--eco-amber)'
+                      : 'var(--eco-rule)',
+                  background: severe
+                    ? 'var(--eco-red-dim)'
+                    : moderate
+                      ? 'var(--eco-amber-dim)'
+                      : 'var(--eco-ink-sunken)',
+                }}
               >
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium">{gap.topic}</p>
-                  <span className="text-xs text-neutral-600">
+                  <p className="text-sm font-medium text-[var(--eco-cream)]">
+                    {gap.topic}
+                  </p>
+                  <span className="eco-numerals text-xs text-[var(--eco-cream-dim)]">
                     {count} student{count === 1 ? '' : 's'}
                   </span>
                 </div>
-                <p className="text-xs text-neutral-600">
+                <p className="text-xs text-[var(--eco-cream-dim)]">
                   {gap.affectedStudentIds.map(nameOf).join(', ')}
                 </p>
                 {gap.addressedAt && (
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-[var(--eco-cream-faint)]">
                     Athena has addressed this.
                   </p>
                 )}
                 <button
                   type="button"
                   onClick={() => onQuiz(gap.topic, gap.affectedStudentIds)}
-                  className="self-start rounded border border-neutral-400 px-2 py-1 text-xs"
+                  className="self-start rounded-md border px-2 py-1 text-xs text-[var(--eco-cream)]"
+                  style={{ borderColor: 'var(--eco-rule)' }}
                 >
                   Quiz these students
                 </button>
@@ -377,8 +457,8 @@ export function BlockedAttempts({ attempts }: { attempts: BlockedAttempt[] }) {
   if (attempts.length === 0) return null;
   return (
     <section className="flex flex-col gap-1">
-      <h2 className="text-sm font-semibold">AI held back</h2>
-      <ul className="flex flex-col gap-0.5 text-xs text-neutral-600">
+      <h2 className="eco-label">AI held back</h2>
+      <ul className="eco-numerals flex flex-col gap-0.5 text-xs text-[var(--eco-cream-dim)]">
         {attempts
           .slice(-5)
           .reverse()

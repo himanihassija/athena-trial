@@ -4,6 +4,10 @@ An audio-only live classroom where a teacher, multiple students, and an AI
 co-teacher share one Agora voice channel. Built against
 [`docs/PS31-ai-co-teacher-implementation-plan.md`](docs/PS31-ai-co-teacher-implementation-plan.md).
 
+This file is the reference for how the system works today. For the story of
+how it got there — every bug found, its root cause, and the fix — see
+[`docs/BUILD-LOG.md`](docs/BUILD-LOG.md).
+
 There is no video anywhere in this app. The surface area is an Agora RTC audio
 channel, a control/data path, and a web dashboard.
 

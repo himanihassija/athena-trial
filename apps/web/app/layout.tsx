@@ -1,5 +1,28 @@
 import type { Metadata, Viewport } from 'next';
+import { Big_Shoulders, IBM_Plex_Sans } from 'next/font/google';
 import './globals.css';
+
+/**
+ * Big Shoulders Display for the display type — a condensed, broadcast-poster
+ * face with the right amount of presence for the floor state and section
+ * headers without competing with the transcript for attention.
+ */
+const ecoDisplay = Big_Shoulders({
+  subsets: ['latin'],
+  weight: ['600', '700', '800'],
+  variable: '--font-eco-display',
+});
+
+/**
+ * IBM Plex Sans for everything else. The transcript is continuous reading
+ * text — unlike a game-show HUD, which is mostly short numeric labels — so
+ * this project weights legibility over character.
+ */
+const ecoUi = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-eco-ui',
+});
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -8,9 +31,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Talk to your voice agent | Agora',
+  title: 'Echosphere',
   description:
-    "Next.js quickstart: real-time voice agent with live transcript, streaming audio, and low latency from Agora's Conversational AI Engine—API routes in one repo.",
+    'Audio-only live classroom with an AI co-teacher, built on the Agora Conversational AI Engine.',
   icons: {
     icon: [
       { url: '/favicon.ico' },
@@ -39,7 +62,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`h-full ${ecoDisplay.variable} ${ecoUi.variable}`}>
       <body className="h-full min-h-screen">{children}</body>
     </html>
   );

@@ -121,6 +121,8 @@ export const orchestrator = {
       isFinal: boolean;
       turnId?: number;
       language?: string;
+      /** How sure the relay was of `uid` — see TranscriptSegment. */
+      attributionConfidence?: number;
     },
   ) =>
     request<{ ok: boolean }>(`/api/sessions/${sessionId}/transcript`, {

@@ -64,6 +64,7 @@ const transcriptSchema = z.object({
   isFinal: z.boolean().default(true),
   turnId: z.number().optional(),
   language: z.string().optional(),
+  attributionConfidence: z.number().min(0).max(1).optional(),
 });
 
 const commandSchema = z.object({

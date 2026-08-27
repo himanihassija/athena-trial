@@ -73,23 +73,30 @@ export default function ClassroomPage() {
   }, [identity, sessionId, router]);
 
   if (!identity) {
-    return <main className="p-6 text-sm text-neutral-500">Loading…</main>;
+    return (
+      <main className="eco-room flex min-h-screen items-center justify-center p-6 text-sm text-[var(--eco-cream-dim)]">
+        Loading…
+      </main>
+    );
   }
 
   return (
-    <main className="mx-auto flex h-screen max-w-5xl flex-col gap-3 overflow-hidden p-4">
+    <main className="eco-room mx-auto flex h-screen max-w-5xl flex-col gap-3 overflow-hidden p-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">
+          <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
             {view.room?.title ?? 'Classroom'}
           </h1>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-[var(--eco-cream-faint)]">
             Joined as {identity.displayName} ·{' '}
             {view.connected ? 'connected' : 'reconnecting…'}
             {view.policy?.studentsMayInvoke ? (
               <>
                 {' '}· say{' '}
-                <strong className="font-semibold text-violet-700">
+                <strong
+                  className="font-semibold"
+                  style={{ color: 'var(--eco-glow)' }}
+                >
                   &ldquo;{view.policy.wakePhrase}&rdquo;
                 </strong>{' '}
                 to ask Athena
@@ -104,18 +111,22 @@ export default function ClassroomPage() {
           <button
             type="button"
             onClick={() => setMicEnabled((on) => !on)}
-            className={`rounded-md border px-3 py-1.5 text-sm ${
+            className="eco-mic-button flex h-9 w-9 items-center justify-center border text-xs font-medium transition-colors"
+            style={
               micEnabled
-                ? 'border-neutral-900 bg-neutral-900 text-white'
-                : 'border-neutral-300'
-            }`}
+                ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
+                : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-faint)' }
+            }
+            aria-label={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            title={micEnabled ? 'Mic on' : 'Mic off'}
           >
-            {micEnabled ? 'Mic on' : 'Mic off'}
+            {micEnabled ? '●' : '○'}
           </button>
           <button
             type="button"
             onClick={() => void leave()}
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-dim)]"
+            style={{ borderColor: 'var(--eco-rule)' }}
           >
             Leave
           </button>
@@ -123,7 +134,7 @@ export default function ClassroomPage() {
       </header>
 
       {view.ended && (
-        <p className="rounded-md border border-neutral-300 bg-neutral-50 p-3 text-sm">
+        <p className="eco-panel-sunken px-4 py-3 text-sm text-[var(--eco-cream-dim)]">
           This lesson has ended. Your teacher has the summary.
         </p>
       )}
@@ -131,14 +142,17 @@ export default function ClassroomPage() {
       {!view.room?.agentId && <AgentAbsentNotice isTeacher={false} />}
 
       {transcriptionError && (
-        <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--eco-red)', background: 'var(--eco-red-dim)', color: 'var(--eco-cream)' }}
+        >
           Transcription could not start: {transcriptionError}. Athena cannot hear
           you. Try reloading the page.
         </p>
       )}
 
       {view.room?.agentId && !transcriptionLive && !transcriptionError && (
-        <p className="rounded-md border border-neutral-300 bg-neutral-50 p-3 text-sm text-neutral-700">
+        <p className="eco-panel-sunken px-4 py-3 text-sm text-[var(--eco-cream-dim)]">
           Connecting the transcript pipeline…
         </p>
       )}

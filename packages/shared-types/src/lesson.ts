@@ -38,6 +38,16 @@ export interface TranscriptSegment {
   language?: string;
   /** Turn id from the Agora client toolkit, for dedup across partial updates. */
   turnId?: number;
+  /**
+   * How confident the client was in attributing this turn to `uid`, from 0 to
+   * 1. Only set for human turns whose speaker was resolved by comparing mic
+   * levels across participants (§3.8) rather than a self-reported id — the
+   * agent's own turns and any turn already carrying a real speaker id have no
+   * need of it. Below roughly 0.6 the two loudest candidates were close enough
+   * that the attribution is a guess, not a fact; the UI marks those as
+   * uncertain rather than presenting a coin-flip with full confidence.
+   */
+  attributionConfidence?: number;
 }
 
 // ─── Quizzes (§3.6) ──────────────────────────────────────────────────────────

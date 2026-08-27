@@ -192,3 +192,187 @@ body {
     max-height: 3.5rem;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Echosphere classroom design language
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Two reference points, deliberately, the same way a good broadcast-studio
+ * design brief works from a couple of concrete objects rather than a mood
+ * board of adjectives:
+ *
+ *   1. A community radio broadcast desk. This product is audio-only by
+ *      product decision, not by limitation — so the UI should look like it
+ *      belongs to something that transmits sound, not like a video-call
+ *      client with the video panes removed. On-air lamps, level meters, a
+ *      warm dial glow.
+ *
+ *   2. A study lamp on a desk at night. Pure broadcast-desk chrome reads cold
+ *      and a little intimidating for a classroom a nine-year-old might sit
+ *      in, so the second reference pulls it back toward something humane: one
+ *      warm pool of light on a dark surface, not a wall of equipment.
+ *
+ * Rules that hold everywhere below:
+ *   - The ground is WARM near-black, never blue-black. Blue-black reads as a
+ *     dashboard; this is a room with a lamp on in it.
+ *   - The accent is a tube-radio "magic eye" glow — the little indicator on
+ *     an old radio that glows brightest when the dial is perfectly tuned.
+ *     It is the one color idea in this file that is actually load-bearing for
+ *     the PRODUCT metaphor: Athena "tuned in" and listening is the whole
+ *     turn-taking design, and the glow is what that looks like.
+ *   - Soft corners are the default (the desk-lamp half of the brief); the
+ *     mic control is the one deliberately circular, tactile exception — the
+ *     thing in the room you actually reach out and touch.
+ *   - Every participant gets one, and always the same, seat color — so a
+ *     name is never the only thing distinguishing two people in a fast-moving
+ *     transcript.
+ *
+ * These are additive custom properties (`--eco-*`), kept separate from the
+ * `--background`/`--primary`/etc. tokens above that the original quickstart's
+ * (currently unrouted) landing page still reads, so neither system disturbs
+ * the other.
+ */
+
+:root {
+  /* Ground */
+  --eco-ink: #14100c;
+  --eco-ink-raised: #1e1812;
+  --eco-ink-sunken: #0b0906;
+
+  /* Tube glow — the primary accent */
+  --eco-glow: #5eead4;
+  --eco-glow-bright: #99f6e4;
+  --eco-glow-dim: #134e4a;
+
+  /* Warm cream type — never pure white on this ground */
+  --eco-cream: #f2ede3;
+  --eco-cream-dim: #a89e8f;
+  --eco-cream-faint: #6b6255;
+
+  /* Signals — kept close to convention; these need to be read instantly */
+  --eco-red: #f2555f;
+  --eco-red-dim: #4a1418;
+  --eco-amber: #f2b84b;
+  --eco-amber-dim: #4a3712;
+  --eco-green: #4ade9b;
+  --eco-green-dim: #0f3d29;
+  --eco-blue: #64b5f6;
+  --eco-blue-dim: #123047;
+
+  --eco-rule: color-mix(in srgb, var(--eco-glow) 14%, transparent);
+
+  /* Seat colors — one per participant, assigned by lib/seatColor.ts */
+  --eco-seat-1: #ff8a65;
+  --eco-seat-2: #64b5f6;
+  --eco-seat-3: #ffd54f;
+  --eco-seat-4: #81c995;
+  --eco-seat-5: #ce93d8;
+  --eco-seat-6: #f48fb1;
+}
+
+.eco-room {
+  background: var(--eco-ink);
+  color: var(--eco-cream);
+  font-family: var(--font-eco-ui), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+.eco-display {
+  font-family: var(--font-eco-display), 'Arial Narrow', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/** Tabular so a live turn counter or clock does not shuffle sideways. */
+.eco-numerals {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/** The small tracked-out caps label above a panel section. */
+.eco-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--eco-glow);
+}
+
+.eco-label-dim {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--eco-cream-faint);
+}
+
+/**
+ * A panel is a flat, softly-rounded block with a hairline rule and a 1px
+ * inner top highlight, which is what makes it read as a lit surface rather
+ * than a div with a border.
+ */
+.eco-panel {
+  background: var(--eco-ink-raised);
+  border: 1px solid var(--eco-rule);
+  border-radius: 0.875rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eco-glow) 8%, transparent);
+}
+
+.eco-panel-sunken {
+  background: var(--eco-ink-sunken);
+  border: 1px solid var(--eco-rule);
+  border-radius: 0.625rem;
+}
+
+/**
+ * An on-air lamp: a small glowing status dot. The glow is a real box-shadow
+ * bloom, not a flat dot — "gradients are light sources, never decoration" is
+ * the rule this exists to demonstrate.
+ */
+.eco-lamp {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.eco-lamp-glow {
+  background: var(--eco-glow);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--eco-glow) 70%, transparent);
+}
+.eco-lamp-red {
+  background: var(--eco-red);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--eco-red) 70%, transparent);
+}
+.eco-lamp-amber {
+  background: var(--eco-amber);
+  box-shadow: 0 0 8px 1px color-mix(in srgb, var(--eco-amber) 70%, transparent);
+}
+.eco-lamp-off {
+  background: var(--eco-cream-faint);
+}
+
+/** A participant's persistent seat-color dot, next to their name everywhere. */
+.eco-seat-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+/**
+ * The one deliberately circular, tactile control — the mic toggle. Everything
+ * else in this room is softly rounded; this is the thing meant to feel like a
+ * physical button you press.
+ */
+.eco-mic-button {
+  border-radius: 9999px;
+}
+
+@keyframes eco-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.eco-pulse {
+  animation: eco-pulse 1.6s ease-in-out infinite;
+}
