@@ -1,0 +1,7 @@
+{
+  "projectId": "kqMvy0-8B",
+  "projectName": "athena-echosphere",
+  "region": "global",
+  "template": "nextjs",
+  "envPath": ".env.local"
+}

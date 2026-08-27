@@ -1,0 +1,178 @@
+/**
+ * Tests for turn-taking enforcement (see classroomController.ts).
+ *
+ * The case that matters most here is the bug a live session actually hit: a
+ * legitimate, permitted answer that ran long — ASR settle + LLM generation +
+ * a genuinely long spoken response can easily exceed the permit's TTL — was
+ * being cut off mid-sentence because enforcement re-validated the permit's
+ * timestamp on every state-change event, including ones that happen well
+ * after the turn has already, correctly, begun.
+ *
+ * Time is faked by rewinding `speakPermit.grantedAt` rather than sleeping;
+ * these run in milliseconds and still exercise real elapsed-time logic.
+ *
+ * Run with: node --import tsx scripts/floor.test.ts
+ */
+
+import assert from 'node:assert/strict';
+import {
+  clearSpeakPermit,
+  grantSpeakPermit,
+  handleAgentState,
+  hasSpeakPermit,
+  ingestTranscript,
+} from './../src/classroomController.ts';
+import { addParticipant, createSession } from './../src/state/sessionRegistry.ts';
+
+let pass = 0;
+const t = async (name: string, fn: () => void | Promise<void>) => {
+  try {
+    await fn();
+    pass += 1;
+    console.log(`  ok  ${name}`);
+  } catch (e) {
+    console.log(`  FAIL ${name}: ${(e as Error).message}`);
+    process.exitCode = 1;
+  }
+};
+
+const rewind = (session: ReturnType<typeof createSession>, ms: number) => {
+  if (session.speakPermit) session.speakPermit.grantedAt -= ms;
+};
+
+await t('no permit: a turn starting is interrupted', async () => {
+  const session = createSession('test');
+  const result = await handleAgentState(session, 'thinking');
+  assert.equal(result.interrupted, true);
+});
+
+await t('valid permit: a turn is allowed to start', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  const result = await handleAgentState(session, 'thinking');
+  assert.equal(result.interrupted, false);
+  assert.equal(session.authorizedTurnInProgress, true);
+});
+
+await t(
+  'the exact regression: a turn already authorized is NOT re-cut by a later, stale-looking check',
+  async () => {
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+    const started = await handleAgentState(session, 'thinking');
+    assert.equal(started.interrupted, false);
+
+    // Simulate real-world latency: generation + a long spoken answer running
+    // well past the permit's original TTL, all within one continuous turn.
+    rewind(session, 20_000);
+    assert.equal(hasSpeakPermit(session), false, 'sanity: the permit itself has expired');
+
+    const midSpeech = await handleAgentState(session, 'speaking');
+    assert.equal(
+      midSpeech.interrupted,
+      false,
+      'a turn already under way must not be cut off by a stale TTL check',
+    );
+  },
+);
+
+await t('a turn ending resets authorization for the next one', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'speaking');
+
+  await handleAgentState(session, 'silent');
+  assert.equal(session.authorizedTurnInProgress, false);
+
+  // No fresh permit was granted — the next turn must be authorized on its
+  // own, not inherit the previous turn's clearance.
+  const nextTurn = await handleAgentState(session, 'thinking');
+  assert.equal(nextTurn.interrupted, true);
+});
+
+await t('mute blocks a turn that has not started yet, even with a valid permit', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  session.policy.muted = true;
+  const result = await handleAgentState(session, 'thinking');
+  assert.equal(result.interrupted, true);
+});
+
+await t('clearSpeakPermit revokes both the standing permit and an in-progress turn', () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'TEACHER_INVOKED');
+  session.authorizedTurnInProgress = true;
+  clearSpeakPermit(session);
+  assert.equal(session.speakPermit, null);
+  assert.equal(session.authorizedTurnInProgress, false);
+});
+
+await t(
+  'the other regression: the teacher can address the agent by name even with the floor closed to students',
+  () => {
+    const session = createSession('test');
+    const teacher = addParticipant(session, {
+      displayName: 'Ms Rao',
+      role: 'teacher',
+    });
+    // Explicit, even though this is the default — the floor gate exists to
+    // control STUDENT access, and must never block the teacher's own.
+    session.policy.studentsMayInvoke = false;
+
+    ingestTranscript(session, {
+      uid: teacher.uid,
+      text: 'Athena, can you hear me?',
+      isFinal: true,
+    });
+
+    assert.equal(
+      session.speakPermit?.reason,
+      'DIRECTLY_ADDRESSED',
+      'the teacher addressing her by name must grant a permit',
+    );
+    assert.equal(session.activeQuestionerId, teacher.participantId);
+  },
+);
+
+await t('the gate still blocks a STUDENT addressing her while the floor is closed', () => {
+  const session = createSession('test');
+  const student = addParticipant(session, {
+    displayName: 'Ana',
+    role: 'student',
+  });
+  session.policy.studentsMayInvoke = false;
+
+  ingestTranscript(session, {
+    uid: student.uid,
+    text: 'Hey Athena, what is a fraction?',
+    isFinal: true,
+  });
+
+  assert.equal(
+    session.speakPermit,
+    null,
+    'a student must not be able to summon her while the floor is closed',
+  );
+});
+
+await t('a student CAN address her once the teacher opens the floor', () => {
+  const session = createSession('test');
+  const student = addParticipant(session, {
+    displayName: 'Ana',
+    role: 'student',
+  });
+  session.policy.studentsMayInvoke = true;
+
+  ingestTranscript(session, {
+    uid: student.uid,
+    text: 'Hey Athena, what is a fraction?',
+    isFinal: true,
+  });
+
+  assert.equal(session.speakPermit?.reason, 'DIRECTLY_ADDRESSED');
+  assert.equal(session.activeQuestionerId, student.participantId);
+});
+
+console.log(`\n${pass} passing`);

@@ -1,0 +1,143 @@
+/**
+ * Lesson material, transcript log, quizzes, and gap detection.
+ *
+ * Covers PS31 §3.4 (contextual answers from lesson material), §3.6 (spoken
+ * quizzes), §3.9 (post-class summaries and learning insights).
+ */
+
+/** One chunk of teacher-uploaded lesson material, with its embedding. */
+export interface LessonChunk {
+  chunkId: string;
+  sessionId: string;
+  /** Source document name, shown in the teacher UI so retrieval is auditable. */
+  source: string;
+  text: string;
+  /** Ordinal within the source document — lets the UI show surrounding context. */
+  ordinal: number;
+  embedding?: number[];
+  /** Coarse topic tags used by the gap detector to cluster misconceptions. */
+  topics: string[];
+}
+
+export interface RetrievedChunk {
+  chunk: LessonChunk;
+  score: number;
+}
+
+/** A single utterance in the rolling classroom transcript. */
+export interface TranscriptSegment {
+  segmentId: string;
+  sessionId: string;
+  /** null for the agent's own speech. */
+  participantId: string | null;
+  uid: string;
+  speaker: 'teacher' | 'student' | 'agent';
+  text: string;
+  at: number;
+  /** BCP-47 tag if the ASR reported one — feeds §3.7 code-switch handling. */
+  language?: string;
+  /** Turn id from the Agora client toolkit, for dedup across partial updates. */
+  turnId?: number;
+}
+
+// ─── Quizzes (§3.6) ──────────────────────────────────────────────────────────
+
+export type QuizDifficulty = 'easy' | 'medium' | 'hard';
+
+export interface QuizQuestion {
+  quizId: string;
+  sessionId: string;
+  topic: string;
+  question: string;
+  /** Omitted for open-response questions answered by voice. */
+  options?: string[];
+  /** Index into `options`, or the expected free-text answer. */
+  correctAnswer: string;
+  difficulty: QuizDifficulty;
+  /** participantIds this quiz was aimed at; empty means the whole class. */
+  targetStudentIds: string[];
+  createdAt: number;
+  /** What caused this quiz — teacher action or an auto-detected gap. */
+  origin: 'teacher' | 'gap-detector';
+}
+
+export interface QuizAnswer {
+  quizId: string;
+  participantId: string;
+  answer: string;
+  correct: boolean;
+  /** How the student answered — tapping a card or speaking. */
+  via: 'ui' | 'voice';
+  at: number;
+}
+
+// ─── Gap detection (§3.9) ────────────────────────────────────────────────────
+
+/**
+ * A cluster of related confusion signals across students. Built from wrong quiz
+ * answers and repeated confused questions on the same topic.
+ */
+export interface LearningGap {
+  gapId: string;
+  sessionId: string;
+  topic: string;
+  /** Human-readable statement of the misconception, for the teacher dashboard. */
+  description: string;
+  /** participantIds showing this gap. Length drives severity. */
+  affectedStudentIds: string[];
+  /** Individual signals that built this cluster. */
+  evidence: GapEvidence[];
+  firstSeenAt: number;
+  lastSeenAt: number;
+  /** Set once the agent has addressed this gap, so it is not re-raised. */
+  addressedAt?: number;
+}
+
+export interface GapEvidence {
+  kind: 'wrong-answer' | 'confused-question';
+  participantId: string;
+  text: string;
+  at: number;
+}
+
+export type GapSeverity = 'low' | 'medium' | 'high';
+
+/** Severity is purely a function of how many students share the gap. */
+export function gapSeverity(gap: LearningGap, classSize: number): GapSeverity {
+  const share = classSize > 0 ? gap.affectedStudentIds.length / classSize : 0;
+  if (gap.affectedStudentIds.length >= 3 || share >= 0.5) return 'high';
+  if (gap.affectedStudentIds.length === 2 || share >= 0.25) return 'medium';
+  return 'low';
+}
+
+// ─── Post-class report (§3.9) ────────────────────────────────────────────────
+
+export interface SessionReport {
+  sessionId: string;
+  generatedAt: number;
+  startedAt: number;
+  endedAt: number;
+  topicsCovered: string[];
+  commonMisconceptions: ReportedMisconception[];
+  perStudent: StudentReportEntry[];
+  suggestedFollowUp: string[];
+  /** Narrative summary from the batch LLM call, rendered above the tables. */
+  narrative: string;
+}
+
+export interface ReportedMisconception {
+  topic: string;
+  description: string;
+  studentNames: string[];
+}
+
+export interface StudentReportEntry {
+  participantId: string;
+  displayName: string;
+  proficiency: string;
+  questionsAsked: number;
+  quizzesAnswered: number;
+  quizzesCorrect: number;
+  strugglingTopics: string[];
+  note: string;
+}
