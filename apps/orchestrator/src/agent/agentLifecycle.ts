@@ -25,11 +25,11 @@ import {
   Agent,
   AgoraClient,
   Area,
-  DeepgramSTT,
   ExpiresIn,
-  MiniMaxTTS,
   OpenAI,
   type AgentSession,
+  SarvamSTT,
+  SarvamTTS,
 } from 'agora-agents';
 import { GREETING, buildClassroomInstructions } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
@@ -143,33 +143,31 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     },
   })
     .withStt(
-      new DeepgramSTT({
-        model: 'nova-3',
-        // 'multi' enables Deepgram's multilingual code-switching mode (§3.7).
-        language: config.sttLanguage,
+      new SarvamSTT({
+        apiKey: config.sarvamApiKey,
+        language: config.sttLanguage === 'multi' ? 'hi-IN' : config.sttLanguage,
       }),
     )
     .withLlm(
       new OpenAI({
+        apiKey: config.sarvamApiKey || 'mock_key',
+        url: `${process.env.PUBLIC_ORCHESTRATOR_URL || 'http://localhost:8787'}/api/chat/completions?sessionId=${session.sessionId}`,
         model: resellerModel(),
         greetingMessage: GREETING,
         failureMessage: 'One moment.',
         maxHistory: 15,
         params: {
           max_tokens: 700,
-          // Lower than the quickstart's 0.7. The control payload has to come
-          // out in the same shape every turn.
           temperature: 0.4,
           top_p: 0.9,
         },
       }),
     )
     .withTts(
-      new MiniMaxTTS({
-        model: 'speech_2_6_turbo',
-        voiceId: config.ttsVoiceId,
-        // 5 = skip curly braces. This is what hides the control channel from
-        // speech synthesis while leaving it in the transcript.
+      new SarvamTTS({
+        key: config.sarvamApiKey,
+        speaker: config.sarvamSpeaker,
+        targetLanguageCode: config.sarvamTargetLanguageCode as any,
         skipPatterns: [5],
       }),
     );

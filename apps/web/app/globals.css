@@ -234,52 +234,61 @@ body {
  */
 
 :root {
-  /* Ground */
-  --eco-ink: #14100c;
-  --eco-ink-raised: #1e1812;
-  --eco-ink-sunken: #0b0906;
+  /* Meraki core palette */
+  --ink:        #16202E;   /* text, chalkboard surfaces */
+  --slate:      #2E3D50;   /* secondary surfaces, borders on dark */
+  --paper:      #EEF1F4;   /* app background, cool-tinted rather than cream */
+  --chalk:      #FBFCFD;   /* cards, raised surfaces */
+  --marigold:   #E8A317;   /* attention — the agent has something to say */
+  --teal:       #0F766E;   /* active — the agent is speaking */
+  --clay:       #B85C38;   /* held back — used at low opacity, never filled */
+
+  /* Map old Echo theme variables to new Meraki tokens to preserve CSS compatibility */
+  --eco-ink: var(--ink);
+  --eco-ink-raised: var(--slate);
+  --eco-ink-sunken: #111a26;
 
   /* Tube glow — the primary accent */
-  --eco-glow: #5eead4;
-  --eco-glow-bright: #99f6e4;
-  --eco-glow-dim: #134e4a;
+  --eco-glow: var(--teal);
+  --eco-glow-bright: #14b8a6;
+  --eco-glow-dim: #115e59;
 
   /* Warm cream type — never pure white on this ground */
-  --eco-cream: #f2ede3;
-  --eco-cream-dim: #a89e8f;
-  --eco-cream-faint: #6b6255;
+  --eco-cream: var(--paper);
+  --eco-cream-dim: #94a3b8;
+  --eco-cream-faint: #64748b;
 
   /* Signals — kept close to convention; these need to be read instantly */
-  --eco-red: #f2555f;
-  --eco-red-dim: #4a1418;
-  --eco-amber: #f2b84b;
-  --eco-amber-dim: #4a3712;
-  --eco-green: #4ade9b;
-  --eco-green-dim: #0f3d29;
-  --eco-blue: #64b5f6;
-  --eco-blue-dim: #123047;
+  --eco-red: var(--clay);
+  --eco-red-dim: #451a0e;
+  --eco-amber: var(--marigold);
+  --eco-amber-dim: #453007;
+  --eco-green: var(--teal);
+  --eco-green-dim: #0a3d39;
+  --eco-blue: #38bdf8;
+  --eco-blue-dim: #0c4a6e;
 
-  --eco-rule: color-mix(in srgb, var(--eco-glow) 14%, transparent);
+  --eco-rule: color-mix(in srgb, var(--eco-glow) 20%, transparent);
 
   /* Seat colors — one per participant, assigned by lib/seatColor.ts */
-  --eco-seat-1: #ff8a65;
-  --eco-seat-2: #64b5f6;
-  --eco-seat-3: #ffd54f;
-  --eco-seat-4: #81c995;
-  --eco-seat-5: #ce93d8;
-  --eco-seat-6: #f48fb1;
+  --eco-seat-1: #f97316;
+  --eco-seat-2: #38bdf8;
+  --eco-seat-3: #f59e0b;
+  --eco-seat-4: #10b981;
+  --eco-seat-5: #a855f7;
+  --eco-seat-6: #ec4899;
 }
 
 .eco-room {
   background: var(--eco-ink);
   color: var(--eco-cream);
-  font-family: var(--font-eco-ui), 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-body), var(--font-devanagari), ui-sans-serif, system-ui, sans-serif;
 }
 
 .eco-display {
-  font-family: var(--font-eco-display), 'Arial Narrow', sans-serif;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display), serif;
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 /** Tabular so a live turn counter or clock does not shuffle sideways. */

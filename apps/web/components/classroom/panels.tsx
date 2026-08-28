@@ -137,13 +137,13 @@ export function RosterPanel({
                   onSetProficiency(student.participantId, e.target.value)
                 }
               >
-                <option value="beginner">beginner</option>
-                <option value="intermediate">intermediate</option>
-                <option value="advanced">advanced</option>
+                <option value="advanced">Level A (advanced)</option>
+                <option value="intermediate">Level B (intermediate)</option>
+                <option value="beginner">Level C (beginner)</option>
               </select>
             ) : (
               <span className="ml-auto text-xs text-[var(--eco-cream-faint)]">
-                {student.proficiency}
+                {student.proficiency === 'advanced' ? 'Level A' : student.proficiency === 'intermediate' ? 'Level B' : 'Level C'}
               </span>
             )}
           </li>

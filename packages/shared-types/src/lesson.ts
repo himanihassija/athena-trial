@@ -122,6 +122,20 @@ export function gapSeverity(gap: LearningGap, classSize: number): GapSeverity {
 
 // ─── Post-class report (§3.9) ────────────────────────────────────────────────
 
+export interface ConceptMastery {
+  topic: string;
+  score: number; // 0 to 100 percentage
+  status: 'mastered' | 'developing' | 'struggling';
+}
+
+export interface InterventionRecord {
+  timestamp: number;
+  text: string;
+  score: number;
+  reason: string;
+  status: 'spoken' | 'suppressed';
+}
+
 export interface SessionReport {
   sessionId: string;
   generatedAt: number;
@@ -133,6 +147,7 @@ export interface SessionReport {
   suggestedFollowUp: string[];
   /** Narrative summary from the batch LLM call, rendered above the tables. */
   narrative: string;
+  interventionHistory: InterventionRecord[];
 }
 
 export interface ReportedMisconception {
@@ -150,4 +165,5 @@ export interface StudentReportEntry {
   quizzesCorrect: number;
   strugglingTopics: string[];
   note: string;
+  conceptMastery: ConceptMastery[];
 }

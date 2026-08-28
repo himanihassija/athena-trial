@@ -18,6 +18,8 @@ import type {
   ReportedMisconception,
   SessionReport,
   StudentReportEntry,
+  ConceptMastery,
+  StudentProfile,
 } from '@echosphere/shared-types';
 import { rankedGaps } from '../gaps/gapDetector.js';
 import { students, type ClassroomSession } from '../state/sessionRegistry.js';
@@ -25,6 +27,7 @@ import { students, type ClassroomSession } from '../state/sessionRegistry.js';
 export function generateReport(session: ClassroomSession): SessionReport {
   const roster = students(session);
   const gaps = rankedGaps(session);
+  const topics = topicsCovered(session, gaps);
 
   const misconceptions: ReportedMisconception[] = gaps.map((gap) => ({
     topic: gap.topic,
@@ -43,6 +46,7 @@ export function generateReport(session: ClassroomSession): SessionReport {
     quizzesCorrect: student.stats.quizzesCorrect,
     strugglingTopics: [...new Set(student.stats.missedTopics)],
     note: noteFor(student.stats, session),
+    conceptMastery: calculateConceptMastery(student, session, topics),
   }));
 
   return {
@@ -50,12 +54,73 @@ export function generateReport(session: ClassroomSession): SessionReport {
     generatedAt: Date.now(),
     startedAt: session.createdAt,
     endedAt: session.endedAt ?? Date.now(),
-    topicsCovered: topicsCovered(session, gaps),
+    topicsCovered: topics,
     commonMisconceptions: misconceptions,
     perStudent,
     suggestedFollowUp: followUp(gaps, perStudent),
     narrative: narrative(session, gaps, perStudent),
+    interventionHistory: session.interventionHistory || [],
   };
+}
+
+function calculateConceptMastery(
+  student: StudentProfile,
+  session: ClassroomSession,
+  topics: string[],
+): ConceptMastery[] {
+  return topics.map((topic) => {
+    // Find quizzes on this topic
+    const topicQuizzes = [...session.quizzes.values()].filter(
+      (q) => q.topic.toLowerCase() === topic.toLowerCase()
+    );
+    const quizIds = topicQuizzes.map((q) => q.quizId);
+
+    // Find answers by this student to those quizzes
+    const studentAnswers = session.answers.filter(
+      (a) => a.participantId === student.participantId && quizIds.includes(a.quizId)
+    );
+
+    const totalAnswered = studentAnswers.length;
+    const correctCount = studentAnswers.filter((a) => a.correct).length;
+
+    // Check if student has gap evidence on this topic
+    const hasGap = [...session.gaps.values()].some(
+      (g) =>
+        g.topic.toLowerCase() === topic.toLowerCase() &&
+        g.affectedStudentIds.includes(student.participantId)
+    );
+
+    let score = 70; // Default developing
+    let status: 'mastered' | 'developing' | 'struggling' = 'developing';
+
+    if (totalAnswered > 0) {
+      const pct = correctCount / totalAnswered;
+      if (pct >= 0.8) {
+        score = 90;
+        status = 'mastered';
+      } else if (pct < 0.5) {
+        score = 30;
+        status = 'struggling';
+      } else {
+        score = 60;
+        status = 'developing';
+      }
+    }
+
+    if (hasGap) {
+      score = Math.min(score, 30);
+      status = 'struggling';
+    } else if (totalAnswered > 0 && correctCount === totalAnswered && score >= 70) {
+      score = 100;
+      status = 'mastered';
+    }
+
+    return {
+      topic,
+      score,
+      status,
+    };
+  });
 }
 
 /**

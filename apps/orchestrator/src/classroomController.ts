@@ -169,6 +169,13 @@ export async function handleAgentState(
     // The turn has ended (silent/listening/idle). Authorization does not
     // carry over: the next turn, whatever prompts it, needs its own permit.
     session.authorizedTurnInProgress = false;
+    if (session.restraintMeterState === 'speaking') {
+      session.restraintMeterState = 'listening';
+      publish(session.sessionId, {
+        kind: 'echosphere:restraint-meter-changed',
+        state: 'listening',
+      });
+    }
     return { interrupted: false };
   }
 
@@ -531,6 +538,11 @@ export async function applyTeacherCommand(
       // this is the moment the plan calls out as worth demoing (§3.10).
       await interruptAgent(session.sessionId).catch(() => undefined);
       releaseFloor(session);
+      session.restraintMeterState = 'listening';
+      publish(session.sessionId, {
+        kind: 'echosphere:restraint-meter-changed',
+        state: 'listening',
+      });
       broadcastPolicy(session);
       return { ok: true, detail: 'Agent muted and any in-flight speech stopped.' };
     }

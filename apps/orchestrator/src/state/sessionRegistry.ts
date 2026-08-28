@@ -29,6 +29,7 @@ import {
   type SpeakTrigger,
   type StudentProfile,
   type TranscriptSegment,
+  type InterventionRecord,
 } from '@echosphere/shared-types';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
@@ -113,6 +114,9 @@ export interface ClassroomSession {
   gaps: Map<string, LearningGap>;
 
   lesson: LessonStore;
+  suppressedInterventions: Array<{ timestamp: number; text: string; reason: string; score: number }>;
+  restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
+  interventionHistory: InterventionRecord[];
 }
 
 const sessions = new Map<string, ClassroomSession>();
@@ -140,6 +144,9 @@ export function createSession(title: string): ClassroomSession {
     answers: [],
     gaps: new Map(),
     lesson: createLessonStore(sessionId),
+    suppressedInterventions: [],
+    restraintMeterState: 'listening',
+    interventionHistory: [],
   };
   sessions.set(sessionId, session);
   return session;

@@ -45,7 +45,9 @@ export type ClassroomEvent =
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }
   | { kind: 'echosphere:proficiency-changed'; participantId: string; proficiency: ProficiencyTag }
   | { kind: 'echosphere:session-ended'; sessionId: string }
-  | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string };
+  | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
+  | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
+  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 
@@ -96,6 +98,8 @@ export interface RoomState {
   agentUid: string;
   startedAt: number;
   endedAt: number | null;
+  suppressedInterventions?: Array<{ timestamp: number; text: string; reason: string; score: number }>;
+  restraintMeterState?: 'listening' | 'ready' | 'held-back' | 'speaking';
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

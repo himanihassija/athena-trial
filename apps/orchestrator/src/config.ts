@@ -52,4 +52,9 @@ export const config = {
     .filter(Boolean),
 
   debugAgora: process.env.DEBUG_AGORA === '1',
+
+  /* Sarvam AI configuration */
+  sarvamApiKey: process.env.SARVAM_API_KEY ?? 'mock_sarvam_api_key',
+  sarvamSpeaker: process.env.SARVAM_SPEAKER ?? 'meera',
+  sarvamTargetLanguageCode: process.env.SARVAM_TARGET_LANGUAGE_CODE ?? 'hi-IN',
 } as const;

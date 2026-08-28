@@ -503,5 +503,7 @@ function roomState(session: ClassroomSession): RoomState {
     agentUid: AGENT_UID,
     startedAt: session.createdAt,
     endedAt: session.endedAt,
+    suppressedInterventions: session.suppressedInterventions,
+    restraintMeterState: session.restraintMeterState,
   };
 }
