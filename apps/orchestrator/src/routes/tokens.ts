@@ -21,7 +21,7 @@ import { config } from '../config.js';
 // this; a native-ESM Node process does not, so the module is required explicitly
 // and typed from its own declarations.
 const requireCjs = createRequire(import.meta.url);
-const { RtcRole, RtcTokenBuilder } = requireCjs('agora-token') as typeof AgoraToken;
+const { RtcRole, RtcTokenBuilder, RtmTokenBuilder } = requireCjs('agora-token') as typeof AgoraToken;
 
 const TOKEN_TTL_SECONDS = 4 * 60 * 60;
 
@@ -34,19 +34,21 @@ export interface MintedTokens {
 export function mintTokens(channel: string, uid: string): MintedTokens {
   const expireAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
 
-  // buildTokenWithRtm issues one token carrying both RTC and RTM privileges.
-  // The RTM identity is the uid string, so the browser must log in to RTM with
-  // exactly this value — mismatching the two surfaces as an opaque
-  // "failed to start conversation" error.
-  const token = RtcTokenBuilder.buildTokenWithRtm(
+  const rtcToken = RtcTokenBuilder.buildTokenWithUserAccount(
     config.agoraAppId,
     config.agoraAppCertificate,
     channel,
     uid,
     RtcRole.PUBLISHER,
     expireAt,
+  );
+
+  const rtmToken = RtmTokenBuilder.buildToken(
+    config.agoraAppId,
+    config.agoraAppCertificate,
+    uid,
     expireAt,
   );
 
-  return { rtcToken: token, rtmToken: token, expiresAt: expireAt };
+  return { rtcToken, rtmToken, expiresAt: expireAt };
 }
