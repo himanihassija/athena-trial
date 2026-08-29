@@ -66,6 +66,32 @@ export interface ClassroomAudioProps {
   onToolkitReady?: (ready: boolean) => void;
   /** Fires when transcription could not be started at all. */
   onToolkitError?: (message: string) => void;
+  /**
+   * Fires when the local microphone track could not be created — most
+   * commonly no microphone hardware/device present (DEVICE_NOT_FOUND) or the
+   * browser permission was denied. The room stays usable in listen-only mode
+   * either way; this just lets the page explain why.
+   */
+  onMicError?: (message: string) => void;
+}
+
+/** A human-readable reason for `useLocalMicrophoneTrack`'s error, if any. */
+function describeMicError(error: { message: string; rtcError: unknown }): string {
+  const code =
+    error.rtcError && typeof error.rtcError === 'object' && 'code' in error.rtcError
+      ? String((error.rtcError as { code: unknown }).code)
+      : undefined;
+
+  if (code === 'DEVICE_NOT_FOUND') {
+    return 'No microphone was found on this device.';
+  }
+  if (code === 'PERMISSION_DENIED') {
+    return 'Microphone access was denied.';
+  }
+  if (code === 'NOT_READABLE') {
+    return 'The microphone is already in use by another application.';
+  }
+  return error.message || 'The microphone could not be started.';
 }
 
 type AgoraRtcWithParameters = typeof AgoraRTC & {
@@ -182,6 +208,7 @@ export function ClassroomAudio({
   onConnectionStateChange,
   onToolkitReady,
   onToolkitError,
+  onMicError,
 }: ClassroomAudioProps) {
   const client = useRTCClient();
   const remoteUsers = useRemoteUsers();
@@ -207,7 +234,8 @@ export function ClassroomAudio({
     isReady,
   );
 
-  const { localMicrophoneTrack } = useLocalMicrophoneTrack(isReady);
+  const { localMicrophoneTrack, error: micTrackError } =
+    useLocalMicrophoneTrack(isReady);
   usePublish(localMicrophoneTrack ? [localMicrophoneTrack] : []);
 
   // Mute via setEnabled only — unpublishing here would fight usePublish.
@@ -215,6 +243,14 @@ export function ClassroomAudio({
     if (!localMicrophoneTrack) return;
     void localMicrophoneTrack.setEnabled(micEnabled);
   }, [localMicrophoneTrack, micEnabled]);
+
+  // No mic track means no publish, silently — the room otherwise looks
+  // connected with no indication the user's audio was never sent. Surfaced
+  // once per failure so a device-not-found machine can still join to listen.
+  useEffect(() => {
+    if (!micTrackError) return;
+    onMicError?.(describeMicError(micTrackError));
+  }, [micTrackError, onMicError]);
 
   /**
    * Who spoke most recently, by RTC uid, plus how sure we are.

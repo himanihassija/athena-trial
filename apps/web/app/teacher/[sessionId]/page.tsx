@@ -52,6 +52,7 @@ export default function TeacherDashboardPage() {
   const [transcriptionError, setTranscriptionError] = useState<string | null>(
     null,
   );
+  const [micError, setMicError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [report, setReport] = useState<SessionReport | null>(null);

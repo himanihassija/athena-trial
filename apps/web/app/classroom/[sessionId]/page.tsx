@@ -39,6 +39,7 @@ export default function ClassroomPage() {
   const [transcriptionError, setTranscriptionError] = useState<string | null>(
     null,
   );
+  const [micError, setMicError] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -157,6 +158,16 @@ export default function ClassroomPage() {
         </p>
       )}
 
+      {micError && (
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)', color: 'var(--eco-cream)' }}
+        >
+          {micError} You can still listen, but Athena will not hear you until
+          a microphone is available.
+        </p>
+      )}
+
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -182,6 +193,7 @@ export default function ClassroomPage() {
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
+                onMicError={setMicError}
               />
             )}
           </ClassroomShell>
