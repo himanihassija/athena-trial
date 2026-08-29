@@ -30,6 +30,8 @@ import {
   type AgentSession,
   SarvamSTT,
   SarvamTTS,
+  MicrosoftSTT,
+  MicrosoftTTS,
 } from 'agora-agents';
 import { GREETING, buildClassroomInstructions } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
@@ -141,36 +143,59 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       enable_error_message: true,
       enable_metrics: true,
     },
-  })
-    .withStt(
-      new SarvamSTT({
-        apiKey: config.sarvamApiKey,
-        language: config.sttLanguage === 'multi' ? 'hi-IN' : config.sttLanguage,
-      }),
-    )
-    .withLlm(
-      new OpenAI({
-        apiKey: config.sarvamApiKey || 'mock_key',
-        url: `${process.env.PUBLIC_ORCHESTRATOR_URL || 'http://localhost:8787'}/api/chat/completions?sessionId=${session.sessionId}`,
-        model: resellerModel(),
-        greetingMessage: GREETING,
-        failureMessage: 'One moment.',
-        maxHistory: 15,
-        params: {
-          max_tokens: 700,
-          temperature: 0.4,
-          top_p: 0.9,
-        },
-      }),
-    )
-    .withTts(
-      new SarvamTTS({
-        key: config.sarvamApiKey,
-        speaker: config.sarvamSpeaker,
-        targetLanguageCode: config.sarvamTargetLanguageCode as any,
-        skipPatterns: [5],
-      }),
-    );
+  });
+
+  const hasSarvam =
+    Boolean(config.sarvamApiKey) &&
+    config.sarvamApiKey !== 'mock_sarvam_api_key' &&
+    config.sarvamApiKey !== 'mock_key';
+
+  if (hasSarvam) {
+    agent
+      .withStt(
+        new SarvamSTT({
+          apiKey: config.sarvamApiKey,
+          language: config.sttLanguage === 'multi' ? 'hi-IN' : config.sttLanguage,
+        }),
+      )
+      .withTts(
+        new SarvamTTS({
+          key: config.sarvamApiKey,
+          speaker: config.sarvamSpeaker,
+          targetLanguageCode: config.sarvamTargetLanguageCode as any,
+          skipPatterns: [5],
+        }),
+      );
+  } else {
+    agent
+      .withStt(
+        new MicrosoftSTT({
+          language: config.sttLanguage === 'hi' ? 'hi-IN' : 'en-US',
+        } as any),
+      )
+      .withTts(
+        new MicrosoftTTS({
+          voiceName: config.ttsVoiceId || 'en-US-JennyNeural',
+          skipPatterns: [5],
+        } as any),
+      );
+  }
+
+  agent.withLlm(
+    new OpenAI({
+      apiKey: config.sarvamApiKey || 'mock_key',
+      url: `${process.env.PUBLIC_ORCHESTRATOR_URL || 'http://localhost:8787'}/api/chat/completions?sessionId=${session.sessionId}`,
+      model: resellerModel(),
+      greetingMessage: GREETING,
+      failureMessage: 'One moment.',
+      maxHistory: 15,
+      params: {
+        max_tokens: 700,
+        temperature: 0.4,
+        top_p: 0.9,
+      },
+    }),
+  );
 
   const agentSession = agent.createSession({
     channel: session.channel,
