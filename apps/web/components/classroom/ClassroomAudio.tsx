@@ -208,7 +208,7 @@ export function ClassroomAudio({
   );
 
   const { localMicrophoneTrack } = useLocalMicrophoneTrack(isReady);
-  usePublish([localMicrophoneTrack]);
+  usePublish(localMicrophoneTrack ? [localMicrophoneTrack] : []);
 
   // Mute via setEnabled only — unpublishing here would fight usePublish.
   useEffect(() => {
@@ -367,13 +367,17 @@ export function ClassroomAudio({
     };
 
     const onAgentError = (agentUserId: string, error: { message?: string }) => {
-      console.error('[classroom] agent error', agentUserId, error);
-      onToolkitError?.(error?.message ?? 'The agent reported an error');
+      console.warn('[classroom] agent notice', agentUserId, error);
+      if (error && typeof error.message === 'string' && error.message.trim().length > 0) {
+        onToolkitError?.(error.message);
+      }
     };
 
     const onMessageError = (agentUserId: string, error: { message?: string }) => {
-      console.error('[classroom] agent message error', agentUserId, error);
-      onToolkitError?.(error?.message ?? 'The agent pipeline reported an error');
+      console.warn('[classroom] agent message notice', agentUserId, error);
+      if (error && typeof error.message === 'string' && error.message.trim().length > 0) {
+        onToolkitError?.(error.message);
+      }
     };
 
     const flushTurn = (key: string, keepGrowing = false) => {
