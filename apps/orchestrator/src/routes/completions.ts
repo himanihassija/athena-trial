@@ -4,10 +4,26 @@ import { getSession } from '../state/sessionRegistry.js';
 import { evaluateGate } from '../agent/interventionGate.js';
 import { publish, publishToTeachers } from '../state/eventBus.js';
 
+/** Mirrors the 50-entry cap the client keeps on its own copy (useClassroom.ts). */
+const MAX_INTERVENTION_LOG_ENTRIES = 50;
+
+function pushCapped<T>(list: T[], item: T): void {
+  list.push(item);
+  if (list.length > MAX_INTERVENTION_LOG_ENTRIES) {
+    list.splice(0, list.length - MAX_INTERVENTION_LOG_ENTRIES);
+  }
+}
+
 export async function completionsRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/chat/completions', async (request, reply) => {
     const { sessionId } = request.query as { sessionId?: string };
     const session = sessionId ? getSession(sessionId) : undefined;
+
+    // Snapshotted now, before the LLM call below: handleAgentState clears
+    // session.speakPermit as soon as the browser relays the engine's
+    // 'thinking' state, which can race ahead of a slow LLM fetch and make a
+    // genuine direct address read as false by the time the gate is evaluated.
+    const isDirectAddress = session?.speakPermit?.reason === 'DIRECTLY_ADDRESSED';
 
     const body = request.body as any;
     const messages = body.messages ?? [];
@@ -102,7 +118,6 @@ export async function completionsRoutes(app: FastifyInstance): Promise<void> {
       // Calculate gate variables
       const isTeacherSpeaking = session.floor.state === 'TEACHER_HOLDS_FLOOR';
       const silenceDurationMs = Date.now() - session.floor.lastHumanSpeechAt;
-      const isDirectAddress = session.speakPermit?.reason === 'DIRECTLY_ADDRESSED';
       const unansweredQuestionAgeMs = session.floor.state === 'STUDENT_QUESTION_PENDING'
         ? (Date.now() - session.floor.since)
         : 0;
@@ -141,13 +156,10 @@ export async function completionsRoutes(app: FastifyInstance): Promise<void> {
         score: gateDecision.score,
       });
 
-      // Let it hold in "Ready" for a brief moment for visual weight (hackathon demo effect)
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
       if (gateDecision.allowed) {
         session.restraintMeterState = 'speaking';
         // Add to intervention history as spoken
-        session.interventionHistory.push({
+        pushCapped(session.interventionHistory, {
           timestamp: Date.now(),
           text: replyText,
           reason: gateDecision.reason,
@@ -164,7 +176,7 @@ export async function completionsRoutes(app: FastifyInstance): Promise<void> {
         session.restraintMeterState = 'held-back';
         const timestamp = Date.now();
         // Add to suppressed interventions log
-        session.suppressedInterventions.push({
+        pushCapped(session.suppressedInterventions, {
           timestamp,
           text: replyText,
           reason: gateDecision.reason,
@@ -172,7 +184,7 @@ export async function completionsRoutes(app: FastifyInstance): Promise<void> {
         });
 
         // Add to intervention history as suppressed
-        session.interventionHistory.push({
+        pushCapped(session.interventionHistory, {
           timestamp,
           text: replyText,
           reason: gateDecision.reason,

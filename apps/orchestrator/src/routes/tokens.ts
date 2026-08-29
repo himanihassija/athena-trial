@@ -41,6 +41,7 @@ export function mintTokens(channel: string, uid: string): MintedTokens {
     uid,
     RtcRole.PUBLISHER,
     expireAt,
+    expireAt,
   );
 
   const rtmToken = RtmTokenBuilder.buildToken(

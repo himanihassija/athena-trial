@@ -68,7 +68,7 @@ function calculateConceptMastery(
   session: ClassroomSession,
   topics: string[],
 ): ConceptMastery[] {
-  return topics.map((topic) => {
+  return topics.flatMap((topic) => {
     // Find quizzes on this topic
     const topicQuizzes = [...session.quizzes.values()].filter(
       (q) => q.topic.toLowerCase() === topic.toLowerCase()
@@ -89,6 +89,11 @@ function calculateConceptMastery(
         g.topic.toLowerCase() === topic.toLowerCase() &&
         g.affectedStudentIds.includes(student.participantId)
     );
+
+    // No quiz answers and no gap evidence: there is nothing to score this
+    // student on for this topic, so omit it rather than reporting a
+    // fabricated "developing" percentage.
+    if (totalAnswered === 0 && !hasGap) return [];
 
     let score = 70; // Default developing
     let status: 'mastered' | 'developing' | 'struggling' = 'developing';
@@ -115,11 +120,11 @@ function calculateConceptMastery(
       status = 'mastered';
     }
 
-    return {
+    return [{
       topic,
       score,
       status,
-    };
+    }];
   });
 }
 

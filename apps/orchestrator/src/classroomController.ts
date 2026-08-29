@@ -169,7 +169,7 @@ export async function handleAgentState(
     // The turn has ended (silent/listening/idle). Authorization does not
     // carry over: the next turn, whatever prompts it, needs its own permit.
     session.authorizedTurnInProgress = false;
-    if (session.restraintMeterState === 'speaking') {
+    if (session.restraintMeterState !== 'listening') {
       session.restraintMeterState = 'listening';
       publish(session.sessionId, {
         kind: 'echosphere:restraint-meter-changed',

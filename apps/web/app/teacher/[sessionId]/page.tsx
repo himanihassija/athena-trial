@@ -261,6 +261,16 @@ export default function TeacherDashboardPage() {
         </p>
       )}
 
+      {micError && (
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: "var(--eco-amber)", background: "var(--eco-amber-dim)", color: "var(--eco-cream)" }}
+        >
+          {micError} You can still see the room, but Athena and the class
+          will not hear you until a microphone is available.
+        </p>
+      )}
+
       {/* Class-wide Gap Approval Cards */}
       {view.gaps
         .filter((gap) => gap.affectedStudentIds.length >= 2 && !gap.addressedAt)
@@ -400,6 +410,7 @@ export default function TeacherDashboardPage() {
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
+                onMicError={setMicError}
               />
             )}
           </ClassroomShell>

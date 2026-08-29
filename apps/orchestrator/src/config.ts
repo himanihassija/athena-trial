@@ -55,6 +55,6 @@ export const config = {
 
   /* Sarvam AI configuration */
   sarvamApiKey: process.env.SARVAM_API_KEY ?? 'mock_sarvam_api_key',
-  sarvamSpeaker: process.env.SARVAM_SPEAKER ?? 'meera',
+  sarvamSpeaker: process.env.SARVAM_SPEAKER ?? 'anushka',
   sarvamTargetLanguageCode: process.env.SARVAM_TARGET_LANGUAGE_CODE ?? 'hi-IN',
 } as const;
