@@ -72,10 +72,10 @@ export const orchestrator = {
 
   listSessions: () => request<SessionSummary[]>('/api/sessions'),
 
-  createSession: (title: string) =>
+  createSession: (title: string, seed?: 'unlike-fractions') =>
     request<SessionSummary>('/api/sessions', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, seed }),
     }),
 
   getRoom: (sessionId: string) =>

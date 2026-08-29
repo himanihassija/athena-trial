@@ -35,6 +35,7 @@ import {
 } from '../agent/agentLifecycle.js';
 import { rankedGaps } from '../gaps/gapDetector.js';
 import { generateReport } from '../report/summary.js';
+import { persistSessionEnd } from '../report/persist.js';
 import { closeRoom, publish, subscribe } from '../state/eventBus.js';
 import {
   activeParticipants,
@@ -51,6 +52,10 @@ import {
 } from '../state/sessionRegistry.js';
 import { mintTokens } from './tokens.js';
 import { config } from '../config.js';
+import {
+  UNLIKE_FRACTIONS_TITLE,
+  seedUnlikeFractionsLesson,
+} from '../lesson/demoUnlikeFractions.js';
 
 const joinSchema = z.object({
   displayName: z.string().min(1).max(60),
@@ -107,9 +112,20 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/sessions', async (request, reply) => {
     const body = z
-      .object({ title: z.string().min(1).max(140).default('Untitled lesson') })
+      .object({
+        title: z.string().min(1).max(140).optional(),
+        seed: z.enum(['unlike-fractions']).optional(),
+      })
       .parse(request.body ?? {});
-    const session = createSession(body.title);
+    const title =
+      body.title ??
+      (body.seed === 'unlike-fractions'
+        ? UNLIKE_FRACTIONS_TITLE
+        : 'Untitled lesson');
+    const session = createSession(title);
+    if (body.seed === 'unlike-fractions') {
+      seedUnlikeFractionsLesson(session.lesson);
+    }
     return reply.code(201).send(publicSession(session));
   });
 
@@ -337,6 +353,11 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
         kind: 'echosphere:session-ended',
         sessionId: session.sessionId,
       });
+      // Fire-and-forget: a database hiccup (or no DATABASE_URL at all) must
+      // not stop the teacher's "end lesson" action from completing.
+      void persistSessionEnd(session).catch((err) =>
+        app.log.error({ err }, 'failed to persist session on END_SESSION'),
+      );
       return reply.send({ ok: true });
     }
 
@@ -450,7 +471,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!isTeacher(session, participantId)) {
       return reply.code(403).send({ error: 'The report is teacher-only' });
     }
-    const report = generateReport(session);
+    const report = await generateReport(session);
     return reply.send(report);
   });
 
@@ -460,6 +481,10 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     await stopAgent(session.sessionId);
     endSession(session.sessionId);
     closeRoom(session.sessionId);
+    // See the END_SESSION handler above: fire-and-forget, same reasoning.
+    void persistSessionEnd(session).catch((err) =>
+      app.log.error({ err }, 'failed to persist session on DELETE'),
+    );
     return reply.send({ ok: true });
   });
 }

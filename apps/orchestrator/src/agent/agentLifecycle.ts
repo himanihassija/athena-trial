@@ -30,8 +30,8 @@ import {
   type AgentSession,
   SarvamSTT,
   SarvamTTS,
-  MicrosoftSTT,
-  MicrosoftTTS,
+  DeepgramSTT,
+  MiniMaxTTS,
 } from 'agora-agents';
 import { GREETING, buildClassroomInstructions } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
@@ -83,7 +83,7 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     appCertificate: config.agoraAppCertificate,
   });
 
-  const agent = new Agent({
+  let agent = new Agent({
     client,
     instructions: buildClassroomInstructions(session),
     greeting: GREETING,
@@ -151,7 +151,7 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     config.sarvamApiKey !== 'mock_key';
 
   if (hasSarvam) {
-    agent
+    agent = agent
       .withStt(
         new SarvamSTT({
           apiKey: config.sarvamApiKey,
@@ -167,24 +167,34 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
         }),
       );
   } else {
-    agent
+    // No Sarvam key configured: fall back to Agora's own resold, no-key-
+    // required presets (Deepgram nova-2/nova-3 ASR, MiniMax TTS) rather than
+    // a vendor that needs a subscription key this project has never asked
+    // for. 'multi' is Deepgram's own code-switching mode, passed through
+    // as-is rather than remapped.
+    agent = agent
       .withStt(
-        new MicrosoftSTT({
-          language: config.sttLanguage === 'hi' ? 'hi-IN' : 'en-US',
-        } as any),
+        new DeepgramSTT({
+          model: 'nova-3',
+          language: config.sttLanguage,
+        }),
       )
       .withTts(
-        new MicrosoftTTS({
-          voiceName: config.ttsVoiceId || 'en-US-JennyNeural',
+        new MiniMaxTTS({
+          model: 'speech_2_6_turbo',
+          voiceId: config.ttsVoiceId || 'English_captivating_female1',
           skipPatterns: [5],
-        } as any),
+        }),
       );
   }
 
-  agent.withLlm(
+  // No apiKey/url: Agora resolves this to its own managed, resold model —
+  // the same no-key path DeepgramSTT/MiniMaxTTS use above. A custom LLM URL
+  // would need to be reachable from Agora's cloud, not this machine, which
+  // is what the Restraint Meter's /api/chat/completions proxy required and
+  // why it's currently dormant (see routes/completions.ts's header comment).
+  agent = agent.withLlm(
     new OpenAI({
-      apiKey: config.sarvamApiKey || 'mock_key',
-      url: `${process.env.PUBLIC_ORCHESTRATOR_URL || 'http://localhost:8787'}/api/chat/completions?sessionId=${session.sessionId}`,
       model: resellerModel(),
       greetingMessage: GREETING,
       failureMessage: 'One moment.',

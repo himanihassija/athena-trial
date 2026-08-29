@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @echosphere/web dev",
+    "dev:classroom": "pnpm --filter @echosphere/orchestrator --filter @echosphere/web --parallel dev",
     "build": "pnpm --filter @echosphere/web build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck"

@@ -1,16 +1,19 @@
 /**
  * Post-class summary — PS31 §3.9.
  *
- * The plan called for a single batch LLM call over the session log. This build
- * has no OpenAI key, and the ConvoAI agent is a live voice pipeline rather than
- * something you can hand a transcript to after it has left the channel — so the
- * report is derived deterministically from what was logged during the lesson.
+ * The plan called for a single batch LLM call over the session log. The
+ * ConvoAI agent is a live voice pipeline rather than something you can hand a
+ * transcript to after it has left the channel, so the numbers here —
+ * misconceptions, per-student stats, concept mastery, follow-up suggestions —
+ * are always derived deterministically from what the gap detector and quiz
+ * engine logged as it happened. A model would only be paraphrasing them, and
+ * unlike a generated narrative, these cannot be wrong.
  *
- * That is less of a loss than it sounds. Everything a teacher actually acts on
- * — who struggled, with what, how often, and what to revisit — is already
- * structured data by the time the lesson ends, because the gap detector and the
- * quiz engine recorded it as it happened. A model would only be paraphrasing.
- * And unlike a generated narrative, these numbers cannot be wrong.
+ * The narrative paragraph is the one place a model earns its keep — turning
+ * those numbers into prose reads better than a template. `generateNarrative`
+ * tries a real LLM call (see llm/complete.ts) and falls back to the
+ * template unchanged when no provider key is configured, so this still works
+ * with zero setup beyond the Agora credentials, same as the rest of the app.
  */
 
 import type {
@@ -23,8 +26,9 @@ import type {
 } from '@echosphere/shared-types';
 import { rankedGaps } from '../gaps/gapDetector.js';
 import { students, type ClassroomSession } from '../state/sessionRegistry.js';
+import { tryComplete } from '../llm/complete.js';
 
-export function generateReport(session: ClassroomSession): SessionReport {
+export async function generateReport(session: ClassroomSession): Promise<SessionReport> {
   const roster = students(session);
   const gaps = rankedGaps(session);
   const topics = topicsCovered(session, gaps);
@@ -58,7 +62,7 @@ export function generateReport(session: ClassroomSession): SessionReport {
     commonMisconceptions: misconceptions,
     perStudent,
     suggestedFollowUp: followUp(gaps, perStudent),
-    narrative: narrative(session, gaps, perStudent),
+    narrative: await generateNarrative(session, gaps, perStudent),
     interventionHistory: session.interventionHistory || [],
   };
 }
@@ -202,7 +206,44 @@ function followUp(
   return out;
 }
 
-function narrative(
+/**
+ * Tries a real LLM paraphrase of the same structured stats `templateNarrative`
+ * already turns into prose; falls back to that template verbatim if no
+ * provider key is configured or the call fails. Never throws.
+ */
+async function generateNarrative(
+  session: ClassroomSession,
+  gaps: LearningGap[],
+  perStudent: StudentReportEntry[],
+): Promise<string> {
+  const fallback = templateNarrative(session, gaps, perStudent);
+
+  const generated = await tryComplete([
+    {
+      role: 'system',
+      content:
+        'You write short, factual post-class summaries for a teacher. Two to four ' +
+        'sentences, plain prose, no bullet points or headings. State only what the ' +
+        'data supports — do not invent details beyond what is given.',
+    },
+    {
+      role: 'user',
+      content: [
+        `Lesson: "${session.title}"`,
+        `Students: ${perStudent.length}`,
+        `Quiz results: ${perStudent.reduce((s, p) => s + p.quizzesCorrect, 0)} correct of ${perStudent.reduce((s, p) => s + p.quizzesAnswered, 0)} answered`,
+        `Learning gaps detected: ${gaps.map((g) => `"${g.topic}" (${g.affectedStudentIds.length} students)`).join('; ') || 'none'}`,
+        `Struggling students: ${perStudent.filter((p) => p.strugglingTopics.length > 0).map((p) => p.displayName).join(', ') || 'none noted'}`,
+        '',
+        'Write the summary paragraph.',
+      ].join('\n'),
+    },
+  ]);
+
+  return generated ?? fallback;
+}
+
+function templateNarrative(
   session: ClassroomSession,
   gaps: LearningGap[],
   perStudent: StudentReportEntry[],

@@ -1,3 +1,22 @@
+/**
+ * Custom OpenAI-compatible LLM proxy — the Restraint Meter / Intervention
+ * Gate feature. Every agent completion is meant to route through here so
+ * `evaluateGate()` can decide whether to let a reply through or suppress it.
+ *
+ * Currently dormant: `agentLifecycle.ts` no longer points the agent's LLM at
+ * this route. Agora's Conversational AI Engine runs as a managed cloud
+ * service — it cannot reach a `localhost` URL, so this only ever worked
+ * behind a public tunnel (ngrok/cloudflared) pointed at the orchestrator.
+ * Without one, the agent now uses Agora's own resold model directly (no
+ * custom URL), which means real replies, quizzes and gap detection all work
+ * — just without the restraint-suppression layer this route implements.
+ *
+ * To re-enable: run a tunnel to this orchestrator's port, set
+ * `PUBLIC_ORCHESTRATOR_URL` to the tunnel's public URL, and restore the
+ * `.withLlm(new OpenAI({ url: ..., apiKey: ... }))` wiring in
+ * `agent/agentLifecycle.ts` (see its git history / this comment's sibling
+ * note there).
+ */
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getSession } from '../state/sessionRegistry.js';
