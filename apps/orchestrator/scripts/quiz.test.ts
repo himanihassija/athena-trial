@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import type { ClassroomEvent } from '@echosphere/shared-types';
 import {
   maybeAdvanceQuizSet,
+  startQuiz,
   submitQuizAnswer,
   sweepExpiredQuiz,
 } from './../src/classroomController.ts';
@@ -29,8 +30,8 @@ import {
 } from './../src/state/sessionRegistry.ts';
 
 let pass = 0;
-const t = (name: string, fn: () => void) => {
-  try { fn(); pass += 1; console.log(`  ok  ${name}`); }
+const t = async (name: string, fn: () => void | Promise<void>): Promise<void> => {
+  try { await fn(); pass += 1; console.log(`  ok  ${name}`); }
   catch (e) { console.log(`  FAIL ${name}: ${(e as Error).message}`); process.exitCode = 1; }
 };
 
@@ -54,7 +55,7 @@ function recorder(sessionId: string): { events: ClassroomEvent[]; stop: () => vo
   return { events, stop };
 }
 
-t('allTargetsAnswered: false before anyone answers, true once the sole target does', () => {
+await t('allTargetsAnswered: false before anyone answers, true once the sole target does', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [ana.participantId]);
@@ -64,13 +65,13 @@ t('allTargetsAnswered: false before anyone answers, true once the sole target do
   assert.equal(allTargetsAnswered(session, quiz), true);
 });
 
-t('allTargetsAnswered: an empty room never counts as "all answered"', () => {
+await t('allTargetsAnswered: an empty room never counts as "all answered"', () => {
   const session = createSession('t');
   const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', []);
   assert.equal(allTargetsAnswered(session, quiz), false);
 });
 
-t('submitQuizAnswer publishes quiz-closed to the room when the last target answers', () => {
+await t('submitQuizAnswer publishes quiz-closed to the room when the last target answers', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
@@ -97,7 +98,7 @@ t('submitQuizAnswer publishes quiz-closed to the room when the last target answe
   );
 });
 
-t('a student who left does not keep the quiz open', () => {
+await t('a student who left does not keep the quiz open', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
@@ -111,7 +112,7 @@ t('a student who left does not keep the quiz open', () => {
   assert.equal(allTargetsAnswered(session, quiz), true);
 });
 
-t('every quiz carries a future deadline', () => {
+await t('every quiz carries a future deadline', () => {
   const session = createSession('t');
   addParticipant(session, { displayName: 'Ana', role: 'student' });
   const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', []);
@@ -119,7 +120,7 @@ t('every quiz carries a future deadline', () => {
   assert.equal(quiz.closedAt, undefined);
 });
 
-t('sweepExpiredQuiz marks non-answerers incorrect, then closes and reveals', () => {
+await t('sweepExpiredQuiz marks non-answerers incorrect, then closes and reveals', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
@@ -143,7 +144,7 @@ t('sweepExpiredQuiz marks non-answerers incorrect, then closes and reveals', () 
   assert.ok(events.some((e) => e.kind === 'echosphere:quiz-closed'));
 });
 
-t('sweepExpiredQuiz is a no-op once the quiz has already closed', () => {
+await t('sweepExpiredQuiz is a no-op once the quiz has already closed', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [ana.participantId]);
@@ -155,7 +156,7 @@ t('sweepExpiredQuiz is a no-op once the quiz has already closed', () => {
   assert.equal(quiz.closedAt, closedAt, 'closedAt must not be rewritten');
 });
 
-t('a quiz issued inside a set is tagged "N of total"', () => {
+await t('a quiz issued inside a set is tagged "N of total"', () => {
   const session = createSession('t');
   addParticipant(session, { displayName: 'Ana', role: 'student' });
   session.activeQuizSet = {
@@ -171,7 +172,7 @@ t('a quiz issued inside a set is tagged "N of total"', () => {
   assert.equal(quiz.setTotal, 3);
 });
 
-t('closing the last question in a set ends the set', async () => {
+await t('closing the last question in a set ends the set', async () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [ana.participantId]);
@@ -184,7 +185,7 @@ t('closing the last question in a set ends the set', async () => {
   assert.equal(session.activeQuizSet, null, 'the set should be finished');
 });
 
-t('a closed quiz rejects a late answer', () => {
+await t('a closed quiz rejects a late answer', () => {
   const session = createSession('t');
   const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
   const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
@@ -196,6 +197,16 @@ t('a closed quiz rejects a late answer', () => {
 
   const late = submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui');
   assert.equal(late.ok, false);
+});
+
+await t('every question in a set requests the floor (a muted agent blocks Start Quiz cleanly)', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+  session.policy.muted = true;
+
+  const result = await startQuiz(session, 'fractions', [], 'teacher');
+  assert.equal(result.ok, false, 'a muted agent must block the quiz');
+  assert.equal(session.activeQuizSet, null, 'no half-started set is left behind');
 });
 
 console.log(`\n${pass} passing`);

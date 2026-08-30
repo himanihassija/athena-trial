@@ -777,10 +777,6 @@ export async function startQuiz(
   targetStudentIds: string[] | undefined,
   origin: 'teacher' | 'gap-detector',
 ): Promise<CommandResult> {
-  if (!requestFloor(session, 'QUIZ_DELIVERY', topic)) {
-    return { ok: false, detail: 'Blocked by agent policy (is the agent muted?).' };
-  }
-
   const targets = targetStudentIds ?? [];
 
   // A fresh Start Quiz replaces any set still running.
@@ -794,10 +790,16 @@ export async function startQuiz(
     askedQuestions: [],
   };
 
+  // issueSetQuestion owns the floor request for EVERY question in the set,
+  // including this first one — Q2/Q3 were silently going out without a permit,
+  // so enforcement killed the agent's turn before it could emit the payload.
   const issued = await issueSetQuestion(session);
   if (!issued) {
     session.activeQuizSet = null;
-    return { ok: false, detail: 'Agent is not running.' };
+    return {
+      ok: false,
+      detail: 'Blocked — is Athena muted, is the topic off-limits, or is she not running?',
+    };
   }
   return {
     ok: true,
@@ -819,6 +821,13 @@ async function issueSetQuestion(
 ): Promise<boolean> {
   const set = session.activeQuizSet;
   if (!set) return false;
+
+  // A permit for THIS question. QUIZ_DELIVERY bypasses the floor state, so a
+  // retry or an advance while the previous turn is still winding down is fine;
+  // it only fails on a mute or a disabled topic.
+  if (!requestFloor(session, 'QUIZ_DELIVERY', set.topic)) {
+    return false;
+  }
 
   const names = activeStudents(session)
     .filter((s) => set.targetStudentIds.includes(s.participantId))
@@ -842,6 +851,7 @@ async function issueSetQuestion(
   );
   if (!ok) {
     session.pendingQuiz = null;
+    clearSpeakPermit(session);
     releaseFloor(session);
     return false;
   }
@@ -856,6 +866,7 @@ async function issueSetQuestion(
       `[quiz] attempt ${attempt}: no {quiz} payload from the agent in session ${session.sessionId}` +
         (text ? ` (said: "${text.slice(0, 80)}")` : ' (no turn)'),
     );
+    session.pendingQuiz = null;
     if (attempt < 2 && session.activeQuizSet === set) {
       return issueSetQuestion(session, attempt + 1);
     }
@@ -868,6 +879,7 @@ async function issueSetQuestion(
         at: Date.now(),
       });
     }
+    clearSpeakPermit(session);
     releaseFloor(session);
     return true; // the agent IS running; the quiz just didn't land
   }
