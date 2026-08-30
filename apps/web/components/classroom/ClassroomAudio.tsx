@@ -570,12 +570,21 @@ export function ClassroomAudio({
         into the channel and its microphone out, but nothing plays what comes
         back — so without these the room is mute in both directions: no student
         hears another, and nobody hears Athena at all. RemoteUser subscribes to
-        each remote track and plays it. It renders nothing visible, which suits
-        an audio-only classroom.
+        each remote track and plays it.
+
+        RemoteUser renders a video-player div (`background:#000; 100% x 100%`)
+        even with only `playAudio` — in an audio-only classroom that shows up
+        as a black box per participant. Kept in the DOM (audio still plays) but
+        taken out of the visual layout.
       */}
-      {remoteUsers.map((user) => (
-        <RemoteUser key={String(user.uid)} user={user} playAudio />
-      ))}
+      <div
+        aria-hidden
+        style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
+      >
+        {remoteUsers.map((user) => (
+          <RemoteUser key={String(user.uid)} user={user} playAudio />
+        ))}
+      </div>
       <div className="sr-only" aria-live="polite">
         {joinSuccess
           ? `Connected to classroom audio with ${remoteUsers.length} other participants.`
