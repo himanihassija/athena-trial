@@ -75,6 +75,9 @@ export interface PublicQuiz {
   createdAt: number;
   /** Epoch ms when the question stops accepting answers — drives the countdown. */
   deadline: number;
+  /** "Question 2 of 3" — present only for a multi-question set. */
+  setIndex?: number;
+  setTotal?: number;
 }
 
 export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
@@ -87,6 +90,8 @@ export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
     targetStudentIds: quiz.targetStudentIds,
     createdAt: quiz.createdAt,
     deadline: quiz.deadline,
+    setIndex: quiz.setIndex,
+    setTotal: quiz.setTotal,
   };
 }
 

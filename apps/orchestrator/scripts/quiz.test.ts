@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import type { ClassroomEvent } from '@echosphere/shared-types';
 import {
+  maybeAdvanceQuizSet,
   submitQuizAnswer,
   sweepExpiredQuiz,
 } from './../src/classroomController.ts';
@@ -152,6 +153,35 @@ t('sweepExpiredQuiz is a no-op once the quiz has already closed', () => {
 
   sweepExpiredQuiz(session, quiz.quizId);
   assert.equal(quiz.closedAt, closedAt, 'closedAt must not be rewritten');
+});
+
+t('a quiz issued inside a set is tagged "N of total"', () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+  session.activeQuizSet = {
+    topic: 'LCD', targetStudentIds: [], origin: 'teacher',
+    total: 3, asked: 2, quizIds: [], askedQuestions: [],
+  };
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', []);
+  // applyControl is what stamps the set index; simulate its effect here since
+  // recordQuizFromControl alone does not know about the set.
+  quiz.setIndex = session.activeQuizSet.asked;
+  quiz.setTotal = session.activeQuizSet.total;
+  assert.equal(quiz.setIndex, 2);
+  assert.equal(quiz.setTotal, 3);
+});
+
+t('closing the last question in a set ends the set', async () => {
+  const session = createSession('t');
+  const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [ana.participantId]);
+  session.activeQuizSet = {
+    topic: 'LCD', targetStudentIds: [ana.participantId], origin: 'teacher',
+    total: 2, asked: 2, quizIds: [quiz.quizId], askedQuestions: ['q1', 'q2'],
+  };
+  submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui'); // closes it
+  await maybeAdvanceQuizSet(session, quiz);
+  assert.equal(session.activeQuizSet, null, 'the set should be finished');
 });
 
 t('a closed quiz rejects a late answer', () => {

@@ -133,7 +133,9 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             <span className="eco-label" style={{ color: 'var(--eco-amber)' }}>
-              Pop quiz
+              {quiz.setIndex && quiz.setTotal
+                ? `Pop quiz · Question ${quiz.setIndex} of ${quiz.setTotal}`
+                : 'Pop quiz'}
             </span>
             <p style={{ margin: 0, fontSize: '1.05rem', color: 'var(--eco-cream)' }}>
               {quiz.question}

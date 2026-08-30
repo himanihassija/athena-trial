@@ -71,6 +71,10 @@ export interface QuizQuestion {
   deadline: number;
   /** Set once the quiz has closed (all answered, or the timer expired). */
   closedAt?: number;
+  /** Position of this question within a multi-question set (1-based), if any. */
+  setIndex?: number;
+  /** Total questions in the set this belongs to, if any. */
+  setTotal?: number;
   /** What caused this quiz — teacher action or an auto-detected gap. */
   origin: 'teacher' | 'gap-detector';
 }

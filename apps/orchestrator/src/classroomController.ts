@@ -12,6 +12,7 @@
 
 import type {
   ProficiencyTag,
+  QuizQuestion,
   SpeakTrigger,
   TeacherCommand,
   TranscriptSegment,
@@ -454,11 +455,14 @@ function ingestAgentTurn(
   releaseFloor(session);
 }
 
-/** Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap). */
+/**
+ * Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap).
+ * Returns the quiz it created, if any, so a multi-question set can track it.
+ */
 function applyControl(
   session: ClassroomSession,
   control: CoTeacherControl,
-): void {
+): { quiz?: QuizQuestion } {
   const roster = activeStudents(session).map((s) => ({
     participantId: s.participantId,
     displayName: s.displayName,
@@ -480,15 +484,23 @@ function applyControl(
 
   if (control.quiz) {
     const pending = takePendingQuiz(session);
+    const set = session.activeQuizSet;
     const quiz = recordQuizFromControl(
       session,
       control.quiz,
-      pending?.origin ?? 'teacher',
-      pending?.targetStudentIds ?? [],
+      pending?.origin ?? set?.origin ?? 'teacher',
+      pending?.targetStudentIds ?? set?.targetStudentIds ?? [],
     );
+    if (set && set.total > 1) {
+      quiz.setIndex = set.asked;
+      quiz.setTotal = set.total;
+    }
     broadcastQuiz(session, quiz);
     scheduleQuizClose(session, quiz.quizId, quiz.deadline);
+    return { quiz };
   }
+
+  return {};
 }
 
 /** Arms the countdown-expiry sweep for a freshly issued quiz. */
@@ -534,7 +546,7 @@ export function sweepExpiredQuiz(
     submitQuizAnswer(session, quizId, participantId, '', 'ui');
   }
 
-  markQuizClosed(session, quiz);
+  if (markQuizClosed(session, quiz)) void maybeAdvanceQuizSet(session, quiz);
 }
 
 function takePendingQuiz(session: ClassroomSession) {
@@ -616,6 +628,8 @@ export async function applyTeacherCommand(
       // this is the moment the plan calls out as worth demoing (§3.10).
       await interruptAgent(session.sessionId).catch(() => undefined);
       releaseFloor(session);
+      // A running multi-question quiz stops here too.
+      session.activeQuizSet = null;
       session.restraintMeterState = 'listening';
       publish(session.sessionId, {
         kind: 'echosphere:restraint-meter-changed',
@@ -729,10 +743,17 @@ export async function applyTeacherCommand(
 
 // ─── Quiz delivery (§3.6) ────────────────────────────────────────────────────
 
+/** How many questions one "Start Quiz" asks. */
+const QUIZ_SET_SIZE = 3;
+
+/** Pause after a question's answer is revealed before the next one appears. */
+const QUIZ_REVEAL_PAUSE_MS = 3_500;
+
 /**
- * Asks the agent to pose a quiz. The {quiz} payload comes back a turn later —
- * NOT on the browser relay (skipPatterns strips the braces from that too), but
- * from the agent's own history, which `applyQuizFromHistory` reads.
+ * Asks the agent to pose a quiz — a SET of {@link QUIZ_SET_SIZE} questions on
+ * the topic, auto-advancing as each one closes. The {quiz} payload comes back a
+ * turn later NOT on the browser relay (skipPatterns strips the braces from that
+ * too) but from the agent's own history, which `applyQuizFromHistory` reads.
  */
 export async function startQuiz(
   session: ClassroomSession,
@@ -745,37 +766,66 @@ export async function startQuiz(
   }
 
   const targets = targetStudentIds ?? [];
-  const names = activeStudents(session)
-    .filter((s) => targets.includes(s.participantId))
-    .map((s) => s.displayName);
 
-  session.pendingQuiz = {
+  // A fresh Start Quiz replaces any set still running.
+  session.activeQuizSet = {
     topic,
     targetStudentIds: targets,
     origin,
+    total: QUIZ_SET_SIZE,
+    asked: 1,
+    quizIds: [],
+    askedQuestions: [],
+  };
+
+  const issued = await issueSetQuestion(session);
+  if (!issued) {
+    session.activeQuizSet = null;
+    return { ok: false, detail: 'Agent is not running.' };
+  }
+  return {
+    ok: true,
+    detail: `Quiz started — ${QUIZ_SET_SIZE} questions on "${topic}".`,
+  };
+}
+
+/**
+ * Issues the current set's next question: floor, prompt, and the history poll
+ * that recovers the payload. Returns false only when the agent could not be
+ * asked at all.
+ */
+async function issueSetQuestion(session: ClassroomSession): Promise<boolean> {
+  const set = session.activeQuizSet;
+  if (!set) return false;
+
+  const names = activeStudents(session)
+    .filter((s) => set.targetStudentIds.includes(s.participantId))
+    .map((s) => s.displayName);
+
+  session.pendingQuiz = {
+    topic: set.topic,
+    targetStudentIds: set.targetStudentIds,
+    origin: set.origin,
     requestedAt: Date.now(),
   };
 
   const turnsBefore = await agentTurnCount(session.sessionId);
 
-  // Not interruptable: the quiz question, its spoken options, and the trailing
-  // {quiz} control payload are one turn. A student's stray "okay" cutting it
-  // short would truncate the payload the LLM appends last.
-  const ok = await think(session.sessionId, quizDirective(topic, names), {
-    interruptable: false,
-  });
+  // Not interruptable: the question, its spoken options, and the trailing
+  // {quiz} payload are one turn; a stray "okay" would truncate the payload.
+  const ok = await think(
+    session.sessionId,
+    quizDirective(set.topic, names, set.askedQuestions),
+    { interruptable: false },
+  );
   if (!ok) {
     session.pendingQuiz = null;
     releaseFloor(session);
-    return { ok: false, detail: 'Agent is not running.' };
+    return false;
   }
 
   void applyQuizFromHistory(session, turnsBefore);
-
-  return {
-    ok: true,
-    detail: 'Quiz requested; the card appears when Athena asks it.',
-  };
+  return true;
 }
 
 /**
@@ -806,7 +856,43 @@ async function applyQuizFromHistory(
   // A relay that somehow still carried the payload would have consumed this.
   if (!session.pendingQuiz) return;
   console.info(`[quiz] payload recovered from agent history in session ${session.sessionId}`);
-  applyControl(session, control);
+  const { quiz } = applyControl(session, control);
+  if (quiz && session.activeQuizSet) {
+    session.activeQuizSet.quizIds.push(quiz.quizId);
+    session.activeQuizSet.askedQuestions.push(quiz.question);
+  }
+}
+
+/**
+ * Called when a quiz closes. If it belongs to a running set and there are
+ * questions left, pauses on the reveal, then asks the next one. Cancelled by a
+ * mute, a lesson end, or a fresh Start Quiz during the pause.
+ */
+export async function maybeAdvanceQuizSet(
+  session: ClassroomSession,
+  closedQuiz: QuizQuestion,
+): Promise<void> {
+  const set = session.activeQuizSet;
+  if (!set || !set.quizIds.includes(closedQuiz.quizId)) return;
+
+  if (set.asked >= set.total) {
+    console.info(`[quiz] set complete (${set.total} questions) in session ${session.sessionId}`);
+    session.activeQuizSet = null;
+    return;
+  }
+
+  await new Promise((r) => setTimeout(r, QUIZ_REVEAL_PAUSE_MS));
+
+  // Something during the pause invalidated the set.
+  if (session.activeQuizSet !== set || session.endedAt !== null || session.policy.muted) {
+    if (session.activeQuizSet === set) session.activeQuizSet = null;
+    return;
+  }
+
+  set.asked += 1;
+  if (!(await issueSetQuestion(session))) {
+    session.activeQuizSet = null;
+  }
 }
 
 export function submitQuizAnswer(
@@ -855,6 +941,7 @@ export function submitQuizAnswer(
     console.info(
       `[quiz] all targets answered ${result.quiz.quizId} in session ${session.sessionId} — revealing answer`,
     );
+    void maybeAdvanceQuizSet(session, result.quiz);
   }
 
   return { ok: true, detail: result.answer.correct ? 'correct' : 'incorrect' };

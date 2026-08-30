@@ -108,6 +108,24 @@ export interface ClassroomSession {
     requestedAt: number;
   } | null;
 
+  /**
+   * A running multi-question quiz. One "Start Quiz" asks a set of questions on
+   * a topic, auto-advancing to the next once each closes. Cancelled by a mute,
+   * a lesson end, or a fresh Start Quiz.
+   */
+  activeQuizSet: {
+    topic: string;
+    targetStudentIds: string[];
+    origin: 'teacher' | 'gap-detector';
+    total: number;
+    /** How many have been asked so far (1-based). */
+    asked: number;
+    /** quizIds already issued in this set. */
+    quizIds: string[];
+    /** Question text already asked, so the agent varies the next one. */
+    askedQuestions: string[];
+  } | null;
+
   transcript: TranscriptSegment[];
   quizzes: Map<string, QuizQuestion>;
   answers: QuizAnswer[];
@@ -139,6 +157,7 @@ export function createSession(title: string): ClassroomSession {
     speakPermit: null,
     authorizedTurnInProgress: false,
     pendingQuiz: null,
+    activeQuizSet: null,
     transcript: [],
     quizzes: new Map(),
     answers: [],

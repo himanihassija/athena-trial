@@ -223,12 +223,22 @@ export function gapInterjectionDirective(
 }
 
 /** Asks the agent to pose a quiz out loud and report it on the control channel. */
-export function quizDirective(topic: string, targetNames: string[]): string {
+export function quizDirective(
+  topic: string,
+  targetNames: string[],
+  askedQuestions: string[] = [],
+): string {
   const who =
     targetNames.length > 0
       ? `Direct it at ${targetNames.join(' and ')}.`
       : 'Ask the whole class.';
-  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now. ${who} Give four options, labelled A, B, C, D. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them. The control object must be present even if you are cut short. Do not reveal the answer.`;
+  const varyClause =
+    askedQuestions.length > 0
+      ? ` You have already asked: ${askedQuestions
+          .map((q) => `"${q}"`)
+          .join('; ')}. Ask a DIFFERENT question on the same topic — new angle, do not repeat or lightly reword any of those.`
+      : '';
+  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options, labelled A, B, C, D. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them. The control object must be present even if you are cut short. Do not reveal the answer.`;
 }
 
 /** Teacher pressed "explain this now" (§3.10 FORCE_AGENT_SPEAK). */

@@ -188,8 +188,8 @@ async function main(): Promise<void> {
     const optionCount = await overlay.getByRole('button').count();
     check('the card carries answer options', optionCount >= 2, `${optionCount} options`);
 
-    const ring = (await overlay.locator('svg').locator('..').textContent().catch(() => '')) ?? '';
-    check('the countdown is ticking', /\d+\s*s/.test(ring), ring.trim().slice(0, 20));
+    const ring = (await overlay.locator('svg + span').first().textContent().catch(() => '')) ?? '';
+    check('the countdown is ticking', /^\d+s$/.test(ring.trim()), ring.trim());
 
     // Sole active student -> answering closes it and reveals to the room.
     await overlay.getByRole('button').nth(1).click();
@@ -200,6 +200,18 @@ async function main(): Promise<void> {
       .catch(() => false);
     check('the card resolves once the student answers', resolved);
   }
+
+  // START_QUIZ runs a set that auto-advances; stop it so later checks aren't
+  // disturbed by another quiz turn firing mid-test. Mute cancels the set; resume
+  // puts her back to normal.
+  for (const type of ['MUTE_AGENT', 'RESUME_AGENT']) {
+    await fetch(`${API}/api/sessions/${sessionId}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantId, command: { type } }),
+    });
+  }
+  await sleep(1500);
 
   console.log('\n── The student is subscribed to the other participants');
   // `useJoin` and `usePublish` get audio in and out of the channel but play
