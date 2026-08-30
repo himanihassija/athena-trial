@@ -662,9 +662,12 @@ export async function applyTeacherCommand(
     }
 
     case 'END_AGENT_TURN': {
+      // "Make sure Athena isn't talking" — if she already wasn't, that's done,
+      // not an error. Reserving 409 for commands that were genuinely refused.
       const stopped = await interruptAgent(session.sessionId);
       releaseFloor(session);
-      return { ok: stopped, detail: stopped ? undefined : 'Agent was not speaking.' };
+      clearSpeakPermit(session);
+      return { ok: true, detail: stopped ? undefined : 'Athena was already silent.' };
     }
 
     case 'FORCE_AGENT_SPEAK': {
