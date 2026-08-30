@@ -25,11 +25,21 @@ import type {
   StudentProfile,
 } from '@echosphere/shared-types';
 import { rankedGaps } from '../gaps/gapDetector.js';
-import { students, type ClassroomSession } from '../state/sessionRegistry.js';
+import {
+  students,
+  teacherOf,
+  type ClassroomSession,
+} from '../state/sessionRegistry.js';
 import { tryComplete } from '../llm/complete.js';
 
 export async function generateReport(session: ClassroomSession): Promise<SessionReport> {
-  const roster = students(session);
+  // The report is about the students. Exclude the teacher — and a second
+  // participant a teacher may have opened under the same name to watch the
+  // student view, which would otherwise appear as a silent student row.
+  const teacherName = teacherOf(session)?.displayName.trim().toLowerCase();
+  const roster = students(session).filter(
+    (s) => s.displayName.trim().toLowerCase() !== teacherName,
+  );
   const gaps = rankedGaps(session);
   const topics = topicsCovered(session, gaps);
 
