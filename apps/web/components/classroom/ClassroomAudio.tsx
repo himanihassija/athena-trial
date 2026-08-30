@@ -19,11 +19,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import AgoraRTC, {
-  RemoteUser,
+  RemoteAudioTrack,
   useJoin,
   useLocalMicrophoneTrack,
   usePublish,
   useRTCClient,
+  useRemoteAudioTracks,
   useRemoteUsers,
 } from 'agora-rtc-react';
 import {
@@ -219,6 +220,11 @@ export function ClassroomAudio({
 }: ClassroomAudioProps) {
   const client = useRTCClient();
   const remoteUsers = useRemoteUsers();
+  // Subscribe to and play every remote participant's audio. In an audio-only
+  // classroom `<RemoteUser>` is wrong — it renders a video-player div (a black
+  // box) and, hidden, its playback became unreliable. `useRemoteAudioTracks`
+  // does the subscription and `<RemoteAudioTrack>` renders nothing.
+  const { audioTracks } = useRemoteAudioTracks(remoteUsers);
 
   // StrictMode guard from the quickstart: React's simulated unmount fires
   // cleanup synchronously before any setTimeout callback, so only the real
@@ -585,25 +591,17 @@ export function ClassroomAudio({
   return (
     <>
       {/*
-        Subscribing is not playing. `useJoin` and `usePublish` get this client
-        into the channel and its microphone out, but nothing plays what comes
-        back — so without these the room is mute in both directions: no student
-        hears another, and nobody hears Athena at all. RemoteUser subscribes to
-        each remote track and plays it.
-
-        RemoteUser renders a video-player div (`background:#000; 100% x 100%`)
-        even with only `playAudio` — in an audio-only classroom that shows up
-        as a black box per participant. Kept in the DOM (audio still plays) but
-        taken out of the visual layout.
+        Subscribing is not playing. `useJoin`/`usePublish` get this client into
+        the channel and its mic out, but nothing plays what comes back — without
+        this the room is mute both ways: nobody hears another student, nobody
+        hears Athena. `<RemoteAudioTrack>` plays each remote track and renders
+        nothing (no video container, so no black box, and no visibility rules
+        to trip). The volume poll above reads user.audioTrack, which
+        `useRemoteAudioTracks` populates by subscribing.
       */}
-      <div
-        aria-hidden
-        style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
-      >
-        {remoteUsers.map((user) => (
-          <RemoteUser key={String(user.uid)} user={user} playAudio />
-        ))}
-      </div>
+      {audioTracks.map((track) => (
+        <RemoteAudioTrack key={track.getUserId()} play track={track} />
+      ))}
       <div className="sr-only" aria-live="polite">
         {joinSuccess
           ? `Connected to classroom audio with ${remoteUsers.length} other participants.`

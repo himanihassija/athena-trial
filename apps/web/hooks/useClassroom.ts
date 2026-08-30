@@ -232,6 +232,23 @@ export function useClassroom(
   useEffect(() => {
     if (!participantId) return;
 
+    // The SSE stream only carries deltas from the moment it connects, and the
+    // room-state frame has no transcript — so anyone who joins mid-lesson (or
+    // reconnects) would see a blank transcript until the next person speaks.
+    // Backfill the history once; new segments arrive over SSE and the
+    // segmentId de-dupe in `apply` absorbs any overlap.
+    let cancelled = false;
+    void orchestrator
+      .getTranscript(sessionId)
+      .then((history) => {
+        if (cancelled || history.length === 0) return;
+        setTranscript((prev) => {
+          if (prev.length > 0) return prev;
+          return history.slice(-MAX_TRANSCRIPT);
+        });
+      })
+      .catch(() => undefined);
+
     const source = orchestrator.openEventStream(
       sessionId,
       participantId,
@@ -245,6 +262,7 @@ export function useClassroom(
     source.onopen = () => setConnected(true);
 
     return () => {
+      cancelled = true;
       source.close();
       sourceRef.current = null;
       setConnected(false);
