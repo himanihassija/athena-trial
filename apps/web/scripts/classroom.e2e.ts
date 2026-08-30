@@ -85,7 +85,10 @@ async function main(): Promise<void> {
 
   console.log('\n── Join page');
   await teacher.goto(`${WEB}/join`, { waitUntil: 'networkidle' });
-  check('join page loads', await teacher.locator('h1', { hasText: 'Echosphere' }).isVisible());
+  check(
+    'join page loads',
+    await teacher.locator('.eco-wordmark').first().isVisible(),
+  );
 
   // The empty state must offer a way forward rather than a dead end — but it
   // only renders when there are genuinely no live classrooms, so a leftover
