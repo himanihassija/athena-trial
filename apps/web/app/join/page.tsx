@@ -99,7 +99,7 @@ export default function JoinPage() {
             <span className="eco-lamp eco-lamp-glow eco-pulse" />
             <span className="eco-label">On air</span>
           </div>
-          <h1 className="eco-display text-5xl leading-none text-[var(--eco-cream)]">
+          <h1 className="eco-wordmark text-5xl leading-none text-[var(--eco-cream)]">
             Echosphere
           </h1>
           <p className="text-sm text-[var(--eco-cream-dim)]">

@@ -34,6 +34,7 @@ export default function ClassroomPage() {
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
+  const [speakingUid, setSpeakingUid] = useState<string | null>(null);
   // Whether the transcript pipeline is actually alive. Distinguishing this from
   // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
@@ -195,6 +196,7 @@ export default function ClassroomPage() {
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
                 onMicError={setMicError}
+                onSpeakingChange={setSpeakingUid}
               />
             )}
           </ClassroomShell>
@@ -210,6 +212,8 @@ export default function ClassroomPage() {
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
+            agentUid={identity.agentUid}
+            speakingUid={speakingUid}
           />
           <QuizCards
             quizzes={view.quizzes}

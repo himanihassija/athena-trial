@@ -46,6 +46,7 @@ export default function TeacherDashboardPage() {
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
+  const [speakingUid, setSpeakingUid] = useState<string | null>(null);
   // Whether the transcript pipeline is actually alive. Distinguishing this from
   // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
@@ -412,6 +413,7 @@ export default function TeacherDashboardPage() {
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
                 onMicError={setMicError}
+                onSpeakingChange={setSpeakingUid}
               />
             )}
           </ClassroomShell>
@@ -434,6 +436,8 @@ export default function TeacherDashboardPage() {
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
+            agentUid={identity.agentUid}
+            speakingUid={speakingUid}
             onSetProficiency={(studentId, proficiency) =>
               void send({ type: "SET_PROFICIENCY", studentId, proficiency })
             }
@@ -454,7 +458,7 @@ export default function TeacherDashboardPage() {
         </aside>
       </div>
 
-      {report && <ReportView report={report} />}
+      {report && <ReportView report={report} title={view.room?.title} />}
     </main>
   );
 }
@@ -544,52 +548,124 @@ function InterventionTimeline({ history }: { history: InterventionRecord[] }) {
 }
 
 /** Post-class report (§3.9), rendered inline once the lesson ends. */
-function ReportView({ report }: { report: SessionReport }) {
+function ReportView({ report, title }: { report: SessionReport; title?: string }) {
+  const totalAnswered = report.perStudent.reduce((s, p) => s + p.quizzesAnswered, 0);
+  const totalCorrect = report.perStudent.reduce((s, p) => s + p.quizzesCorrect, 0);
+  const totalAsked = report.perStudent.reduce((s, p) => s + p.questionsAsked, 0);
+  const grasp = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
+
+  const fmtTime = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtDate = (ms: number) =>
+    new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const durationMin = Math.max(1, Math.round((report.endedAt - report.startedAt) / 60000));
+
   return (
-    <section className="eco-panel flex flex-col gap-5 p-5">
-      <h2 className="eco-display text-xl text-[var(--eco-cream)] border-b pb-2" style={{ borderColor: 'var(--eco-rule)' }}>
-        Post-class summary
-      </h2>
-      <p className="text-sm text-[var(--eco-cream)] leading-relaxed">{report.narrative}</p>
+    <section className="eco-panel flex flex-col gap-6 p-5">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--eco-rule)' }}>
+        <div className="flex flex-col gap-1.5">
+          <span className="eco-label">Post-class summary</span>
+          <h2 className="eco-display text-2xl text-[var(--eco-cream)]">
+            {title ?? 'Lesson'}
+          </h2>
+          <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
+            {fmtDate(report.startedAt)} · {fmtTime(report.startedAt)}–{fmtTime(report.endedAt)} ({durationMin}m) ·{' '}
+            {report.perStudent.length} student{report.perStudent.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled
+          className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-faint)] opacity-50"
+          style={{ borderColor: 'var(--eco-rule)' }}
+          title="Export is not wired up in the demo build"
+        >
+          Export report
+        </button>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {report.topicsCovered.length > 0 && (
-          <div>
-            <h3 className="eco-label-dim mb-1">Topics covered</h3>
-            <p className="text-sm text-[var(--eco-cream-dim)]">
-              {report.topicsCovered.join(", ")}
-            </p>
-          </div>
-        )}
-
-        {report.suggestedFollowUp.length > 0 && (
-          <div className="flex flex-col gap-1">
-            <h3 className="eco-label-dim mb-1">Suggested follow-up</h3>
-            <ul className="list-disc pl-5 text-sm text-[var(--eco-cream-dim)]">
-              {report.suggestedFollowUp.map((s) => (
-                <li key={s}>{s}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Key concept grasp</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">
+            {grasp === null ? '—' : `${grasp}%`}
+          </span>
+          <span className="text-xs text-[var(--eco-cream-faint)]">
+            {totalCorrect} of {totalAnswered} quiz answers correct
+          </span>
+        </div>
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Questions to Athena</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">{totalAsked}</span>
+          <span className="text-xs text-[var(--eco-cream-faint)]">across the class</span>
+        </div>
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Topics covered</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">
+            {report.topicsCovered.length}
+          </span>
+          <span className="truncate text-xs text-[var(--eco-cream-faint)]">
+            {report.topicsCovered.join(', ') || '—'}
+          </span>
+        </div>
       </div>
 
-      {report.commonMisconceptions.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h3 className="eco-label-dim mb-1">Common misconceptions</h3>
-          <ul className="flex flex-col gap-1 text-sm text-[var(--eco-cream-dim)]">
-            {report.commonMisconceptions.map((m) => (
-              <li key={m.topic}>
-                <strong className="text-[var(--eco-cream)]">{m.topic}</strong>{" "}
-                — {m.description}{" "}
-                <span className="text-[var(--eco-cream-faint)]">
-                  ({m.studentNames.join(", ")})
-                </span>
-              </li>
-            ))}
-          </ul>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex flex-col gap-3">
+          <h3 className="eco-label-dim">Identified learning gaps</h3>
+          {report.commonMisconceptions.length === 0 ? (
+            <p className="text-sm text-[var(--eco-cream-faint)]">
+              No repeated misconceptions were detected.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {report.commonMisconceptions.map((m) => (
+                <li
+                  key={m.topic}
+                  className="flex flex-col gap-1 rounded-[0.625rem] border p-3"
+                  style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)' }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="eco-lamp eco-lamp-amber" style={{ width: 7, height: 7 }} />
+                    <strong className="text-sm text-[var(--eco-cream)]">{m.topic}</strong>
+                  </div>
+                  <p className="text-xs leading-relaxed text-[var(--eco-cream-dim)]">
+                    {m.description}
+                  </p>
+                  <p className="text-xs text-[var(--eco-cream-faint)]">
+                    {m.studentNames.join(', ')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.suggestedFollowUp.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <h3 className="eco-label-dim mt-1">Suggested follow-up</h3>
+              <ul className="list-disc pl-5 text-sm text-[var(--eco-cream-dim)]">
+                {report.suggestedFollowUp.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-      )}
+
+        <aside
+          className="flex flex-col gap-2 rounded-[0.75rem] border p-4"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--eco-athena) 30%, var(--eco-rule))',
+            background: 'var(--eco-athena-dim)',
+          }}
+        >
+          <span className="eco-label" style={{ color: 'var(--eco-athena)' }}>
+            Athena · session read
+          </span>
+          <p className="text-sm leading-relaxed text-[var(--eco-cream)]">
+            {report.narrative}
+          </p>
+        </aside>
+      </div>
 
       <div className="flex flex-col gap-2">
         <h3 className="eco-label-dim mb-1">Per student</h3>

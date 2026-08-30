@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Instrument_Serif, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari, IBM_Plex_Mono } from 'next/font/google';
+import { Oswald, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 
-const displayFont = Instrument_Serif({
+// Condensed grotesque for the wordmark and titles — the "broadcast desk" voice.
+const displayFont = Oswald({
   subsets: ['latin'],
-  weight: ['400'],
+  weight: ['400', '500', '600'],
   variable: '--font-display',
 });
 

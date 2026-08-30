@@ -136,7 +136,13 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <span className="eco-label" style={{ color: 'var(--eco-amber)' }}>
+            <span
+              className="eco-label"
+              style={{ color: 'var(--eco-athena)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+                <path d="M2 5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5Zm3 1.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM4 11h8v-1H4v1Z" />
+              </svg>
               {quiz.setIndex && quiz.setTotal
                 ? `Pop quiz · Question ${quiz.setIndex} of ${quiz.setTotal}`
                 : 'Pop quiz'}
@@ -157,7 +163,7 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
                   cy="28"
                   r={RADIUS}
                   fill="none"
-                  stroke={secs <= 5 ? 'var(--eco-red)' : 'var(--eco-amber)'}
+                  stroke={secs <= 5 ? 'var(--eco-red)' : 'var(--eco-athena)'}
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeDasharray={CIRCUM}
@@ -220,20 +226,23 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
                     cursor: locked ? 'default' : 'pointer',
                     transition: 'border-color 0.15s, background 0.15s',
                     borderColor: showCorrect
-                      ? 'var(--eco-green)'
+                      ? 'var(--eco-athena)'
                       : showWrong
                         ? 'var(--eco-red)'
                         : chosen
-                          ? 'var(--eco-glow)'
+                          ? 'var(--eco-athena)'
                           : 'var(--eco-rule)',
                     background: showCorrect
-                      ? 'var(--eco-green-dim)'
+                      ? 'var(--eco-athena-dim)'
                       : showWrong
                         ? 'var(--eco-red-dim)'
                         : chosen
-                          ? 'var(--eco-glow-dim)'
+                          ? 'color-mix(in srgb, var(--eco-athena) 12%, var(--eco-ink-sunken))'
                           : 'var(--eco-ink-sunken)',
                     color: 'var(--eco-cream)',
+                    boxShadow: showCorrect
+                      ? '0 0 14px -2px color-mix(in srgb, var(--eco-athena) 55%, transparent)'
+                      : 'none',
                   }}
                 >
                   <span
@@ -248,13 +257,29 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
                       borderRadius: '999px',
                       flexShrink: 0,
                       fontSize: '0.8rem',
-                      border: '1px solid var(--eco-rule)',
-                      color: 'var(--eco-cream-dim)',
+                      border: `1px solid ${
+                        showCorrect || chosen ? 'var(--eco-athena)' : 'var(--eco-rule)'
+                      }`,
+                      color:
+                        showCorrect || chosen
+                          ? 'var(--eco-athena)'
+                          : 'var(--eco-cream-dim)',
                     }}
                   >
                     {LETTERS[i] ?? '?'}
                   </span>
-                  <span>{option}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{option}</span>
+                  {showCorrect && (
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
+                      <path
+                        d="M3 8.5 6.5 12 13 4"
+                        stroke="var(--eco-athena)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  )}
                 </button>
               </li>
             );
@@ -272,7 +297,7 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
             fontSize: '0.8rem',
             color: revealed && myResult
               ? myResult === 'correct'
-                ? 'var(--eco-green)'
+                ? 'var(--eco-athena)'
                 : 'var(--eco-red)'
               : 'var(--eco-cream-faint)',
           }}

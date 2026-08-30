@@ -62,6 +62,12 @@ export interface ClassroomAudioProps {
   micEnabled: boolean;
   onAgentStateChange?: (state: AgentState | null) => void;
   onConnectionStateChange?: (state: string) => void;
+  /**
+   * The live loudest speaker's RTC uid (or null when the room is quiet), from
+   * the same 150ms volume poll that drives transcript attribution. Drives the
+   * roster's speaking glow. Fires only on change.
+   */
+  onSpeakingChange?: (speakerUid: string | null) => void;
   /** Fires once the transcript pipeline is live. */
   onToolkitReady?: (ready: boolean) => void;
   /** Fires when transcription could not be started at all. */
@@ -206,6 +212,7 @@ export function ClassroomAudio({
   micEnabled,
   onAgentStateChange,
   onConnectionStateChange,
+  onSpeakingChange,
   onToolkitReady,
   onToolkitError,
   onMicError,
@@ -275,6 +282,7 @@ export function ClassroomAudio({
    */
   const dominantSpeakerRef = useRef<string | null>(null);
   const attributionConfidenceRef = useRef<number>(1);
+  const lastSpeakingUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!joinSuccess) return;
@@ -316,6 +324,17 @@ export function ClassroomAudio({
       }
 
       const [best, second] = candidates.sort((a, b) => b.level - a.level);
+
+      // Surface the live loudest speaker (agent included) for the roster's
+      // speaking glow. Only fires on change, not every 150ms tick. This is the
+      // one place this signal is observed; the transcript-attribution logic
+      // below is untouched.
+      const speakingUid = best?.speakerUid ?? null;
+      if (speakingUid !== lastSpeakingUidRef.current) {
+        lastSpeakingUidRef.current = speakingUid;
+        onSpeakingChange?.(speakingUid);
+      }
+
       if (!best || best.speakerUid === agentUid) return;
 
       dominantSpeakerRef.current = best.speakerUid;
@@ -329,7 +348,7 @@ export function ClassroomAudio({
     }, POLL_MS);
 
     return () => window.clearInterval(id);
-  }, [joinSuccess, remoteUsers, agentUid, uid, localMicrophoneTrack]);
+  }, [joinSuccess, remoteUsers, agentUid, uid, localMicrophoneTrack, onSpeakingChange]);
 
   // Module-level SDK parameter; must be set before publishing for the
   // transcript timestamps to line up with the audio.
