@@ -29,9 +29,9 @@ import {
   stripWakePhrase,
 } from './floor/floorMachine.js';
 import {
-  agentTurnCount,
+  assistantTurnSnapshot,
   interruptAgent,
-  pollFreshAgentTurn,
+  pollForPayloadTurn,
   pushInstructions,
   think,
 } from './agent/agentLifecycle.js';
@@ -747,13 +747,13 @@ export async function applyTeacherCommand(
 const QUIZ_SET_SIZE = 3;
 
 /** Pause after a question's answer is revealed before the next one appears. */
-const QUIZ_REVEAL_PAUSE_MS = 3_500;
+const QUIZ_REVEAL_PAUSE_MS = 2_500;
 
 /**
  * Asks the agent to pose a quiz — a SET of {@link QUIZ_SET_SIZE} questions on
  * the topic, auto-advancing as each one closes. The {quiz} payload comes back a
  * turn later NOT on the browser relay (skipPatterns strips the braces from that
- * too) but from the agent's own history, which `applyQuizFromHistory` reads.
+ * too) but from the agent's own history, which `issueSetQuestion` polls for.
  */
 export async function startQuiz(
   session: ClassroomSession,
@@ -790,11 +790,17 @@ export async function startQuiz(
 }
 
 /**
- * Issues the current set's next question: floor, prompt, and the history poll
- * that recovers the payload. Returns false only when the agent could not be
- * asked at all.
+ * Issues one quiz question and recovers its payload from the agent's history.
+ * Retries once if the first attempt produced no usable payload — the LLM is
+ * reliable at this, but the history endpoint can be briefly flaky. Ends the set
+ * and tells the teacher if it still fails.
+ *
+ * Returns false only when the agent could not be asked at all (not running).
  */
-async function issueSetQuestion(session: ClassroomSession): Promise<boolean> {
+async function issueSetQuestion(
+  session: ClassroomSession,
+  attempt = 1,
+): Promise<boolean> {
   const set = session.activeQuizSet;
   if (!set) return false;
 
@@ -809,7 +815,7 @@ async function issueSetQuestion(session: ClassroomSession): Promise<boolean> {
     requestedAt: Date.now(),
   };
 
-  const turnsBefore = await agentTurnCount(session.sessionId);
+  const before = await assistantTurnSnapshot(session.sessionId);
 
   // Not interruptable: the question, its spoken options, and the trailing
   // {quiz} payload are one turn; a stray "okay" would truncate the payload.
@@ -824,43 +830,40 @@ async function issueSetQuestion(session: ClassroomSession): Promise<boolean> {
     return false;
   }
 
-  void applyQuizFromHistory(session, turnsBefore);
-  return true;
-}
-
-/**
- * Reads the quiz payload out of the agent's own conversation history and turns
- * it into a card. The browser-relayed transcript has had the braces stripped by
- * the engine, so this is the only path that actually sees the payload.
- */
-async function applyQuizFromHistory(
-  session: ClassroomSession,
-  turnsBefore: number,
-): Promise<void> {
-  const text = await pollFreshAgentTurn(session.sessionId, turnsBefore, {
+  const text = await pollForPayloadTurn(session.sessionId, before, {
     timeoutMs: 25_000,
   });
-  if (!text) {
-    console.warn(
-      `[quiz] no agent turn appeared for the quiz request in session ${session.sessionId}`,
-    );
-    return;
-  }
-  const { control } = parseAgentTurn(text);
+  const control = text ? parseAgentTurn(text).control : null;
+
   if (!control?.quiz) {
     console.warn(
-      `[quiz] the agent's quiz turn carried no {quiz} payload in session ${session.sessionId}`,
+      `[quiz] attempt ${attempt}: no {quiz} payload from the agent in session ${session.sessionId}` +
+        (text ? ` (said: "${text.slice(0, 80)}")` : ' (no turn)'),
     );
-    return;
+    if (attempt < 2 && session.activeQuizSet === set) {
+      return issueSetQuestion(session, attempt + 1);
+    }
+    // Give up on this question. Close the set cleanly rather than hang.
+    if (session.activeQuizSet === set) {
+      session.activeQuizSet = null;
+      publishToTeachers(session.sessionId, {
+        kind: 'echosphere:agent-blocked',
+        reason: 'SILENCE_GAP_TOO_SHORT',
+        at: Date.now(),
+      });
+    }
+    releaseFloor(session);
+    return true; // the agent IS running; the quiz just didn't land
   }
-  // A relay that somehow still carried the payload would have consumed this.
-  if (!session.pendingQuiz) return;
+
+  if (session.activeQuizSet !== set) return true; // cancelled mid-flight
   console.info(`[quiz] payload recovered from agent history in session ${session.sessionId}`);
   const { quiz } = applyControl(session, control);
-  if (quiz && session.activeQuizSet) {
-    session.activeQuizSet.quizIds.push(quiz.quizId);
-    session.activeQuizSet.askedQuestions.push(quiz.question);
+  if (quiz) {
+    set.quizIds.push(quiz.quizId);
+    set.askedQuestions.push(quiz.question);
   }
+  return true;
 }
 
 /**
@@ -890,6 +893,9 @@ export async function maybeAdvanceQuizSet(
   }
 
   set.asked += 1;
+  console.info(
+    `[quiz] advancing to question ${set.asked} of ${set.total} in session ${session.sessionId}`,
+  );
   if (!(await issueSetQuestion(session))) {
     session.activeQuizSet = null;
   }

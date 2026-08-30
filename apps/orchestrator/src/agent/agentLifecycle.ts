@@ -376,32 +376,47 @@ async function assistantTurns(
     .filter((t) => t.trim().length > 0);
 }
 
-/** The number of assistant turns in the agent's history right now (0 on error). */
-export async function agentTurnCount(sessionId: string): Promise<number> {
+/** Snapshot of the assistant turns already in history — pass to pollForPayloadTurn. */
+export async function assistantTurnSnapshot(sessionId: string): Promise<Set<string>> {
   const agentSession = liveAgents.get(sessionId);
-  if (!agentSession || agentSession.status !== 'running') return 0;
+  if (!agentSession || agentSession.status !== 'running') return new Set();
   try {
-    return (await assistantTurns(agentSession)).length;
+    return new Set(await assistantTurns(agentSession));
   } catch {
-    return 0;
+    return new Set();
   }
 }
 
+/** True once the text holds at least one balanced `{ … }` object. */
+function hasCompletePayload(text: string): boolean {
+  let depth = 0;
+  let opened = false;
+  for (const ch of text) {
+    if (ch === '{') {
+      depth += 1;
+      opened = true;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (opened && depth === 0) return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Polls the agent's own conversation history for the next assistant turn after
- * `afterCount`, waits for its text to stop growing (the LLM streams, and the
- * `{…}` payload is appended last), and returns it.
+ * Polls the agent's history for a NEW assistant turn (not in `before`) that
+ * carries a finished `{ … }` control payload, and returns its text.
  *
- * The reason this exists: `skipPatterns` strips the payload from the TTS *and*
- * from the RTM transcript the browser relays — so a quiz question comes back to
- * the orchestrator as clean prose with no payload, and no card is ever
- * recorded. `getHistory()` returns the raw LLM output, braces intact, which is
- * the only place the payload survives. Used right after an orchestrator-driven
- * `think()` that is expected to carry one.
+ * Why: `skipPatterns` strips the payload from the TTS *and* from the RTM
+ * transcript the browser relays, so the orchestrator never sees a quiz question
+ * that way. `getHistory()` keeps the raw LLM output, braces intact. Matching on
+ * "a new turn with a balanced brace object" rather than a turn *count* makes
+ * this robust to a flaky history endpoint and to the turn still streaming — a
+ * half-written payload has no closing brace yet, so we keep waiting.
  */
-export async function pollFreshAgentTurn(
+export async function pollForPayloadTurn(
   sessionId: string,
-  afterCount: number,
+  before: Set<string>,
   options: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<string | null> {
   const agentSession = liveAgents.get(sessionId);
@@ -409,31 +424,26 @@ export async function pollFreshAgentTurn(
 
   const { timeoutMs = 25_000, intervalMs = 1_500 } = options;
   const deadline = Date.now() + timeoutMs;
-
-  let latest: string | null = null;
-  let stableFor = 0;
+  let newestSeen: string | null = null;
 
   while (Date.now() < deadline) {
     try {
       const turns = await assistantTurns(agentSession);
-      if (turns.length > afterCount) {
-        const current = turns[turns.length - 1] ?? '';
-        if (current === latest && current.length > 0) {
-          stableFor += 1;
-          // Unchanged across two polls (~3s): the turn has finished streaming,
-          // payload and all.
-          if (stableFor >= 2) return current;
-        } else {
-          latest = current;
-          stableFor = 0;
-        }
+      // Walk newest-first; stop at the first turn that already existed.
+      for (let i = turns.length - 1; i >= 0; i -= 1) {
+        const t = turns[i] ?? '';
+        if (before.has(t)) break;
+        newestSeen = newestSeen ?? t;
+        if (hasCompletePayload(t)) return t;
       }
     } catch {
-      // Transient — the history endpoint 404s briefly right after start.
+      // The history endpoint 404s briefly right after start / between turns.
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
-  return latest;
+  // Timed out — hand back the newest new turn we saw, if any, so the caller can
+  // at least log what the agent said.
+  return newestSeen;
 }
 
 export async function agentStatus(

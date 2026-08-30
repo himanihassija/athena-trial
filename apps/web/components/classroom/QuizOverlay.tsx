@@ -46,13 +46,17 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
   }, []);
 
   const pending = card !== undefined && card.quiz.quizId !== dismissedId;
+  const activeId = pending && card ? card.quiz.quizId : null;
 
-  // Tick while a card is pending so the countdown and the auto-dismiss stay live.
+  // Keep `now` live. Re-seeded whenever a new card becomes active, so the next
+  // question's countdown never renders off a stale timestamp from the gap
+  // between questions.
   useEffect(() => {
-    if (!pending) return;
+    if (!activeId) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
-  }, [pending]);
+  }, [activeId]);
 
   // Once the answer is revealed, linger briefly then dismiss.
   useEffect(() => {
