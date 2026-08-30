@@ -28,7 +28,9 @@ import {
   stripWakePhrase,
 } from './floor/floorMachine.js';
 import {
+  agentTurnCount,
   interruptAgent,
+  pollFreshAgentTurn,
   pushInstructions,
   think,
 } from './agent/agentLifecycle.js';
@@ -728,8 +730,9 @@ export async function applyTeacherCommand(
 // ─── Quiz delivery (§3.6) ────────────────────────────────────────────────────
 
 /**
- * Asks the agent to pose a quiz. The question itself comes back on the control
- * channel a turn later, where `applyControl` turns it into a card.
+ * Asks the agent to pose a quiz. The {quiz} payload comes back a turn later —
+ * NOT on the browser relay (skipPatterns strips the braces from that too), but
+ * from the agent's own history, which `applyQuizFromHistory` reads.
  */
 export async function startQuiz(
   session: ClassroomSession,
@@ -753,10 +756,11 @@ export async function startQuiz(
     requestedAt: Date.now(),
   };
 
+  const turnsBefore = await agentTurnCount(session.sessionId);
+
   // Not interruptable: the quiz question, its spoken options, and the trailing
-  // {quiz} control payload are one turn, and if a student's stray "okay" cuts
-  // it before the payload, no quiz is ever recorded — so the on-screen card
-  // never appears and a spoken answer has nothing to score against.
+  // {quiz} control payload are one turn. A student's stray "okay" cutting it
+  // short would truncate the payload the LLM appends last.
   const ok = await think(session.sessionId, quizDirective(topic, names), {
     interruptable: false,
   });
@@ -765,10 +769,44 @@ export async function startQuiz(
     releaseFloor(session);
     return { ok: false, detail: 'Agent is not running.' };
   }
+
+  void applyQuizFromHistory(session, turnsBefore);
+
   return {
     ok: true,
     detail: 'Quiz requested; the card appears when Athena asks it.',
   };
+}
+
+/**
+ * Reads the quiz payload out of the agent's own conversation history and turns
+ * it into a card. The browser-relayed transcript has had the braces stripped by
+ * the engine, so this is the only path that actually sees the payload.
+ */
+async function applyQuizFromHistory(
+  session: ClassroomSession,
+  turnsBefore: number,
+): Promise<void> {
+  const text = await pollFreshAgentTurn(session.sessionId, turnsBefore, {
+    timeoutMs: 25_000,
+  });
+  if (!text) {
+    console.warn(
+      `[quiz] no agent turn appeared for the quiz request in session ${session.sessionId}`,
+    );
+    return;
+  }
+  const { control } = parseAgentTurn(text);
+  if (!control?.quiz) {
+    console.warn(
+      `[quiz] the agent's quiz turn carried no {quiz} payload in session ${session.sessionId}`,
+    );
+    return;
+  }
+  // A relay that somehow still carried the payload would have consumed this.
+  if (!session.pendingQuiz) return;
+  console.info(`[quiz] payload recovered from agent history in session ${session.sessionId}`);
+  applyControl(session, control);
 }
 
 export function submitQuizAnswer(

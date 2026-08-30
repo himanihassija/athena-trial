@@ -165,6 +165,42 @@ async function main(): Promise<void> {
   );
   check('no LLM pipeline errors were reported', llmErrors.length === 0, llmErrors[0] ?? '');
 
+  console.log('\n── Timed quiz: the card reaches the student, with a countdown');
+  // START_QUIZ rides the same think() path as FORCE_AGENT_SPEAK above, so the
+  // agent actually asks the question and appends the {quiz} control payload.
+  // The student's overlay appearing is the whole pipeline proven at once:
+  // agent asked it -> payload relayed -> orchestrator recorded it -> SSE ->
+  // overlay rendered with the server deadline.
+  await fetch(`${API}/api/sessions/${sessionId}/quiz`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ participantId, topic: 'common denominators' }),
+  });
+
+  const overlay = student.getByRole('dialog', { name: 'Pop quiz' });
+  const quizShown = await overlay
+    .waitFor({ state: 'visible', timeout: 45_000 })
+    .then(() => true)
+    .catch(() => false);
+  check('the quiz card appeared for the student', quizShown);
+
+  if (quizShown) {
+    const optionCount = await overlay.getByRole('button').count();
+    check('the card carries answer options', optionCount >= 2, `${optionCount} options`);
+
+    const ring = (await overlay.locator('svg').locator('..').textContent().catch(() => '')) ?? '';
+    check('the countdown is ticking', /\d+\s*s/.test(ring), ring.trim().slice(0, 20));
+
+    // Sole active student -> answering closes it and reveals to the room.
+    await overlay.getByRole('button').nth(1).click();
+    const resolved = await overlay
+      .getByText(/Correct|Not quite|revealed/i)
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    check('the card resolves once the student answers', resolved);
+  }
+
   console.log('\n── The student is subscribed to the other participants');
   // `useJoin` and `usePublish` get audio in and out of the channel but play
   // nothing back; without <RemoteUser> the room is mute in both directions and

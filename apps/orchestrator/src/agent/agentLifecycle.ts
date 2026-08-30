@@ -364,6 +364,78 @@ export async function think(
   return true;
 }
 
+type HistoryItem = { role?: string; content?: unknown };
+
+async function assistantTurns(
+  agentSession: AgentSession,
+): Promise<string[]> {
+  const history = (await agentSession.getHistory()) as { contents?: HistoryItem[] };
+  return (history.contents ?? [])
+    .filter((c) => c.role === 'assistant' && typeof c.content === 'string')
+    .map((c) => c.content as string)
+    .filter((t) => t.trim().length > 0);
+}
+
+/** The number of assistant turns in the agent's history right now (0 on error). */
+export async function agentTurnCount(sessionId: string): Promise<number> {
+  const agentSession = liveAgents.get(sessionId);
+  if (!agentSession || agentSession.status !== 'running') return 0;
+  try {
+    return (await assistantTurns(agentSession)).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Polls the agent's own conversation history for the next assistant turn after
+ * `afterCount`, waits for its text to stop growing (the LLM streams, and the
+ * `{…}` payload is appended last), and returns it.
+ *
+ * The reason this exists: `skipPatterns` strips the payload from the TTS *and*
+ * from the RTM transcript the browser relays — so a quiz question comes back to
+ * the orchestrator as clean prose with no payload, and no card is ever
+ * recorded. `getHistory()` returns the raw LLM output, braces intact, which is
+ * the only place the payload survives. Used right after an orchestrator-driven
+ * `think()` that is expected to carry one.
+ */
+export async function pollFreshAgentTurn(
+  sessionId: string,
+  afterCount: number,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<string | null> {
+  const agentSession = liveAgents.get(sessionId);
+  if (!agentSession || agentSession.status !== 'running') return null;
+
+  const { timeoutMs = 25_000, intervalMs = 1_500 } = options;
+  const deadline = Date.now() + timeoutMs;
+
+  let latest: string | null = null;
+  let stableFor = 0;
+
+  while (Date.now() < deadline) {
+    try {
+      const turns = await assistantTurns(agentSession);
+      if (turns.length > afterCount) {
+        const current = turns[turns.length - 1] ?? '';
+        if (current === latest && current.length > 0) {
+          stableFor += 1;
+          // Unchanged across two polls (~3s): the turn has finished streaming,
+          // payload and all.
+          if (stableFor >= 2) return current;
+        } else {
+          latest = current;
+          stableFor = 0;
+        }
+      }
+    } catch {
+      // Transient — the history endpoint 404s briefly right after start.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return latest;
+}
+
 export async function agentStatus(
   sessionId: string,
 ): Promise<{ agentId: string | null; status: string } | null> {
