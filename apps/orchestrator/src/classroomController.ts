@@ -49,6 +49,7 @@ import {
 } from './gaps/gapDetector.js';
 import {
   SYSTEM_PREFIX,
+  addressedByTeacherDirective,
   forceSpeakDirective,
   gapInterjectionDirective,
   quizDirective,
@@ -377,10 +378,25 @@ export async function ingestTranscript(
     setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
-    // The engine will now answer on its own. This is the permit that makes that
-    // answer legitimate; without it the enforcement path would cut her off.
+    // The permit that makes the answer legitimate; without it the enforcement
+    // path cuts her off.
     grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
     session.floor = onAddressedAgent(session.floor, participant.participantId, now);
+    console.info(
+      `[floor] granted DIRECTLY_ADDRESSED to ${participant.role} in session ${session.sessionId}`,
+    );
+
+    // When the floor is closed to students the engine cannot tell the teacher
+    // apart from a student (it has no speaker identity), so it stays silent —
+    // and by the time this finalised transcript lands, the engine's own
+    // autonomous attempt has already been interrupted by enforcement. The
+    // teacher IS allowed, and the orchestrator knows who spoke, so drive the
+    // answer explicitly. Skipped when the floor is open: there the autonomous
+    // reply works and a think() would only step on it.
+    if (participant.role === 'teacher' && !session.policy.studentsMayInvoke) {
+      const question = stripWakePhrase(spokenText, session.policy.wakePhrase);
+      void think(session.sessionId, addressedByTeacherDirective(question));
+    }
   }
 
   if (participant.role !== 'student') {

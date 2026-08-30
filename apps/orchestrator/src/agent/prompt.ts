@@ -241,6 +241,18 @@ export function quizDirective(
   return `[classroom:system] Ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options, labelled A, B, C, D. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them. The control object must be present even if you are cut short. Do not reveal the answer.`;
 }
 
+/**
+ * The teacher addressed Athena out loud while the floor was closed to students.
+ * The engine cannot tell it was the teacher, so the orchestrator drives the
+ * reply. Phrased as a report of what was said, with her own name stripped.
+ */
+export function addressedByTeacherDirective(question: string): string {
+  const said = question.trim();
+  return said.length > 0
+    ? `[classroom:system] The teacher just spoke to you directly: "${said}". Answer them now, out loud, in your own words — two or three sentences. If they asked you to continue, pick up the explanation you were giving before.`
+    : `[classroom:system] The teacher just called on you by name. Respond to them now, out loud — briefly. If you were mid-explanation, continue it.`;
+}
+
 /** Teacher pressed "explain this now" (§3.10 FORCE_AGENT_SPEAK). */
 export function forceSpeakDirective(topic: string, studentName?: string): string {
   return studentName
