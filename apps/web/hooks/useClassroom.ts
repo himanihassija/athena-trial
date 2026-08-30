@@ -40,6 +40,13 @@ export interface BlockedAttempt {
   at: number;
 }
 
+export interface SuppressedIntervention {
+  timestamp: number;
+  text: string;
+  reason: string;
+  score: number;
+}
+
 export interface ClassroomView {
   room: RoomState | null;
   participants: PublicParticipant[];
@@ -52,6 +59,9 @@ export interface ClassroomView {
   ended: boolean;
   connected: boolean;
   recordAnswer: (quizId: string, answer: string) => void;
+  suppressedInterventions: SuppressedIntervention[];
+  restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
+  restraintScore?: number;
 }
 
 /** Keeps the rendered transcript bounded; the full log lives on the server. */
@@ -71,6 +81,9 @@ export function useClassroom(
   const [blockedAttempts, setBlockedAttempts] = useState<BlockedAttempt[]>([]);
   const [ended, setEnded] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
+  const [restraintMeterState, setRestraintMeterState] = useState<'listening' | 'ready' | 'held-back' | 'speaking'>('listening');
+  const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -82,6 +95,8 @@ export function useClassroom(
         setFloor(event.state.floor);
         setPolicy(event.state.policy);
         setEnded(event.state.endedAt !== null);
+        setSuppressedInterventions(event.state.suppressedInterventions ?? []);
+        setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
         break;
 
       case 'echosphere:participant-joined':
@@ -188,6 +203,25 @@ export function useClassroom(
         setEnded(true);
         break;
 
+      case 'echosphere:restraint-meter-changed':
+        setRestraintMeterState(event.state);
+        setRestraintScore(event.score);
+        break;
+
+      case 'echosphere:intervention-suppressed':
+        setSuppressedInterventions((prev) =>
+          [
+            ...prev,
+            {
+              timestamp: event.timestamp,
+              text: event.text,
+              reason: event.reason,
+              score: event.score,
+            },
+          ].slice(-50),
+        );
+        break;
+
       case 'echosphere:command':
         // Commands are applied server-side; the resulting policy/floor events
         // carry the effect. Nothing to mirror here.
@@ -197,6 +231,23 @@ export function useClassroom(
 
   useEffect(() => {
     if (!participantId) return;
+
+    // The SSE stream only carries deltas from the moment it connects, and the
+    // room-state frame has no transcript — so anyone who joins mid-lesson (or
+    // reconnects) would see a blank transcript until the next person speaks.
+    // Backfill the history once; new segments arrive over SSE and the
+    // segmentId de-dupe in `apply` absorbs any overlap.
+    let cancelled = false;
+    void orchestrator
+      .getTranscript(sessionId)
+      .then((history) => {
+        if (cancelled || history.length === 0) return;
+        setTranscript((prev) => {
+          if (prev.length > 0) return prev;
+          return history.slice(-MAX_TRANSCRIPT);
+        });
+      })
+      .catch(() => undefined);
 
     const source = orchestrator.openEventStream(
       sessionId,
@@ -211,6 +262,7 @@ export function useClassroom(
     source.onopen = () => setConnected(true);
 
     return () => {
+      cancelled = true;
       source.close();
       sourceRef.current = null;
       setConnected(false);
@@ -238,5 +290,8 @@ export function useClassroom(
     ended,
     connected,
     recordAnswer,
+    suppressedInterventions,
+    restraintMeterState,
+    restraintScore,
   };
 }

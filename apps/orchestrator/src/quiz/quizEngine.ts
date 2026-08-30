@@ -33,6 +33,13 @@ const LETTERS = ['A', 'B', 'C', 'D'];
 const NUMBER_WORDS = ['one', 'two', 'three', 'four'];
 
 /**
+ * How long a question accepts answers before it auto-closes. Starts when the
+ * card is broadcast — which is after the agent has finished asking it aloud —
+ * so students get the full window to answer, not a slice of it.
+ */
+export const QUIZ_DURATION_MS = 15_000;
+
+/**
  * Turns a control-channel quiz payload into a recorded question.
  *
  * `targetStudentIds` comes from whatever asked for the quiz — a teacher button
@@ -61,6 +68,7 @@ export function recordQuizFromControl(
     difficulty: control.difficulty ?? inferDifficulty(session, targets),
     targetStudentIds: targets,
     createdAt: Date.now(),
+    deadline: Date.now() + QUIZ_DURATION_MS,
     origin,
   };
 
@@ -128,6 +136,7 @@ export function openQuizFor(
   return [...session.quizzes.values()]
     .filter(
       (quiz) =>
+        !quiz.closedAt &&
         !answered.has(quiz.quizId) &&
         (quiz.targetStudentIds.length === 0 ||
           quiz.targetStudentIds.includes(participantId)),
@@ -153,6 +162,9 @@ export function recordAnswer(
 ): RecordAnswerResult | { error: string } {
   const quiz = session.quizzes.get(quizId);
   if (!quiz) return { error: 'Unknown quiz' };
+  // A closed quiz takes no more answers. The countdown sweep marks absentees
+  // just before calling markQuizClosed, so it is not blocked by this.
+  if (quiz.closedAt) return { error: 'Quiz already closed' };
 
   const student = session.participants.get(participantId);
   if (!student || student.role !== 'student') {
@@ -258,6 +270,54 @@ export function answersFor(
   quizId: string,
 ): QuizAnswer[] {
   return session.answers.filter((a) => a.quizId === quizId);
+}
+
+/**
+ * True once every still-present target student has an answer on record for this
+ * quiz. Students who have left are not counted — otherwise a quiz issued to the
+ * whole class could never close if one person dropped. Returns false when there
+ * are no active targets at all, so an empty room never trips a "closed" event.
+ */
+export function allTargetsAnswered(
+  session: ClassroomSession,
+  quiz: QuizQuestion,
+): boolean {
+  const targetIds =
+    quiz.targetStudentIds.length > 0
+      ? quiz.targetStudentIds
+      : activeStudents(session).map((s) => s.participantId);
+
+  const activeTargets = targetIds.filter((id) => {
+    const p = session.participants.get(id);
+    return p?.role === 'student' && p.leftAt === undefined;
+  });
+  if (activeTargets.length === 0) return false;
+
+  const answered = new Set(
+    session.answers
+      .filter((a) => a.quizId === quiz.quizId)
+      .map((a) => a.participantId),
+  );
+  return activeTargets.every((id) => answered.has(id));
+}
+
+/**
+ * Closes a quiz and reveals the correct answer to the whole room. Idempotent:
+ * the "everyone answered" path and the countdown-expiry path both call it, and
+ * whichever runs second is a no-op.
+ */
+export function markQuizClosed(
+  session: ClassroomSession,
+  quiz: QuizQuestion,
+): boolean {
+  if (quiz.closedAt) return false;
+  quiz.closedAt = Date.now();
+  publish(session.sessionId, {
+    kind: 'echosphere:quiz-closed',
+    quizId: quiz.quizId,
+    correctAnswer: quiz.correctAnswer,
+  });
+  return true;
 }
 
 /** Broadcasts the quiz card. The answer key is stripped by `toPublicQuiz`. */

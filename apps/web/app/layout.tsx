@@ -1,27 +1,30 @@
 import type { Metadata, Viewport } from 'next';
-import { Big_Shoulders, IBM_Plex_Sans } from 'next/font/google';
+import { Oswald, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 
-/**
- * Big Shoulders Display for the display type — a condensed, broadcast-poster
- * face with the right amount of presence for the floor state and section
- * headers without competing with the transcript for attention.
- */
-const ecoDisplay = Big_Shoulders({
-  subsets: ['latin'],
-  weight: ['600', '700', '800'],
-  variable: '--font-eco-display',
-});
-
-/**
- * IBM Plex Sans for everything else. The transcript is continuous reading
- * text — unlike a game-show HUD, which is mostly short numeric labels — so
- * this project weights legibility over character.
- */
-const ecoUi = IBM_Plex_Sans({
+// Condensed grotesque for the wordmark and titles — the "broadcast desk" voice.
+const displayFont = Oswald({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
-  variable: '--font-eco-ui',
+  variable: '--font-display',
+});
+
+const bodyFont = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-body',
+});
+
+const devanagariFont = IBM_Plex_Sans_Devanagari({
+  subsets: ['devanagari', 'latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-devanagari',
+});
+
+const monoFont = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-mono',
 });
 
 export const viewport: Viewport = {
@@ -31,9 +34,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Echosphere',
+  title: 'Athena — AI Co-Teacher',
   description:
-    'Audio-only live classroom with an AI co-teacher, built on the Agora Conversational AI Engine.',
+    'Live classroom with a restraint-focused AI co-teacher, built on Agora ConvoAI and Sarvam.',
   icons: {
     icon: [
       { url: '/favicon.ico' },
@@ -62,8 +65,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`h-full ${ecoDisplay.variable} ${ecoUi.variable}`}>
+    <html lang="en" className={`h-full ${displayFont.variable} ${bodyFont.variable} ${devanagariFont.variable} ${monoFont.variable}`}>
       <body className="h-full min-h-screen">{children}</body>
     </html>
   );
 }
+

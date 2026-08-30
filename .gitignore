@@ -24,6 +24,12 @@ node_modules/
 jspm_packages/
 .pnp.*
 
+# A literal directory named "~" at repo root — an unexpanded-tilde artifact
+# from an install script, containing its own nested git repo
+# (~/agora-skills). Not meant to be committed; git itself refuses to embed a
+# nested repo's contents as plain files, only a broken gitlink reference.
+/~/
+
 # ─── Build output ────────────────────────────────────────────────────────────
 .next/
 out/
@@ -39,6 +45,12 @@ next-env.d.ts
 .eslintcache
 .stylelintcache
 .npm/
+
+# ─── Python (apps/python-demo) ───────────────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
 
 # ─── Test artefacts ──────────────────────────────────────────────────────────
 #

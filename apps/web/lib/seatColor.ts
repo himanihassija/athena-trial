@@ -11,9 +11,9 @@
  * the server needing to hand out or track seat numbers.
  */
 
-const SEAT_COUNT = 6;
+const SEAT_COUNT = 4;
 
-/** `--eco-seat-1` through `--eco-seat-6`, defined in app/globals.css. */
+/** `--eco-seat-1` through `--eco-seat-4` (teal / amber / rose / violet), defined in app/globals.css. */
 export function seatColorVar(participantId: string): string {
   let hash = 0;
   for (let i = 0; i < participantId.length; i += 1) {

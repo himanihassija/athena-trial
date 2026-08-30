@@ -67,6 +67,14 @@ export interface QuizQuestion {
   /** participantIds this quiz was aimed at; empty means the whole class. */
   targetStudentIds: string[];
   createdAt: number;
+  /** Epoch ms when the question stops accepting answers and auto-closes. */
+  deadline: number;
+  /** Set once the quiz has closed (all answered, or the timer expired). */
+  closedAt?: number;
+  /** Position of this question within a multi-question set (1-based), if any. */
+  setIndex?: number;
+  /** Total questions in the set this belongs to, if any. */
+  setTotal?: number;
   /** What caused this quiz — teacher action or an auto-detected gap. */
   origin: 'teacher' | 'gap-detector';
 }
@@ -122,6 +130,20 @@ export function gapSeverity(gap: LearningGap, classSize: number): GapSeverity {
 
 // ─── Post-class report (§3.9) ────────────────────────────────────────────────
 
+export interface ConceptMastery {
+  topic: string;
+  score: number; // 0 to 100 percentage
+  status: 'mastered' | 'developing' | 'struggling';
+}
+
+export interface InterventionRecord {
+  timestamp: number;
+  text: string;
+  score: number;
+  reason: string;
+  status: 'spoken' | 'suppressed';
+}
+
 export interface SessionReport {
   sessionId: string;
   generatedAt: number;
@@ -133,6 +155,7 @@ export interface SessionReport {
   suggestedFollowUp: string[];
   /** Narrative summary from the batch LLM call, rendered above the tables. */
   narrative: string;
+  interventionHistory: InterventionRecord[];
 }
 
 export interface ReportedMisconception {
@@ -150,4 +173,5 @@ export interface StudentReportEntry {
   quizzesCorrect: number;
   strugglingTopics: string[];
   note: string;
+  conceptMastery: ConceptMastery[];
 }

@@ -21,7 +21,7 @@ import { config } from '../config.js';
 // this; a native-ESM Node process does not, so the module is required explicitly
 // and typed from its own declarations.
 const requireCjs = createRequire(import.meta.url);
-const { RtcRole, RtcTokenBuilder } = requireCjs('agora-token') as typeof AgoraToken;
+const { RtcRole, RtcTokenBuilder, RtmTokenBuilder } = requireCjs('agora-token') as typeof AgoraToken;
 
 const TOKEN_TTL_SECONDS = 4 * 60 * 60;
 
@@ -34,19 +34,29 @@ export interface MintedTokens {
 export function mintTokens(channel: string, uid: string): MintedTokens {
   const expireAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
 
-  // buildTokenWithRtm issues one token carrying both RTC and RTM privileges.
-  // The RTM identity is the uid string, so the browser must log in to RTM with
-  // exactly this value — mismatching the two surfaces as an opaque
-  // "failed to start conversation" error.
-  const token = RtcTokenBuilder.buildTokenWithRtm(
+  // The browser joins RTC with a numeric uid (`parseInt(uid, 10)` in
+  // ClassroomAudio.tsx), so the RTC token is built for a numeric uid, not a
+  // string account. In agora-token 2.x `buildTokenWithUid` and
+  // `buildTokenWithUserAccount` currently emit an identical token for a
+  // digits-only value, but the two are documented as distinct
+  // (references/server/tokens.md) and nothing guarantees they stay aliased —
+  // matching the builder to the join type keeps this correct if they diverge.
+  const rtcToken = RtcTokenBuilder.buildTokenWithUid(
     config.agoraAppId,
     config.agoraAppCertificate,
     channel,
-    uid,
+    Number(uid),
     RtcRole.PUBLISHER,
     expireAt,
     expireAt,
   );
 
-  return { rtcToken: token, rtmToken: token, expiresAt: expireAt };
+  const rtmToken = RtmTokenBuilder.buildToken(
+    config.agoraAppId,
+    config.agoraAppCertificate,
+    uid,
+    expireAt,
+  );
+
+  return { rtcToken, rtmToken, expiresAt: expireAt };
 }

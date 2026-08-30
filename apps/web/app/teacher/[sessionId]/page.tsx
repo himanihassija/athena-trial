@@ -15,6 +15,7 @@ import type {
   SessionReport,
   TeacherCommand,
   VerbosityLevel,
+  InterventionRecord,
 } from "@echosphere/shared-types";
 import { ClassroomShell } from "@/components/classroom/ClassroomShell";
 import { ClassroomAudio } from "@/components/classroom/ClassroomAudioLazy";
@@ -35,6 +36,8 @@ import {
   orchestrator,
   type StoredIdentity,
 } from "@/lib/orchestrator";
+import { RestraintMeter } from "@/components/meraki/RestraintMeter";
+import { SuppressedInterventionsPanel } from "@/components/meraki/SuppressedInterventionsPanel";
 
 export default function TeacherDashboardPage() {
   const params = useParams<{ sessionId: string }>();
@@ -43,12 +46,14 @@ export default function TeacherDashboardPage() {
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
+  const [speakingUid, setSpeakingUid] = useState<string | null>(null);
   // Whether the transcript pipeline is actually alive. Distinguishing this from
   // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(
     null,
   );
+  const [micError, setMicError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [report, setReport] = useState<SessionReport | null>(null);
@@ -258,6 +263,67 @@ export default function TeacherDashboardPage() {
         </p>
       )}
 
+      {micError && (
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: "var(--eco-amber)", background: "var(--eco-amber-dim)", color: "var(--eco-cream)" }}
+        >
+          {micError} You can still see the room, but Athena and the class
+          will not hear you until a microphone is available.
+        </p>
+      )}
+
+      {/* Class-wide Gap Approval Cards */}
+      {view.gaps
+        .filter((gap) => gap.affectedStudentIds.length >= 2 && !gap.addressedAt)
+        .map((gap) => (
+          <article
+            key={gap.gapId}
+            className="eco-panel p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-l-4"
+            style={{
+              borderColor: "var(--eco-amber)",
+              background: "var(--eco-amber-dim)",
+            }}
+          >
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <span className="eco-lamp eco-lamp-glow eco-lamp-amber" style={{ width: '8px', height: '8px' }} />
+                <h3 className="text-sm font-semibold text-[var(--eco-cream)]">
+                  Athena has detected a class-wide gap on &quot;{gap.topic}&quot;
+                </h3>
+              </div>
+              <p className="text-xs text-[var(--eco-cream-dim)] leading-relaxed">
+                {gap.affectedStudentIds.length} students (
+                {gap.affectedStudentIds
+                  .map(
+                    (id) =>
+                      view.participants.find((p) => p.participantId === id)
+                        ?.displayName ?? id,
+                  )
+                  .join(", ")}
+                ) are struggling with this concept. Launch quiz to resolve?
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void send({
+                  type: "START_QUIZ",
+                  topic: gap.topic,
+                  targetStudentIds: gap.affectedStudentIds,
+                });
+              }}
+              className="rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-opacity hover:opacity-90 self-start sm:self-center"
+              style={{
+                background: "var(--eco-amber)",
+                color: "var(--eco-ink)",
+              }}
+            >
+              Launch Quiz
+            </button>
+          </article>
+        ))}
+
       {/* The control panel sits OUTSIDE ClassroomShell deliberately. Starting the
           agent is a plain HTTP call to the orchestrator and needs no RTM, so
           gating it behind the messaging connection would hide the one button
@@ -346,6 +412,8 @@ export default function TeacherDashboardPage() {
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
+                onMicError={setMicError}
+                onSpeakingChange={setSpeakingUid}
               />
             )}
           </ClassroomShell>
@@ -358,9 +426,18 @@ export default function TeacherDashboardPage() {
         </div>
 
         <aside className="flex w-full flex-col gap-5 lg:w-80">
+          <RestraintMeter
+            state={view.restraintMeterState}
+            score={view.restraintScore}
+          />
+          <SuppressedInterventionsPanel
+            interventions={view.suppressedInterventions}
+          />
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
+            agentUid={identity.agentUid}
+            speakingUid={speakingUid}
             onSetProficiency={(studentId, proficiency) =>
               void send({ type: "SET_PROFICIENCY", studentId, proficiency })
             }
@@ -381,47 +458,216 @@ export default function TeacherDashboardPage() {
         </aside>
       </div>
 
-      {report && <ReportView report={report} />}
+      {report && <ReportView report={report} title={view.room?.title} />}
     </main>
   );
 }
 
-/** Post-class report (§3.9), rendered inline once the lesson ends. */
-function ReportView({ report }: { report: SessionReport }) {
-  return (
-    <section className="eco-panel flex flex-col gap-4 p-5">
-      <h2 className="eco-display text-xl text-[var(--eco-cream)]">
-        Post-class summary
-      </h2>
-      <p className="text-sm text-[var(--eco-cream)]">{report.narrative}</p>
+/** Interactive timeline showing both spoken and suppressed interventions with their scores and reasons. */
+function InterventionTimeline({ history }: { history: InterventionRecord[] }) {
+  const [filter, setFilter] = useState<'all' | 'spoken' | 'suppressed'>('all');
 
-      {report.topicsCovered.length > 0 && (
-        <div>
-          <h3 className="eco-label-dim mb-1">Topics covered</h3>
-          <p className="text-sm text-[var(--eco-cream-dim)]">
-            {report.topicsCovered.join(", ")}
+  const filtered = history.filter((item) => {
+    if (filter === 'all') return true;
+    return item.status === filter;
+  });
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="eco-label-dim font-semibold">Intervention Timeline</h3>
+        <div className="flex gap-1">
+          {(['all', 'spoken', 'suppressed'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setFilter(mode)}
+              className="rounded px-2.5 py-1 text-xs font-semibold border capitalize transition-colors"
+              style={{
+                borderColor: filter === mode ? 'var(--eco-glow)' : 'var(--eco-rule)',
+                background: filter === mode ? 'var(--eco-glow-dim)' : 'var(--eco-ink-sunken)',
+                color: filter === mode ? 'var(--eco-glow-bright)' : 'var(--eco-cream-dim)',
+              }}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-xs text-[var(--eco-cream-faint)] py-2">
+          No interventions recorded matching this filter.
+        </p>
+      ) : (
+        <div className="relative border-l border-[var(--eco-rule)] pl-4 ml-2 flex flex-col gap-4">
+          {filtered.map((item, idx) => {
+            const isSpoken = item.status === 'spoken';
+            return (
+              <div key={idx} className="relative flex flex-col gap-1">
+                {/* Timeline dot */}
+                <span
+                  className="absolute -left-[1.375rem] top-1.5 h-3 w-3 rounded-full border-2"
+                  style={{
+                    borderColor: isSpoken ? 'var(--eco-glow-bright)' : 'var(--eco-red)',
+                    background: 'var(--eco-ink)',
+                  }}
+                />
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+                      style={{
+                        background: isSpoken ? 'var(--eco-green-dim)' : 'var(--eco-red-dim)',
+                        color: isSpoken ? 'var(--eco-glow-bright)' : 'var(--eco-red)',
+                      }}
+                    >
+                      {isSpoken ? 'Spoken' : 'Suppressed'}
+                    </span>
+                    <span className="eco-numerals text-[11px] text-[var(--eco-cream-faint)]">
+                      {new Date(item.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <span className="eco-numerals text-[11px] text-[var(--eco-cream-dim)]">
+                    Gate Score: <strong className="font-semibold">{item.score.toFixed(2)}</strong>
+                  </span>
+                </div>
+                <p className="text-xs italic text-[var(--eco-cream)] bg-[var(--eco-ink-sunken)] p-2 rounded-lg border border-[var(--eco-rule)]">
+                  &quot;{item.text}&quot;
+                </p>
+                <p className="text-[10px] text-[var(--eco-cream-faint)]">
+                  Reason: {item.reason}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Post-class report (§3.9), rendered inline once the lesson ends. */
+function ReportView({ report, title }: { report: SessionReport; title?: string }) {
+  const totalAnswered = report.perStudent.reduce((s, p) => s + p.quizzesAnswered, 0);
+  const totalCorrect = report.perStudent.reduce((s, p) => s + p.quizzesCorrect, 0);
+  const totalAsked = report.perStudent.reduce((s, p) => s + p.questionsAsked, 0);
+  const grasp = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
+
+  const fmtTime = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fmtDate = (ms: number) =>
+    new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const durationMin = Math.max(1, Math.round((report.endedAt - report.startedAt) / 60000));
+
+  return (
+    <section className="eco-panel flex flex-col gap-6 p-5">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--eco-rule)' }}>
+        <div className="flex flex-col gap-1.5">
+          <span className="eco-label">Post-class summary</span>
+          <h2 className="eco-display text-2xl text-[var(--eco-cream)]">
+            {title ?? 'Lesson'}
+          </h2>
+          <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
+            {fmtDate(report.startedAt)} · {fmtTime(report.startedAt)}–{fmtTime(report.endedAt)} ({durationMin}m) ·{' '}
+            {report.perStudent.length} student{report.perStudent.length === 1 ? '' : 's'}
           </p>
         </div>
-      )}
+        <button
+          type="button"
+          disabled
+          className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-faint)] opacity-50"
+          style={{ borderColor: 'var(--eco-rule)' }}
+          title="Export is not wired up in the demo build"
+        >
+          Export report
+        </button>
+      </header>
 
-      {report.commonMisconceptions.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h3 className="eco-label-dim mb-1">Common misconceptions</h3>
-          <ul className="flex flex-col gap-1 text-sm text-[var(--eco-cream-dim)]">
-            {report.commonMisconceptions.map((m) => (
-              <li key={m.topic}>
-                <strong className="text-[var(--eco-cream)]">{m.topic}</strong>{" "}
-                — {m.description}{" "}
-                <span className="text-[var(--eco-cream-faint)]">
-                  ({m.studentNames.join(", ")})
-                </span>
-              </li>
-            ))}
-          </ul>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Key concept grasp</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">
+            {grasp === null ? '—' : `${grasp}%`}
+          </span>
+          <span className="text-xs text-[var(--eco-cream-faint)]">
+            {totalCorrect} of {totalAnswered} quiz answers correct
+          </span>
         </div>
-      )}
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Questions to Athena</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">{totalAsked}</span>
+          <span className="text-xs text-[var(--eco-cream-faint)]">across the class</span>
+        </div>
+        <div className="eco-panel-sunken flex flex-col gap-1 p-4">
+          <span className="eco-label-dim">Topics covered</span>
+          <span className="eco-numerals text-3xl text-[var(--eco-cream)]">
+            {report.topicsCovered.length}
+          </span>
+          <span className="truncate text-xs text-[var(--eco-cream-faint)]">
+            {report.topicsCovered.join(', ') || '—'}
+          </span>
+        </div>
+      </div>
 
-      <div className="flex flex-col gap-1">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex flex-col gap-3">
+          <h3 className="eco-label-dim">Identified learning gaps</h3>
+          {report.commonMisconceptions.length === 0 ? (
+            <p className="text-sm text-[var(--eco-cream-faint)]">
+              No repeated misconceptions were detected.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {report.commonMisconceptions.map((m) => (
+                <li
+                  key={m.topic}
+                  className="flex flex-col gap-1 rounded-[0.625rem] border p-3"
+                  style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)' }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="eco-lamp eco-lamp-amber" style={{ width: 7, height: 7 }} />
+                    <strong className="text-sm text-[var(--eco-cream)]">{m.topic}</strong>
+                  </div>
+                  <p className="text-xs leading-relaxed text-[var(--eco-cream-dim)]">
+                    {m.description}
+                  </p>
+                  <p className="text-xs text-[var(--eco-cream-faint)]">
+                    {m.studentNames.join(', ')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.suggestedFollowUp.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <h3 className="eco-label-dim mt-1">Suggested follow-up</h3>
+              <ul className="list-disc pl-5 text-sm text-[var(--eco-cream-dim)]">
+                {report.suggestedFollowUp.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        <aside
+          className="flex flex-col gap-2 rounded-[0.75rem] border p-4"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--eco-athena) 30%, var(--eco-rule))',
+            background: 'var(--eco-athena-dim)',
+          }}
+        >
+          <span className="eco-label" style={{ color: 'var(--eco-athena)' }}>
+            Athena · session read
+          </span>
+          <p className="text-sm leading-relaxed text-[var(--eco-cream)]">
+            {report.narrative}
+          </p>
+        </aside>
+      </div>
+
+      <div className="flex flex-col gap-2">
         <h3 className="eco-label-dim mb-1">Per student</h3>
         <div className="overflow-x-auto">
           <table className="eco-numerals w-full min-w-[36rem] text-left text-sm">
@@ -444,7 +690,7 @@ function ReportView({ report }: { report: SessionReport }) {
                   className="border-b text-[var(--eco-cream-dim)]"
                   style={{ borderColor: "var(--eco-rule)" }}
                 >
-                  <td className="py-1 pr-3 text-[var(--eco-cream)]">
+                  <td className="py-1 pr-3 text-[var(--eco-cream)] font-medium">
                     {s.displayName}
                   </td>
                   <td className="py-1 pr-3">{s.proficiency}</td>
@@ -460,16 +706,45 @@ function ReportView({ report }: { report: SessionReport }) {
         </div>
       </div>
 
-      {report.suggestedFollowUp.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h3 className="eco-label-dim mb-1">Suggested follow-up</h3>
-          <ul className="list-disc pl-5 text-sm text-[var(--eco-cream-dim)]">
-            {report.suggestedFollowUp.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-          </ul>
+      {/* Concept Mastery Rankings */}
+      <div className="flex flex-col gap-2">
+        <h3 className="eco-label-dim mb-1">Concept Mastery Rankings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {report.perStudent.map((s) => (
+            <article key={s.participantId} className="eco-panel p-3 flex flex-col gap-2 bg-[var(--eco-ink-sunken)]">
+              <div className="flex justify-between items-center border-b pb-1" style={{ borderColor: 'var(--eco-rule)' }}>
+                <h4 className="text-sm font-semibold text-[var(--eco-cream)]">{s.displayName}</h4>
+                <span className="text-xs text-[var(--eco-cream-faint)]">Level: {s.proficiency}</span>
+              </div>
+              {s.conceptMastery && s.conceptMastery.length > 0 ? (
+                <div className="flex flex-col gap-2.5">
+                  {s.conceptMastery.map((m) => (
+                    <div key={m.topic} className="flex flex-col gap-1">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-[var(--eco-cream-dim)] font-medium">{m.topic}</span>
+                        <span className="eco-numerals font-medium" style={{
+                          color: m.status === 'mastered' ? 'var(--eco-glow-bright)' : m.status === 'struggling' ? 'var(--eco-red)' : 'var(--eco-amber)'
+                        }}>{m.score}% ({m.status})</span>
+                      </div>
+                      <div className="w-full bg-[var(--eco-rule)] h-1.5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{
+                          width: `${m.score}%`,
+                          background: m.status === 'mastered' ? 'var(--eco-glow-bright)' : m.status === 'struggling' ? 'var(--eco-red)' : 'var(--eco-amber)'
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--eco-cream-faint)]">No topic data available for this student.</p>
+              )}
+            </article>
+          ))}
         </div>
-      )}
+      </div>
+
+      {/* Unified Intervention Timeline */}
+      <InterventionTimeline history={report.interventionHistory} />
     </section>
   );
 }

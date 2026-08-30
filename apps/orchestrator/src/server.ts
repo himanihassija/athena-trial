@@ -12,6 +12,7 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { classroomRoutes } from './routes/classroom.js';
 import { inspectRoutes } from './routes/inspect.js';
+import { completionsRoutes } from './routes/completions.js';
 import { considerSilenceInterjection } from './classroomController.js';
 import { listSessions } from './state/sessionRegistry.js';
 import { stopAllAgents } from './agent/agentLifecycle.js';
@@ -46,6 +47,7 @@ app.get('/health', async () => ({
 
 await app.register(classroomRoutes);
 await app.register(inspectRoutes);
+await app.register(completionsRoutes);
 
 /**
  * The silence tick. Kept out of the request path because the condition it

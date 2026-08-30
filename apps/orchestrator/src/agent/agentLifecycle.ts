@@ -25,11 +25,13 @@ import {
   Agent,
   AgoraClient,
   Area,
-  DeepgramSTT,
   ExpiresIn,
-  MiniMaxTTS,
   OpenAI,
   type AgentSession,
+  SarvamSTT,
+  SarvamTTS,
+  DeepgramSTT,
+  MiniMaxTTS,
 } from 'agora-agents';
 import { GREETING, buildClassroomInstructions } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
@@ -81,7 +83,7 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     appCertificate: config.agoraAppCertificate,
   });
 
-  const agent = new Agent({
+  let agent = new Agent({
     client,
     instructions: buildClassroomInstructions(session),
     greeting: GREETING,
@@ -141,38 +143,69 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       enable_error_message: true,
       enable_metrics: true,
     },
-  })
-    .withStt(
-      new DeepgramSTT({
-        model: 'nova-3',
-        // 'multi' enables Deepgram's multilingual code-switching mode (§3.7).
-        language: config.sttLanguage,
-      }),
-    )
-    .withLlm(
-      new OpenAI({
-        model: resellerModel(),
-        greetingMessage: GREETING,
-        failureMessage: 'One moment.',
-        maxHistory: 15,
-        params: {
-          max_tokens: 700,
-          // Lower than the quickstart's 0.7. The control payload has to come
-          // out in the same shape every turn.
-          temperature: 0.4,
-          top_p: 0.9,
-        },
-      }),
-    )
-    .withTts(
-      new MiniMaxTTS({
-        model: 'speech_2_6_turbo',
-        voiceId: config.ttsVoiceId,
-        // 5 = skip curly braces. This is what hides the control channel from
-        // speech synthesis while leaving it in the transcript.
-        skipPatterns: [5],
-      }),
-    );
+  });
+
+  const hasSarvam =
+    Boolean(config.sarvamApiKey) &&
+    config.sarvamApiKey !== 'mock_sarvam_api_key' &&
+    config.sarvamApiKey !== 'mock_key';
+
+  if (hasSarvam) {
+    agent = agent
+      .withStt(
+        new SarvamSTT({
+          apiKey: config.sarvamApiKey,
+          language: config.sttLanguage === 'multi' ? 'hi-IN' : config.sttLanguage,
+        }),
+      )
+      .withTts(
+        new SarvamTTS({
+          key: config.sarvamApiKey,
+          speaker: config.sarvamSpeaker,
+          targetLanguageCode: config.sarvamTargetLanguageCode as any,
+          skipPatterns: [5],
+        }),
+      );
+  } else {
+    // No Sarvam key configured: fall back to Agora's own resold, no-key-
+    // required presets (Deepgram nova-2/nova-3 ASR, MiniMax TTS) rather than
+    // a vendor that needs a subscription key this project has never asked
+    // for. 'multi' is Deepgram's own code-switching mode, passed through
+    // as-is rather than remapped.
+    agent = agent
+      .withStt(
+        new DeepgramSTT({
+          model: 'nova-3',
+          language: config.sttLanguage,
+        }),
+      )
+      .withTts(
+        new MiniMaxTTS({
+          model: 'speech_2_6_turbo',
+          voiceId: config.ttsVoiceId || 'English_captivating_female1',
+          skipPatterns: [5],
+        }),
+      );
+  }
+
+  // No apiKey/url: Agora resolves this to its own managed, resold model —
+  // the same no-key path DeepgramSTT/MiniMaxTTS use above. A custom LLM URL
+  // would need to be reachable from Agora's cloud, not this machine, which
+  // is what the Restraint Meter's /api/chat/completions proxy required and
+  // why it's currently dormant (see routes/completions.ts's header comment).
+  agent = agent.withLlm(
+    new OpenAI({
+      model: resellerModel(),
+      greetingMessage: GREETING,
+      failureMessage: 'One moment.',
+      maxHistory: 15,
+      params: {
+        max_tokens: 700,
+        temperature: 0.4,
+        top_p: 0.9,
+      },
+    }),
+  );
 
   const agentSession = agent.createSession({
     channel: session.channel,
@@ -299,9 +332,21 @@ export async function speak(
  * Unlike `speak`, the wording is generated — which is what allows the agent to
  * emit a control payload alongside it.
  */
+export interface ThinkOptions {
+  /**
+   * Whether a human speaking may cut this turn short. Defaults to true — the
+   * orchestrator has cleared the utterance, but a person talking still wins.
+   * Set false for turns that must be delivered whole even over a stray "okay":
+   * a quiz question truncated before its trailing control payload leaves no
+   * quiz record at all, so nothing can be scored (see startQuiz).
+   */
+  interruptable?: boolean;
+}
+
 export async function think(
   sessionId: string,
   instruction: string,
+  options: ThinkOptions = {},
 ): Promise<boolean> {
   const agentSession = liveAgents.get(sessionId);
   if (!agentSession || agentSession.status !== 'running') return false;
@@ -312,14 +357,93 @@ export async function think(
     // arrives while it is listening, and the server default there is not to
     // start a turn. 'interrupt' means begin a new round of dialogue now.
     on_listening_action: 'interrupt',
-    // The orchestrator has already cleared this utterance through the floor
-    // machine, so it may also cut into a turn already under way — but a human
-    // speaking still wins, hence interruptable stays true.
     on_thinking_action: 'interrupt',
     on_speaking_action: 'interrupt',
-    interruptable: true,
+    interruptable: options.interruptable ?? true,
   });
   return true;
+}
+
+type HistoryItem = { role?: string; content?: unknown };
+
+async function assistantTurns(
+  agentSession: AgentSession,
+): Promise<string[]> {
+  const history = (await agentSession.getHistory()) as { contents?: HistoryItem[] };
+  return (history.contents ?? [])
+    .filter((c) => c.role === 'assistant' && typeof c.content === 'string')
+    .map((c) => c.content as string)
+    .filter((t) => t.trim().length > 0);
+}
+
+/** Snapshot of the assistant turns already in history — pass to pollForPayloadTurn. */
+export async function assistantTurnSnapshot(sessionId: string): Promise<Set<string>> {
+  const agentSession = liveAgents.get(sessionId);
+  if (!agentSession || agentSession.status !== 'running') return new Set();
+  try {
+    return new Set(await assistantTurns(agentSession));
+  } catch {
+    return new Set();
+  }
+}
+
+/** True once the text holds at least one balanced `{ … }` object. */
+function hasCompletePayload(text: string): boolean {
+  let depth = 0;
+  let opened = false;
+  for (const ch of text) {
+    if (ch === '{') {
+      depth += 1;
+      opened = true;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (opened && depth === 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Polls the agent's history for a NEW assistant turn (not in `before`) that
+ * carries a finished `{ … }` control payload, and returns its text.
+ *
+ * Why: `skipPatterns` strips the payload from the TTS *and* from the RTM
+ * transcript the browser relays, so the orchestrator never sees a quiz question
+ * that way. `getHistory()` keeps the raw LLM output, braces intact. Matching on
+ * "a new turn with a balanced brace object" rather than a turn *count* makes
+ * this robust to a flaky history endpoint and to the turn still streaming — a
+ * half-written payload has no closing brace yet, so we keep waiting.
+ */
+export async function pollForPayloadTurn(
+  sessionId: string,
+  before: Set<string>,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<string | null> {
+  const agentSession = liveAgents.get(sessionId);
+  if (!agentSession || agentSession.status !== 'running') return null;
+
+  const { timeoutMs = 25_000, intervalMs = 1_500 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let newestSeen: string | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const turns = await assistantTurns(agentSession);
+      // Walk newest-first; stop at the first turn that already existed.
+      for (let i = turns.length - 1; i >= 0; i -= 1) {
+        const t = turns[i] ?? '';
+        if (before.has(t)) break;
+        newestSeen = newestSeen ?? t;
+        if (hasCompletePayload(t)) return t;
+      }
+    } catch {
+      // The history endpoint 404s briefly right after start / between turns.
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  // Timed out — hand back the newest new turn we saw, if any, so the caller can
+  // at least log what the agent said.
+  return newestSeen;
 }
 
 export async function agentStatus(

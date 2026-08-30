@@ -45,7 +45,9 @@ export type ClassroomEvent =
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }
   | { kind: 'echosphere:proficiency-changed'; participantId: string; proficiency: ProficiencyTag }
   | { kind: 'echosphere:session-ended'; sessionId: string }
-  | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string };
+  | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
+  | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
+  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 
@@ -71,6 +73,11 @@ export interface PublicQuiz {
   difficulty: QuizQuestion['difficulty'];
   targetStudentIds: string[];
   createdAt: number;
+  /** Epoch ms when the question stops accepting answers — drives the countdown. */
+  deadline: number;
+  /** "Question 2 of 3" — present only for a multi-question set. */
+  setIndex?: number;
+  setTotal?: number;
 }
 
 export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
@@ -82,6 +89,9 @@ export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
     difficulty: quiz.difficulty,
     targetStudentIds: quiz.targetStudentIds,
     createdAt: quiz.createdAt,
+    deadline: quiz.deadline,
+    setIndex: quiz.setIndex,
+    setTotal: quiz.setTotal,
   };
 }
 
@@ -96,6 +106,8 @@ export interface RoomState {
   agentUid: string;
   startedAt: number;
   endedAt: number | null;
+  suppressedInterventions?: Array<{ timestamp: number; text: string; reason: string; score: number }>;
+  restraintMeterState?: 'listening' | 'ready' | 'held-back' | 'speaking';
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

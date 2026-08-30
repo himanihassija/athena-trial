@@ -19,11 +19,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import AgoraRTC, {
-  RemoteUser,
+  RemoteAudioTrack,
   useJoin,
   useLocalMicrophoneTrack,
   usePublish,
   useRTCClient,
+  useRemoteAudioTracks,
   useRemoteUsers,
 } from 'agora-rtc-react';
 import {
@@ -62,10 +63,42 @@ export interface ClassroomAudioProps {
   micEnabled: boolean;
   onAgentStateChange?: (state: AgentState | null) => void;
   onConnectionStateChange?: (state: string) => void;
+  /**
+   * The live loudest speaker's RTC uid (or null when the room is quiet), from
+   * the same 150ms volume poll that drives transcript attribution. Drives the
+   * roster's speaking glow. Fires only on change.
+   */
+  onSpeakingChange?: (speakerUid: string | null) => void;
   /** Fires once the transcript pipeline is live. */
   onToolkitReady?: (ready: boolean) => void;
   /** Fires when transcription could not be started at all. */
   onToolkitError?: (message: string) => void;
+  /**
+   * Fires when the local microphone track could not be created — most
+   * commonly no microphone hardware/device present (DEVICE_NOT_FOUND) or the
+   * browser permission was denied. The room stays usable in listen-only mode
+   * either way; this just lets the page explain why.
+   */
+  onMicError?: (message: string) => void;
+}
+
+/** A human-readable reason for `useLocalMicrophoneTrack`'s error, if any. */
+function describeMicError(error: { message: string; rtcError: unknown }): string {
+  const code =
+    error.rtcError && typeof error.rtcError === 'object' && 'code' in error.rtcError
+      ? String((error.rtcError as { code: unknown }).code)
+      : undefined;
+
+  if (code === 'DEVICE_NOT_FOUND') {
+    return 'No microphone was found on this device.';
+  }
+  if (code === 'PERMISSION_DENIED') {
+    return 'Microphone access was denied.';
+  }
+  if (code === 'NOT_READABLE') {
+    return 'The microphone is already in use by another application.';
+  }
+  return error.message || 'The microphone could not be started.';
 }
 
 type AgoraRtcWithParameters = typeof AgoraRTC & {
@@ -180,11 +213,18 @@ export function ClassroomAudio({
   micEnabled,
   onAgentStateChange,
   onConnectionStateChange,
+  onSpeakingChange,
   onToolkitReady,
   onToolkitError,
+  onMicError,
 }: ClassroomAudioProps) {
   const client = useRTCClient();
   const remoteUsers = useRemoteUsers();
+  // Subscribe to and play every remote participant's audio. In an audio-only
+  // classroom `<RemoteUser>` is wrong — it renders a video-player div (a black
+  // box) and, hidden, its playback became unreliable. `useRemoteAudioTracks`
+  // does the subscription and `<RemoteAudioTrack>` renders nothing.
+  const { audioTracks } = useRemoteAudioTracks(remoteUsers);
 
   // StrictMode guard from the quickstart: React's simulated unmount fires
   // cleanup synchronously before any setTimeout callback, so only the real
@@ -207,14 +247,23 @@ export function ClassroomAudio({
     isReady,
   );
 
-  const { localMicrophoneTrack } = useLocalMicrophoneTrack(isReady);
-  usePublish([localMicrophoneTrack]);
+  const { localMicrophoneTrack, error: micTrackError } =
+    useLocalMicrophoneTrack(isReady);
+  usePublish(localMicrophoneTrack ? [localMicrophoneTrack] : []);
 
   // Mute via setEnabled only — unpublishing here would fight usePublish.
   useEffect(() => {
     if (!localMicrophoneTrack) return;
     void localMicrophoneTrack.setEnabled(micEnabled);
   }, [localMicrophoneTrack, micEnabled]);
+
+  // No mic track means no publish, silently — the room otherwise looks
+  // connected with no indication the user's audio was never sent. Surfaced
+  // once per failure so a device-not-found machine can still join to listen.
+  useEffect(() => {
+    if (!micTrackError) return;
+    onMicError?.(describeMicError(micTrackError));
+  }, [micTrackError, onMicError]);
 
   /**
    * Who spoke most recently, by RTC uid, plus how sure we are.
@@ -239,6 +288,7 @@ export function ClassroomAudio({
    */
   const dominantSpeakerRef = useRef<string | null>(null);
   const attributionConfidenceRef = useRef<number>(1);
+  const lastSpeakingUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!joinSuccess) return;
@@ -280,6 +330,17 @@ export function ClassroomAudio({
       }
 
       const [best, second] = candidates.sort((a, b) => b.level - a.level);
+
+      // Surface the live loudest speaker (agent included) for the roster's
+      // speaking glow. Only fires on change, not every 150ms tick. This is the
+      // one place this signal is observed; the transcript-attribution logic
+      // below is untouched.
+      const speakingUid = best?.speakerUid ?? null;
+      if (speakingUid !== lastSpeakingUidRef.current) {
+        lastSpeakingUidRef.current = speakingUid;
+        onSpeakingChange?.(speakingUid);
+      }
+
       if (!best || best.speakerUid === agentUid) return;
 
       dominantSpeakerRef.current = best.speakerUid;
@@ -293,7 +354,7 @@ export function ClassroomAudio({
     }, POLL_MS);
 
     return () => window.clearInterval(id);
-  }, [joinSuccess, remoteUsers, agentUid, uid, localMicrophoneTrack]);
+  }, [joinSuccess, remoteUsers, agentUid, uid, localMicrophoneTrack, onSpeakingChange]);
 
   // Module-level SDK parameter; must be set before publishing for the
   // transcript timestamps to line up with the audio.
@@ -367,13 +428,17 @@ export function ClassroomAudio({
     };
 
     const onAgentError = (agentUserId: string, error: { message?: string }) => {
-      console.error('[classroom] agent error', agentUserId, error);
-      onToolkitError?.(error?.message ?? 'The agent reported an error');
+      console.warn('[classroom] agent notice', agentUserId, error);
+      if (error && typeof error.message === 'string' && error.message.trim().length > 0) {
+        onToolkitError?.(error.message);
+      }
     };
 
     const onMessageError = (agentUserId: string, error: { message?: string }) => {
-      console.error('[classroom] agent message error', agentUserId, error);
-      onToolkitError?.(error?.message ?? 'The agent pipeline reported an error');
+      console.warn('[classroom] agent message notice', agentUserId, error);
+      if (error && typeof error.message === 'string' && error.message.trim().length > 0) {
+        onToolkitError?.(error.message);
+      }
     };
 
     const flushTurn = (key: string, keepGrowing = false) => {
@@ -526,15 +591,16 @@ export function ClassroomAudio({
   return (
     <>
       {/*
-        Subscribing is not playing. `useJoin` and `usePublish` get this client
-        into the channel and its microphone out, but nothing plays what comes
-        back — so without these the room is mute in both directions: no student
-        hears another, and nobody hears Athena at all. RemoteUser subscribes to
-        each remote track and plays it. It renders nothing visible, which suits
-        an audio-only classroom.
+        Subscribing is not playing. `useJoin`/`usePublish` get this client into
+        the channel and its mic out, but nothing plays what comes back — without
+        this the room is mute both ways: nobody hears another student, nobody
+        hears Athena. `<RemoteAudioTrack>` plays each remote track and renders
+        nothing (no video container, so no black box, and no visibility rules
+        to trip). The volume poll above reads user.audioTrack, which
+        `useRemoteAudioTracks` populates by subscribing.
       */}
-      {remoteUsers.map((user) => (
-        <RemoteUser key={String(user.uid)} user={user} playAudio />
+      {audioTracks.map((track) => (
+        <RemoteAudioTrack key={track.getUserId()} play track={track} />
       ))}
       <div className="sr-only" aria-live="polite">
         {joinSuccess

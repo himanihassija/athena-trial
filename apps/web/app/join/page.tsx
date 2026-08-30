@@ -69,19 +69,25 @@ export default function JoinPage() {
     [displayName, role, language, router],
   );
 
-  const createAndJoin = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const session = await orchestrator.createSession(
-        newTitle.trim() || 'Untitled lesson',
-      );
-      await join(session.sessionId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create lesson');
-      setBusy(false);
-    }
-  }, [newTitle, join]);
+  const createAndJoin = useCallback(
+    async (seed?: 'unlike-fractions') => {
+      setBusy(true);
+      setError(null);
+      try {
+        const session = await orchestrator.createSession(
+          seed
+            ? 'Adding unlike fractions'
+            : newTitle.trim() || 'Untitled lesson',
+          seed,
+        );
+        await join(session.sessionId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not create lesson');
+        setBusy(false);
+      }
+    },
+    [newTitle, join],
+  );
 
   const nameValid = displayName.trim().length > 0;
 
@@ -93,11 +99,11 @@ export default function JoinPage() {
             <span className="eco-lamp eco-lamp-glow eco-pulse" />
             <span className="eco-label">On air</span>
           </div>
-          <h1 className="eco-display text-5xl leading-none text-[var(--eco-cream)]">
-            Echosphere
+          <h1 className="eco-wordmark text-5xl leading-none text-[var(--eco-cream)]">
+            Athena
           </h1>
           <p className="text-sm text-[var(--eco-cream-dim)]">
-            Audio-only live classroom with an AI co-teacher, tuned in and
+            Live classroom with an AI co-teacher, tuned in and
             listening.
           </p>
         </header>
@@ -204,6 +210,15 @@ export default function JoinPage() {
                 {busy ? 'Creating…' : 'Create'}
               </button>
             </div>
+            <button
+              type="button"
+              disabled={!nameValid || busy}
+              onClick={() => void createAndJoin('unlike-fractions')}
+              className="self-start rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
+              style={{ borderColor: 'var(--eco-rule)' }}
+            >
+              Start fractions demo (LCD)
+            </button>
             {!nameValid && (
               <p className="text-xs text-[var(--eco-cream-faint)]">
                 Enter your name above first.

@@ -18,7 +18,8 @@
     "test:e2e": "node --import tsx scripts/classroom.e2e.ts",
     "test:e2e:agent": "node --import tsx scripts/classroom.e2e.ts --start-agent",
     "test:roundtrip": "node --import tsx scripts/roundtrip.e2e.ts",
-    "test:speech": "node --import tsx scripts/speech.e2e.ts"
+    "test:speech": "node --import tsx scripts/speech.e2e.ts",
+    "gen:speech-fixture": "node scripts/generate-speech-fixture.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.39",

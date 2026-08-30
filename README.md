@@ -1,30 +1,62 @@
-# Echosphere — PS31 Voice AI Co-Teacher
+# Athena — Voice AI Co-Teacher
 
-An audio-only live classroom where a teacher, multiple students, and an AI
-co-teacher share one Agora voice channel. Built against
+A live, **audio-only** classroom where a teacher, several students, and an AI
+co-teacher named **Athena** share one Agora voice channel. Athena listens to the
+whole lesson, answers when she's called on, runs spoken quizzes, tracks who is
+struggling, and hands the teacher a post-class summary — while the teacher keeps
+a hard mute and override at all times.
+
+Built for PS31 against
 [`docs/PS31-ai-co-teacher-implementation-plan.md`](docs/PS31-ai-co-teacher-implementation-plan.md).
+For the full story of every bug and fix, see [`docs/BUILD-LOG.md`](docs/BUILD-LOG.md).
 
-This file is the reference for how the system works today. For the story of
-how it got there — every bug found, its root cause, and the fix — see
-[`docs/BUILD-LOG.md`](docs/BUILD-LOG.md).
+**No API keys beyond Agora.** Speech recognition, the language model, and the
+voice are all resold through the Agora project — Deepgram, `gpt-4o-mini`, and
+MiniMax behind one agent. Nothing here calls OpenAI, or any other vendor,
+directly.
 
-There is no video anywhere in this app. The surface area is an Agora RTC audio
-channel, a control/data path, and a web dashboard.
+---
 
-**No API keys beyond Agora.** Speech recognition, the model and the voice are
-all resold through the Agora project — Deepgram, gpt-4o-mini and MiniMax behind
-one agent. Nothing here calls OpenAI directly.
+## Quick start
 
-## Layout
+### 1. Credentials
 
+You need one Agora project with **RTC + RTM + Conversational AI** enabled.
+
+```bash
+agora login
+agora project create classroom-coteacher --feature rtc --feature convoai   # convoai implies rtm
+agora project use classroom-coteacher
+agora project env --with-secrets                                            # prints App ID + App Certificate
 ```
-apps/web           Next.js frontend (from the official Agora ConvoAI quickstart)
-apps/orchestrator  Long-lived Node service: roles, floor state machine, lesson
-                   material, quiz engine, gap detector, reports
-packages/shared-types  Domain types shared by both
+
+Then **hand-edit both env files** with those two values (the CLI's
+`agora project env write` emits `AGORA_APP_ID` / `AGORA_APP_CERTIFICATE`, but
+this repo reads the `NEXT_`-prefixed names):
+
+`apps/web/.env.local`
+```
+NEXT_PUBLIC_AGORA_APP_ID=<App ID>
+NEXT_AGORA_APP_CERTIFICATE=<App Certificate>
+NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:8787
 ```
 
-## Running it
+`apps/orchestrator/.env`
+```
+NEXT_PUBLIC_AGORA_APP_ID=<App ID>
+NEXT_AGORA_APP_CERTIFICATE=<App Certificate>
+PORT=8787
+CORS_ORIGINS=http://localhost:3000
+LLM_MODEL=gpt-4o-mini
+```
+
+No Customer ID / Secret is needed — the `agora-agents` SDK runs in App
+Credentials mode and mints the ConvoAI token itself.
+
+> **After changing credentials, fully restart both servers.** `NEXT_PUBLIC_*` is
+> baked in when the web server starts.
+
+### 2. Install and run
 
 ```bash
 pnpm install
@@ -36,210 +68,179 @@ pnpm --filter @echosphere/orchestrator dev
 pnpm --filter @echosphere/web dev
 ```
 
-Open <http://localhost:3000/join>. Join as a teacher in one browser profile and
-as students in others, then press **Bring Athena in** on the teacher dashboard.
+Open <http://localhost:3000/join>.
 
-### Environment
+### 3. For a demo or when sharing — run production, not dev
 
-`apps/web/.env.local` and `apps/orchestrator/.env` both need the Agora project
-credentials, and nothing else:
+`next dev`'s Fast Refresh re-evaluates modules on every edit, which over a long
+session desyncs the RTM client and produces `Ins id is 2` / `Offset is outside
+the bounds of the DataView` errors in the console. For anything you're showing
+or sharing, run the production build instead:
 
 ```bash
-agora project use athena-echosphere
-agora project env write apps/web/.env.local
+pnpm --filter @echosphere/web build
+pnpm --filter @echosphere/web start     # :3000, no Fast Refresh
 ```
 
-| Variable | Where | Purpose |
-|---|---|---|
-| `NEXT_PUBLIC_AGORA_APP_ID` | both | Agora project App ID |
-| `NEXT_AGORA_APP_CERTIFICATE` | both | Server-side only; mints tokens |
-| `NEXT_PUBLIC_ORCHESTRATOR_URL` | web | Defaults to `http://localhost:8787` |
-| `LLM_MODEL` | orchestrator | Must be a model Agora resells; defaults to `gpt-4o-mini` |
+### 4. Sharing the frontend with someone else
 
-## How it works without a second vendor key
+It's a **two-service app** — the other person's browser must reach both `:3000`
+(web) *and* `:8787` (orchestrator). Agora audio/transcripts connect
+browser→Agora directly, so those work across machines automatically.
 
-The plan assumed a custom LLM endpoint — the orchestrator sitting in the middle
-of every turn, injecting lesson material and student profiles. That needs an
-OpenAI key and a publicly reachable server. Neither exists here, so two
-mechanisms replace it.
+**Same wifi:** set `NEXT_PUBLIC_ORCHESTRATOR_URL=http://<your-lan-ip>:8787` in
+`apps/web/.env.local`, add `http://<your-lan-ip>:3000` to `CORS_ORIGINS`,
+restart both, share `http://<your-lan-ip>:3000/join`.
 
-**Everything the agent needs to know lives in the system prompt**, and the
-orchestrator re-pushes it with `session.update()` whenever the classroom
-changes: a student joins, the teacher retags someone's level, material is
-uploaded, verbosity or a topic ban moves. §3.5 works because the roster block
-lists every student with their level, and the model matches depth to whoever it
-is answering. See [`agent/prompt.ts`](apps/orchestrator/src/agent/prompt.ts).
+**Anywhere (tunnel):**
+```bash
+brew install cloudflared
+cloudflared tunnel --url http://localhost:8787   # -> ORCHESTRATOR url
+cloudflared tunnel --url http://localhost:3000   # -> WEB url
+```
+Then point `NEXT_PUBLIC_ORCHESTRATOR_URL` at the orchestrator tunnel, add the
+web tunnel origin to `CORS_ORIGINS` (exact, `https://`, no trailing slash),
+restart both. Both must be tunnelled — an `https://` page can't call
+`http://localhost`.
 
-**Structured data comes back out through the braces.** The agent runs with
-MiniMax `skipPatterns: [5]`, so the engine strips curly-brace content before
-speech synthesis while the RTM transcript still restores the full text. A JSON
-object appended to a turn is therefore inaudible to the room and visible to the
-orchestrator — one model, one call, one round trip, no classifier.
+---
+
+## Running a lesson
+
+1. **Teacher** joins in one browser profile (`/join` → name → *Teacher* → *Start
+   fractions demo (LCD)* or type a title). Lands on `/teacher/<id>`.
+2. **Students** join in separate profiles / incognito windows (each needs a
+   distinct browser session — Agora rejects a duplicated identity). They land on
+   `/classroom/<id>`.
+3. Teacher presses **Bring Athena in**. Her greeting plays in every browser and
+   appears in the transcript.
+4. By default the floor is **closed to students** — Athena listens and builds
+   context but only the teacher can call on her. Toggle **Let students ask** to
+   open it; then a student saying *"Athena, …"* gets an answer.
+5. **Start Quiz** (with a topic) → Athena asks a **set of 3 questions**, one at a
+   time. Each pops a card for every student with a 15-second countdown; when
+   everyone answers or the timer runs out it reveals the answer and advances.
+6. **Mute Athena** cuts her off mid-sentence and is an absolute veto until you
+   press Resume.
+7. **End lesson** generates the post-class summary inline.
+
+Athena being *tuned in and listening but silent* is the design — a lesson where
+she says nothing is a success, not a failure.
+
+---
+
+## Architecture at a glance
 
 ```
-Agent turn:  "Quick check. A: add the denominators. B: find the LCD.
-              {"quiz":{"topic":"LCD","question":"…","options":[…],"answer":"B"}}"
-
-Room hears:  "Quick check. A: add the denominators. B: find the LCD."
-App parses:  the payload, and renders the quiz card
+apps/web           Next.js frontend (extended from the Agora ConvoAI quickstart)
+apps/orchestrator  Long-lived Node service — the brain:
+                     roles · floor state machine · lesson material · quiz engine
+                     · gap detector · post-class report
+packages/shared-types  Domain types shared by both
 ```
 
-That carries quiz questions (§3.6), agent-noticed learning gaps (§3.9), and who
-the agent is answering (§3.5). Contract at the bottom of
-[`agent/prompt.ts`](apps/orchestrator/src/agent/prompt.ts), reader in
-[`agent/control.ts`](apps/orchestrator/src/agent/control.ts), tests in
-[`scripts/control.test.ts`](apps/orchestrator/scripts/control.test.ts).
+**Audio** flows over Agora RTC. Every browser subscribes to every other
+participant plus Athena; there is no video anywhere.
 
-This mirrors the approach in the sibling Athena project, where the same channel
-drives a live understanding map.
+**Athena** is a single `agora-agents` ConvoAI agent (Deepgram → `gpt-4o-mini` →
+MiniMax) that the teacher's browser starts. She joins with `remoteUids: ['*']`
+so she hears the whole room.
 
-Inspect the composed prompt at any time with
-`GET /api/sessions/:id/prompt` — the fastest way to confirm a proficiency change
-or a lesson upload actually reached the agent.
+**The control path is SSE, not RTM.** Agora's RTM SDK is browser-only, so the
+orchestrator can't publish to the channel. It fans classroom events
+(roster, floor state, quiz cards, gaps, policy) out over
+`GET /api/sessions/:id/events` and takes commands back over plain HTTP. RTM is
+still used for what it's good at — carrying Athena's own transcripts and state
+from Agora's engine to the browser, which the teacher's tab relays back to the
+orchestrator.
 
-## Notes on the plan
+**Everything Athena knows lives in her system prompt.** With no custom LLM
+endpoint, the orchestrator composes the whole classroom — roster with each
+student's level, teacher policy, lesson material — into the prompt and re-pushes
+it with `session.update()` whenever any of it changes. Inspect the live prompt
+with `GET /api/sessions/:id/prompt`.
 
-Three things were verified against the Agora skill and the official quickstart
-rather than assumed, and they change §2 and §7 of the plan:
+**Structured data comes back through the agent's history.** Athena appends one
+JSON object per turn — the quiz she just asked, a gap she noticed, who she's
+answering. MiniMax `skipPatterns: [5]` keeps it out of the spoken audio. The
+orchestrator reads it from `agentSession.getHistory()` (the raw LLM output),
+because the engine also strips it from the RTM transcript the browser relays.
 
-**RTM cannot carry the control path.** Agora's RTM is a client-side-only SDK;
-there is no server variant, and the skill's guidance for backend-to-channel
-messaging is to use the ConvoAI REST API or build your own signalling layer. The
-orchestrator therefore fans classroom events out over **SSE**
-(`/api/sessions/:id/events`) and takes commands back over plain HTTP. RTM is
-still used for what it is good at — the agent's transcripts and state reach the
-browser over RTM directly from Agora's engine.
+### Turn-taking
 
-A consequence: because only browsers can see the RTM transcript stream, **every
-browser relays** finalised segments back to the orchestrator, and the server
-de-duplicates by `(uid, turnId)`. Relaying from the teacher's tab alone would be
-one fewer request per turn, but it made the transcript depend on a single tab
-being open — so the redundancy is deliberate.
-
-**The pipeline is cascading, not GPT-4o Realtime.** Realtime runs as an MLLM —
-audio in, audio out — which supports neither a custom LLM nor `/speak`, so the
-brace channel and the teacher's forced-speech control would both be lost.
-Deepgram → gpt-4o-mini → MiniMax keeps them. Deepgram's `multi` language mode
-covers code-switching (§3.7).
-
-**Barge-in and forced speech are real APIs**, not something to build:
-`session.interrupt()`, `session.say(text, { priority })`, and
-`session.think(instruction)` on the `agora-agents` SDK. §7.1 resolved.
-
-## Turn-taking
-
-The rule the plan cares most about — *no code path should be able to let the
-agent speak while muted* — is enforced structurally, not by convention:
+The rule the plan cares most about — *no code path can let Athena speak while
+muted* — is structural:
 
 - `decideSpeak` in [`floor/floorMachine.ts`](apps/orchestrator/src/floor/floorMachine.ts)
-  is the only function that grants permission, it checks `policy.muted` first,
-  and it returns a discriminated union rather than a boolean.
+  is the only function that grants permission; it checks `policy.muted` first
+  and returns a discriminated union, not a boolean.
 - `requestFloor` in [`classroomController.ts`](apps/orchestrator/src/classroomController.ts)
-  is the only caller of `decideSpeak`. Every path that can make the agent talk
-  goes through that one door.
-- Denials are broadcast to the teacher panel, so "the AI tried to speak and was
-  blocked because you muted it" is visible during a demo.
+  is its only caller — one door for every path that can make Athena talk.
+- Denials are broadcast to the teacher panel, so a blocked attempt is visible.
 
-The floor machine is pure — every transition is a function of
-`(snapshot, policy, input)` — so the rules are testable without an Agora
-connection.
+The floor machine is a pure function of `(snapshot, policy, input)`, tested
+without an Agora connection ([`floor.test.ts`](apps/orchestrator/scripts/floor.test.ts),
+[`floorMachine.test.ts`](apps/orchestrator/scripts/floorMachine.test.ts)).
 
-### A turn, once authorized, runs to completion
+Two things the plan didn't anticipate:
 
-ConvoAI answers every addressed turn on its own initiative — it never asks the
-orchestrator first. That means the orchestrator's only lever is *after the
-fact*: the browser relays `AGENT_STATE_CHANGED`, and
-[`handleAgentState`](apps/orchestrator/src/classroomController.ts) decides
-whether that turn was authorized (§3.3's floor rules) or gets cut off.
+- **ConvoAI answers on its own initiative** — it never asks the orchestrator
+  first. The orchestrator's lever is after the fact: the browser relays
+  `AGENT_STATE_CHANGED`, and `handleAgentState` interrupts a turn that had no
+  permit. A turn once *authorized* runs to completion — only an explicit mute,
+  barge-in, or floor-close ends it early, never a stale clock read.
+- **The engine can't tell the teacher from a student** (it has no speaker
+  identity), so with the floor closed it stays silent even for the teacher. When
+  the orchestrator sees the *teacher* address Athena by name it drives the reply
+  explicitly with a `[classroom:system]` directive.
 
-The first version of this re-checked a permit's TTL on every state event,
-including ones mid-turn. A real answer — ASR settle, LLM generation, then
-several seconds of speech — routinely outlives a short permit window, so a
-legitimate answer got interrupted mid-sentence for no visible reason. Fixed by
-separating "may this turn *begin*" (bounded by the TTL) from "is this turn
-*already running*" (`authorizedTurnInProgress`, which nothing but an explicit
-mute/barge-in/floor-close can revoke). Covered in
-[`scripts/floor.test.ts`](apps/orchestrator/scripts/floor.test.ts), including
-the regression itself: a permit rewound 20 seconds into the past does not
-interrupt a turn already under way.
+### Engine-level barge-in is not speaker-scoped
 
-The same file also caught a second, unrelated bug in the same area: the
-teacher's own "address the agent by name" path only ever ran inside a
-`role === 'student'` branch, so `studentsMayInvoke` — which is meant to gate
-*student* self-service access to the floor — was silently gating the
-*teacher's* as well. The teacher can now always call on the agent by name,
-regardless of that setting; the gate still applies only to students.
+`interrupt_duration_ms` fires for *any* subscribed uid — a multi-party room
+needs `remoteUids: ['*']`, so a student's stray "okay" mid-answer is
+indistinguishable at the engine level from a teacher barging in. Both VAD
+thresholds are pinned to Agora's documented ceiling to make the misfire rare;
+the orchestrator's own `interruptAgent()`, gated to the teacher in
+`onTeacherBargeIn`, is the one barge-in path that *is* speaker-scoped. A
+platform limitation, mitigated not fixed.
 
-### Engine-level barge-in cannot be scoped to one speaker
-
-Verified against Agora's live REST docs, not assumed:
-`start_of_speech.interrupt_duration_ms` triggers whenever *any* subscribed
-remote uid speaks past the threshold, with no participant-level scoping in the
-API. Since a multi-party classroom needs `remoteUids: ['*']`, this means a
-student's stray "okay" mid-answer is indistinguishable, at the engine level,
-from a teacher actually barging in. Both `interrupt_duration_ms` and
-`end_of_speech.silence_duration_ms` are set to the documented ceiling
-(`1200`/`2000`) in [`agentLifecycle.ts`](apps/orchestrator/src/agent/agentLifecycle.ts)
-to make that misfire rarer — this is a mitigation of a platform limitation, not
-a fix, and is documented as such there. The orchestrator's own
-`interruptAgent()` call, gated to the teacher's role in `onTeacherBargeIn`,
-remains the one barge-in path that is actually speaker-scoped.
-
-### Speaker attribution needs faster polling than Agora's default
-
-Human turns carry no speaker id of their own — attribution comes from
-whichever participant's mic was loudest right before their turn began. Agora's
-built-in `volume-indicator` event is fixed by the SDK at a 2-second reporting
-interval (confirmed in the SDK's own typings; there is no parameter to change
-it), which is slower than a fast handoff between speakers. `ClassroomAudio`
-instead polls each track's own `getVolumeLevel()` — real-time by the SDK's own
-recommendation — at 150ms, checking the local mic alongside every remote
-track so a stale reading can't misattribute the *local* participant's own next
-turn to whoever spoke last.
+---
 
 ## Verification
 
 ```bash
 pnpm -r typecheck
-pnpm --filter @echosphere/orchestrator test     # control-channel parser + floor/permit enforcement
-pnpm --filter @echosphere/web lint
+pnpm -r lint
+pnpm --filter @echosphere/orchestrator test     # 80 checks — control parser, floor/permit, quiz set, tokens
 pnpm --filter @echosphere/web build
-pnpm --filter @echosphere/web test:e2e          # real browser, both servers must be up
-pnpm --filter @echosphere/web test:e2e:agent    # also starts a live agent (Agora minutes)
-pnpm --filter @echosphere/web test:roundtrip    # agent speaks -> words come back (Agora minutes)
+pnpm --filter @echosphere/web test:e2e          # real browser, both servers up, fake mic
+pnpm --filter @echosphere/web test:roundtrip    # live agent: she speaks, words + quiz card come back (Agora minutes)
 ```
 
-`test:e2e` drives Chromium with a fake microphone: two browser contexts join as
-teacher and student, RTC connects for real, and the run fails on duplicate RTM
-instances, CORS-refused SSE, or a missing control panel.
+`test:roundtrip` is the one that matters. It puts a **student** in the room
+(which triggers `session.update()`), starts the agent, and asserts her words —
+and a quiz card, with its countdown — come back through the full pipeline. Every
+serious bug in this project passed typecheck, lint, and the API tests and only
+showed up here.
 
-`test:roundtrip` is the one that matters most. It puts a **student** in the room
-before starting the agent, then makes the agent speak and asserts its words come
-back through RTM. Both halves are deliberate: the student join is what triggers
-`session.update()`, and driving speech from the agent side takes speech
-recognition out of the picture, so a failure is unambiguously the relay. Every
-serious bug in this project so far — a missing `subscribeMessage`, a transcript
-frozen at its first fragment, an `llm.params` update that erased the model —
-passed typecheck, lint and the API tests, and only showed up here.
+---
 
-## Known gaps
+## What works, and what doesn't
 
-- **State is in-process.** The plan's §4 lists Postgres. Sessions live in the
-  orchestrator's memory and are lost on restart; a second replica would need
-  sticky routing by `sessionId`.
-- **The post-class narrative is computed, not written.** Everything a teacher
-  acts on is already structured data by the time the lesson ends, so the report
-  is derived from the log rather than generated. The numbers cannot be wrong,
-  but the prose is templated.
-- **Retrieval is keyword overlap, not embeddings** — there is no key to call for
-  a vector. It only matters when uploaded material exceeds the prompt budget;
-  below that, the whole lesson goes in.
-- **The floor machine has no unit tests yet.** It is pure and is the next thing
-  that should get them; the control-channel parser has ten, and the browser
-  harness covers the connection-level failures.
-- **Transcription quality is unverified.** The browser test uses a fake
-  microphone emitting a tone, so it proves the ASR pipeline connects but says
-  nothing about how well Deepgram's `multi` mode handles real speech.
-- **The quickstart's original routes** (`app/api/invite-agent`, etc.) are still
-  present and still work, but are no longer wired to any page. They start a 1:1
-  agent, not a classroom one. Kept as the proven baseline reference.
+| Area | State |
+|---|---|
+| Multi-party RTC, teacher/student roles, identity | ✅ |
+| Turn-taking — mute, floor, teacher override, per-turn authorization | ✅ solid |
+| Spoken quizzes — 3-question sets, 15s timer, voice or tap answers, auto-advance | ✅ |
+| Lesson grounding — teacher's material in the prompt, her terminology | ✅ |
+| Per-student explanation depth — level tags in the roster, live retag | ✅ |
+| Post-class summary — per-student stats, gaps, concept mastery | ✅ (narrative is templated, not LLM-written — nothing to call) |
+| Multilingual | ⚠️ one language at a time via `STT_LANGUAGE` (`hi`, `es`, …). Deepgram's `multi` code-switch mode returns nothing through the resale path — do not use it. |
+| `{to}` / `{gap}` on ordinary turns | ⚠️ still read from the RTM relay, which strips them — so live "who is she answering" attribution and agent-noticed gaps are unreliable. Quiz payloads are read from history and work. |
+| Restraint Meter | the orb reflects real floor decisions (listening / speaking / held-back); the LLM "intervention gate" behind it stays dormant (needs a public tunnel + BYOK key). |
+| Persistence | in-memory; lost on orchestrator restart unless `DATABASE_URL` is set (Postgres schema + migration exist). A second replica would need sticky routing by `sessionId`. |
+| Transcription quality | the browser tests use a fake tone, so they prove the pipeline connects but not how well real speech transcribes. |
+
+The quickstart's original 1:1 routes (`app/api/invite-agent`, etc.) are still
+present and still work, but aren't wired to any page — kept as the proven
+baseline reference.

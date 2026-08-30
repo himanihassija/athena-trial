@@ -52,9 +52,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      detail?: string;
+    };
+    // A rejected command (409) carries its reason in `detail`, a bad request in
+    // `error` — surface whichever is present rather than a bare status code.
     throw new Error(
-      (detail as { error?: string }).error ??
+      body.error ??
+        body.detail ??
         `${init?.method ?? 'GET'} ${path} failed with ${response.status}`,
     );
   }
@@ -72,10 +78,10 @@ export const orchestrator = {
 
   listSessions: () => request<SessionSummary[]>('/api/sessions'),
 
-  createSession: (title: string) =>
+  createSession: (title: string, seed?: 'unlike-fractions') =>
     request<SessionSummary>('/api/sessions', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, seed }),
     }),
 
   getRoom: (sessionId: string) =>

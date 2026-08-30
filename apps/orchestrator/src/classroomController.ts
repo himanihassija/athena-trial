@@ -12,6 +12,7 @@
 
 import type {
   ProficiencyTag,
+  QuizQuestion,
   SpeakTrigger,
   TeacherCommand,
   TranscriptSegment,
@@ -28,7 +29,9 @@ import {
   stripWakePhrase,
 } from './floor/floorMachine.js';
 import {
+  assistantTurnSnapshot,
   interruptAgent,
+  pollForPayloadTurn,
   pushInstructions,
   think,
 } from './agent/agentLifecycle.js';
@@ -46,12 +49,16 @@ import {
 } from './gaps/gapDetector.js';
 import {
   SYSTEM_PREFIX,
+  addressedByTeacherDirective,
   forceSpeakDirective,
   gapInterjectionDirective,
   quizDirective,
 } from './agent/prompt.js';
 import {
+  allTargetsAnswered,
+  answersFor,
   broadcastQuiz,
+  markQuizClosed,
   normaliseAnswer,
   openQuizFor,
   recordAnswer,
@@ -100,16 +107,24 @@ export function requestFloor(
     // Denials are surfaced to the teacher panel: "the agent tried to speak and
     // was blocked because you muted it" is exactly what makes the override
     // mechanism legible during a demo (§3.10).
+    console.info(
+      `[floor] denied ${trigger} for session ${session.sessionId}: ${decision.reason}`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
       reason: decision.reason,
       at: Date.now(),
     });
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
     return false;
   }
 
+  console.info(
+    `[floor] granted ${decision.trigger} for session ${session.sessionId}`,
+  );
   session.floor = onAgentSpeechStart(session.floor, Date.now());
   grantSpeakPermit(session, decision.trigger);
+  setRestraintMeter(session, 'speaking');
   broadcastFloor(session);
   return true;
 }
@@ -169,6 +184,7 @@ export async function handleAgentState(
     // The turn has ended (silent/listening/idle). Authorization does not
     // carry over: the next turn, whatever prompts it, needs its own permit.
     session.authorizedTurnInProgress = false;
+    setRestraintMeter(session, 'listening');
     return { interrupted: false };
   }
 
@@ -183,11 +199,23 @@ export async function handleAgentState(
     await interruptAgent(session.sessionId).catch(() => undefined);
     releaseFloor(session);
     clearSpeakPermit(session);
+    // The engine started an un-permitted turn — most often a student addressed
+    // her while the floor was closed to students. Report the reason that
+    // actually applies so the teacher panel is not misleading.
+    const reason = session.policy.muted
+      ? 'AGENT_MUTED'
+      : !session.policy.studentsMayInvoke
+        ? 'STUDENT_INVOCATION_DISABLED'
+        : 'TEACHER_HOLDS_FLOOR';
+    console.info(
+      `[floor] interrupted an un-permitted turn in session ${session.sessionId}: ${reason}`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
-      reason: session.policy.muted ? 'AGENT_MUTED' : 'TEACHER_HOLDS_FLOOR',
+      reason,
       at: Date.now(),
     });
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
     return { interrupted: true };
   }
 
@@ -196,6 +224,7 @@ export async function handleAgentState(
   // invitation meant for this one.
   session.authorizedTurnInProgress = true;
   session.speakPermit = null;
+  setRestraintMeter(session, 'speaking');
   return { interrupted: false };
 }
 
@@ -331,17 +360,43 @@ export async function ingestTranscript(
     // Heard, understood, and deliberately not acted on. Surfaced so the
     // teacher can see that a student tried to reach her and decide whether to
     // open the floor.
+    console.info(
+      `[floor] student invocation blocked in session ${session.sessionId} — floor closed to students`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
       reason: 'STUDENT_INVOCATION_DISABLED',
       at: now,
     });
+    // The ConvoAI engine hears the wake word on its own and will start
+    // answering regardless of this branch — the prompt tells her not to, but
+    // that is advisory. Cut it here, at the moment we see the student's turn,
+    // rather than waiting for the browser to relay her AGENT_STATE_CHANGED a
+    // round trip later; and make sure no stale permit lets it through.
+    clearSpeakPermit(session);
+    await interruptAgent(session.sessionId).catch(() => undefined);
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
-    // The engine will now answer on its own. This is the permit that makes that
-    // answer legitimate; without it the enforcement path would cut her off.
+    // The permit that makes the answer legitimate; without it the enforcement
+    // path cuts her off.
     grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
     session.floor = onAddressedAgent(session.floor, participant.participantId, now);
+    console.info(
+      `[floor] granted DIRECTLY_ADDRESSED to ${participant.role} in session ${session.sessionId}`,
+    );
+
+    // When the floor is closed to students the engine cannot tell the teacher
+    // apart from a student (it has no speaker identity), so it stays silent —
+    // and by the time this finalised transcript lands, the engine's own
+    // autonomous attempt has already been interrupted by enforcement. The
+    // teacher IS allowed, and the orchestrator knows who spoke, so drive the
+    // answer explicitly. Skipped when the floor is open: there the autonomous
+    // reply works and a think() would only step on it.
+    if (participant.role === 'teacher' && !session.policy.studentsMayInvoke) {
+      const question = stripWakePhrase(spokenText, session.policy.wakePhrase);
+      void think(session.sessionId, addressedByTeacherDirective(question));
+    }
   }
 
   if (participant.role !== 'student') {
@@ -416,11 +471,14 @@ function ingestAgentTurn(
   releaseFloor(session);
 }
 
-/** Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap). */
+/**
+ * Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap).
+ * Returns the quiz it created, if any, so a multi-question set can track it.
+ */
 function applyControl(
   session: ClassroomSession,
   control: CoTeacherControl,
-): void {
+): { quiz?: QuizQuestion } {
   const roster = activeStudents(session).map((s) => ({
     participantId: s.participantId,
     displayName: s.displayName,
@@ -442,14 +500,69 @@ function applyControl(
 
   if (control.quiz) {
     const pending = takePendingQuiz(session);
+    const set = session.activeQuizSet;
     const quiz = recordQuizFromControl(
       session,
       control.quiz,
-      pending?.origin ?? 'teacher',
-      pending?.targetStudentIds ?? [],
+      pending?.origin ?? set?.origin ?? 'teacher',
+      pending?.targetStudentIds ?? set?.targetStudentIds ?? [],
     );
+    if (set && set.total > 1) {
+      quiz.setIndex = set.asked;
+      quiz.setTotal = set.total;
+    }
     broadcastQuiz(session, quiz);
+    scheduleQuizClose(session, quiz.quizId, quiz.deadline);
+    return { quiz };
   }
+
+  return {};
+}
+
+/** Arms the countdown-expiry sweep for a freshly issued quiz. */
+function scheduleQuizClose(
+  session: ClassroomSession,
+  quizId: string,
+  deadline: number,
+): void {
+  setTimeout(
+    () => sweepExpiredQuiz(session, quizId),
+    Math.max(0, deadline - Date.now()),
+  );
+}
+
+/**
+ * Closes a quiz whose countdown has run out. Any active target student who has
+ * not answered is marked incorrect — a non-answer counts against the student's
+ * mastery stats — and the correct answer is revealed to the room. Safe to call
+ * more than once and after the "everyone answered" path has already closed it.
+ */
+export function sweepExpiredQuiz(
+  session: ClassroomSession,
+  quizId: string,
+): void {
+  if (session.endedAt !== null) return;
+  const quiz = session.quizzes.get(quizId);
+  if (!quiz || quiz.closedAt) return;
+
+  const answered = new Set(
+    answersFor(session, quizId).map((a) => a.participantId),
+  );
+  const targets =
+    quiz.targetStudentIds.length > 0
+      ? quiz.targetStudentIds
+      : activeStudents(session).map((s) => s.participantId);
+
+  for (const participantId of targets) {
+    const p = session.participants.get(participantId);
+    if (p?.role !== 'student' || p.leftAt !== undefined) continue;
+    if (answered.has(participantId)) continue;
+    // An empty answer scores as incorrect and bumps quizzesAnswered, through
+    // the normal path. Runs before markQuizClosed sets closedAt.
+    submitQuizAnswer(session, quizId, participantId, '', 'ui');
+  }
+
+  if (markQuizClosed(session, quiz)) void maybeAdvanceQuizSet(session, quiz);
 }
 
 function takePendingQuiz(session: ClassroomSession) {
@@ -531,6 +644,13 @@ export async function applyTeacherCommand(
       // this is the moment the plan calls out as worth demoing (§3.10).
       await interruptAgent(session.sessionId).catch(() => undefined);
       releaseFloor(session);
+      // A running multi-question quiz stops here too.
+      session.activeQuizSet = null;
+      session.restraintMeterState = 'listening';
+      publish(session.sessionId, {
+        kind: 'echosphere:restraint-meter-changed',
+        state: 'listening',
+      });
       broadcastPolicy(session);
       return { ok: true, detail: 'Agent muted and any in-flight speech stopped.' };
     }
@@ -542,9 +662,12 @@ export async function applyTeacherCommand(
     }
 
     case 'END_AGENT_TURN': {
+      // "Make sure Athena isn't talking" — if she already wasn't, that's done,
+      // not an error. Reserving 409 for commands that were genuinely refused.
       const stopped = await interruptAgent(session.sessionId);
       releaseFloor(session);
-      return { ok: stopped, detail: stopped ? undefined : 'Agent was not speaking.' };
+      clearSpeakPermit(session);
+      return { ok: true, detail: stopped ? undefined : 'Athena was already silent.' };
     }
 
     case 'FORCE_AGENT_SPEAK': {
@@ -639,9 +762,17 @@ export async function applyTeacherCommand(
 
 // ─── Quiz delivery (§3.6) ────────────────────────────────────────────────────
 
+/** How many questions one "Start Quiz" asks. */
+const QUIZ_SET_SIZE = 3;
+
+/** Pause after a question's answer is revealed before the next one appears. */
+const QUIZ_REVEAL_PAUSE_MS = 2_500;
+
 /**
- * Asks the agent to pose a quiz. The question itself comes back on the control
- * channel a turn later, where `applyControl` turns it into a card.
+ * Asks the agent to pose a quiz — a SET of {@link QUIZ_SET_SIZE} questions on
+ * the topic, auto-advancing as each one closes. The {quiz} payload comes back a
+ * turn later NOT on the browser relay (skipPatterns strips the braces from that
+ * too) but from the agent's own history, which `issueSetQuestion` polls for.
  */
 export async function startQuiz(
   session: ClassroomSession,
@@ -649,32 +780,156 @@ export async function startQuiz(
   targetStudentIds: string[] | undefined,
   origin: 'teacher' | 'gap-detector',
 ): Promise<CommandResult> {
-  if (!requestFloor(session, 'QUIZ_DELIVERY', topic)) {
-    return { ok: false, detail: 'Blocked by agent policy (is the agent muted?).' };
-  }
-
   const targets = targetStudentIds ?? [];
-  const names = activeStudents(session)
-    .filter((s) => targets.includes(s.participantId))
-    .map((s) => s.displayName);
 
-  session.pendingQuiz = {
+  // A fresh Start Quiz replaces any set still running.
+  session.activeQuizSet = {
     topic,
     targetStudentIds: targets,
     origin,
-    requestedAt: Date.now(),
+    total: QUIZ_SET_SIZE,
+    asked: 1,
+    quizIds: [],
+    askedQuestions: [],
   };
 
-  const ok = await think(session.sessionId, quizDirective(topic, names));
-  if (!ok) {
-    session.pendingQuiz = null;
-    releaseFloor(session);
-    return { ok: false, detail: 'Agent is not running.' };
+  // issueSetQuestion owns the floor request for EVERY question in the set,
+  // including this first one — Q2/Q3 were silently going out without a permit,
+  // so enforcement killed the agent's turn before it could emit the payload.
+  const issued = await issueSetQuestion(session);
+  if (!issued) {
+    session.activeQuizSet = null;
+    return {
+      ok: false,
+      detail: 'Blocked — is Athena muted, is the topic off-limits, or is she not running?',
+    };
   }
   return {
     ok: true,
-    detail: 'Quiz requested; the card appears when Athena asks it.',
+    detail: `Quiz started — ${QUIZ_SET_SIZE} questions on "${topic}".`,
   };
+}
+
+/**
+ * Issues one quiz question and recovers its payload from the agent's history.
+ * Retries once if the first attempt produced no usable payload — the LLM is
+ * reliable at this, but the history endpoint can be briefly flaky. Ends the set
+ * and tells the teacher if it still fails.
+ *
+ * Returns false only when the agent could not be asked at all (not running).
+ */
+async function issueSetQuestion(
+  session: ClassroomSession,
+  attempt = 1,
+): Promise<boolean> {
+  const set = session.activeQuizSet;
+  if (!set) return false;
+
+  // A permit for THIS question. QUIZ_DELIVERY bypasses the floor state, so a
+  // retry or an advance while the previous turn is still winding down is fine;
+  // it only fails on a mute or a disabled topic.
+  if (!requestFloor(session, 'QUIZ_DELIVERY', set.topic)) {
+    return false;
+  }
+
+  const names = activeStudents(session)
+    .filter((s) => set.targetStudentIds.includes(s.participantId))
+    .map((s) => s.displayName);
+
+  session.pendingQuiz = {
+    topic: set.topic,
+    targetStudentIds: set.targetStudentIds,
+    origin: set.origin,
+    requestedAt: Date.now(),
+  };
+
+  const before = await assistantTurnSnapshot(session.sessionId);
+
+  // Not interruptable: the question, its spoken options, and the trailing
+  // {quiz} payload are one turn; a stray "okay" would truncate the payload.
+  const ok = await think(
+    session.sessionId,
+    quizDirective(set.topic, names, set.askedQuestions),
+    { interruptable: false },
+  );
+  if (!ok) {
+    session.pendingQuiz = null;
+    clearSpeakPermit(session);
+    releaseFloor(session);
+    return false;
+  }
+
+  const text = await pollForPayloadTurn(session.sessionId, before, {
+    timeoutMs: 25_000,
+  });
+  const control = text ? parseAgentTurn(text).control : null;
+
+  if (!control?.quiz) {
+    console.warn(
+      `[quiz] attempt ${attempt}: no {quiz} payload from the agent in session ${session.sessionId}` +
+        (text ? ` (said: "${text.slice(0, 80)}")` : ' (no turn)'),
+    );
+    session.pendingQuiz = null;
+    if (attempt < 2 && session.activeQuizSet === set) {
+      return issueSetQuestion(session, attempt + 1);
+    }
+    // Give up on this question. Close the set cleanly rather than hang.
+    if (session.activeQuizSet === set) {
+      session.activeQuizSet = null;
+      publishToTeachers(session.sessionId, {
+        kind: 'echosphere:agent-blocked',
+        reason: 'SILENCE_GAP_TOO_SHORT',
+        at: Date.now(),
+      });
+    }
+    clearSpeakPermit(session);
+    releaseFloor(session);
+    return true; // the agent IS running; the quiz just didn't land
+  }
+
+  if (session.activeQuizSet !== set) return true; // cancelled mid-flight
+  console.info(`[quiz] payload recovered from agent history in session ${session.sessionId}`);
+  const { quiz } = applyControl(session, control);
+  if (quiz) {
+    set.quizIds.push(quiz.quizId);
+    set.askedQuestions.push(quiz.question);
+  }
+  return true;
+}
+
+/**
+ * Called when a quiz closes. If it belongs to a running set and there are
+ * questions left, pauses on the reveal, then asks the next one. Cancelled by a
+ * mute, a lesson end, or a fresh Start Quiz during the pause.
+ */
+export async function maybeAdvanceQuizSet(
+  session: ClassroomSession,
+  closedQuiz: QuizQuestion,
+): Promise<void> {
+  const set = session.activeQuizSet;
+  if (!set || !set.quizIds.includes(closedQuiz.quizId)) return;
+
+  if (set.asked >= set.total) {
+    console.info(`[quiz] set complete (${set.total} questions) in session ${session.sessionId}`);
+    session.activeQuizSet = null;
+    return;
+  }
+
+  await new Promise((r) => setTimeout(r, QUIZ_REVEAL_PAUSE_MS));
+
+  // Something during the pause invalidated the set.
+  if (session.activeQuizSet !== set || session.endedAt !== null || session.policy.muted) {
+    if (session.activeQuizSet === set) session.activeQuizSet = null;
+    return;
+  }
+
+  set.asked += 1;
+  console.info(
+    `[quiz] advancing to question ${set.asked} of ${set.total} in session ${session.sessionId}`,
+  );
+  if (!(await issueSetQuestion(session))) {
+    session.activeQuizSet = null;
+  }
 }
 
 export function submitQuizAnswer(
@@ -713,6 +968,17 @@ export function submitQuizAnswer(
     // An inferred level change matters to the agent as much as a teacher's
     // manual one, so the prompt is refreshed either way.
     void pushInstructions(session);
+  }
+
+  // Once every active target student has answered, the question is done before
+  // its timer runs out: close it early and reveal the answer to the room so the
+  // card resolves instead of hanging open. markQuizClosed is idempotent with
+  // the countdown-expiry path.
+  if (allTargetsAnswered(session, result.quiz) && markQuizClosed(session, result.quiz)) {
+    console.info(
+      `[quiz] all targets answered ${result.quiz.quizId} in session ${session.sessionId} — revealing answer`,
+    );
+    void maybeAdvanceQuizSet(session, result.quiz);
   }
 
   return { ok: true, detail: result.answer.correct ? 'correct' : 'incorrect' };
@@ -813,6 +1079,40 @@ export function broadcastFloor(session: ClassroomSession): void {
     kind: 'echosphere:floor-changed',
     floor: session.floor,
   });
+}
+
+/** How long the meter shows 'held-back' before settling, when no turn-end event will. */
+const RESTRAINT_HELD_BACK_MS = 3000;
+
+/**
+ * Single writer for the restraint-meter UI state. It reflects genuine floor
+ * decisions, never synthesised events:
+ *   - 'speaking'  the floor was granted, or an autonomous turn was authorised
+ *   - 'held-back' a request to speak was denied, or an un-permitted turn was cut
+ *   - 'listening' resting state, restored when a turn ends
+ *
+ * A denial starts no turn, so no turn-end event follows to clear it — those
+ * callers pass `revertAfterMs` so the meter settles on its own.
+ */
+function setRestraintMeter(
+  session: ClassroomSession,
+  state: ClassroomSession['restraintMeterState'],
+  revertAfterMs?: number,
+): void {
+  if (session.restraintMeterState !== state) {
+    session.restraintMeterState = state;
+    publish(session.sessionId, {
+      kind: 'echosphere:restraint-meter-changed',
+      state,
+    });
+  }
+  if (revertAfterMs !== undefined) {
+    setTimeout(() => {
+      if (session.restraintMeterState === state) {
+        setRestraintMeter(session, 'listening');
+      }
+    }, revertAfterMs);
+  }
 }
 
 export function broadcastPolicy(session: ClassroomSession): void {

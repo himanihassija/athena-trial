@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClassroomShell } from '@/components/classroom/ClassroomShell';
 import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
+import { QuizOverlay } from '@/components/classroom/QuizOverlay';
 import {
   AgentAbsentNotice,
   FloorIndicator,
@@ -33,12 +34,14 @@ export default function ClassroomPage() {
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
+  const [speakingUid, setSpeakingUid] = useState<string | null>(null);
   // Whether the transcript pipeline is actually alive. Distinguishing this from
   // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(
     null,
   );
+  const [micError, setMicError] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -157,6 +160,16 @@ export default function ClassroomPage() {
         </p>
       )}
 
+      {micError && (
+        <p
+          className="rounded-[0.625rem] border px-4 py-3 text-sm"
+          style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)', color: 'var(--eco-cream)' }}
+        >
+          {micError} You can still listen, but Athena will not hear you until
+          a microphone is available.
+        </p>
+      )}
+
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
         <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -182,6 +195,8 @@ export default function ClassroomPage() {
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
                 onToolkitError={setTranscriptionError}
+                onMicError={setMicError}
+                onSpeakingChange={setSpeakingUid}
               />
             )}
           </ClassroomShell>
@@ -197,6 +212,8 @@ export default function ClassroomPage() {
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
+            agentUid={identity.agentUid}
+            speakingUid={speakingUid}
           />
           <QuizCards
             quizzes={view.quizzes}
@@ -205,6 +222,10 @@ export default function ClassroomPage() {
           />
         </aside>
       </div>
+
+      {!view.ended && (
+        <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
+      )}
     </main>
   );
 }

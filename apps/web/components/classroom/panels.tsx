@@ -81,52 +81,153 @@ export function FloorIndicator({
 
 // ─── Roster (§3.2, §3.5) ─────────────────────────────────────────────────────
 
+/** First + last initial, e.g. "Ms Rao" -> "MR", "ana" -> "A". */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return (parts[0]?.[0] ?? '?').toUpperCase();
+  return (
+    (parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')
+  ).toUpperCase();
+}
+
+function RoleBadge({ role }: { role: 'teacher' | 'student' }) {
+  return (
+    <span
+      aria-hidden
+      className="absolute -bottom-1 left-1/2 flex h-4 w-4 -translate-x-1/2 items-center justify-center rounded-full border"
+      style={{
+        borderColor: 'var(--eco-ink)',
+        background: 'var(--eco-ink-raised)',
+        color: 'var(--eco-cream-dim)',
+      }}
+    >
+      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+        {role === 'teacher' ? (
+          <path d="M8 2 1 6l7 4 5-2.86V11h2V5.5L8 2Zm-4 7.3v2.2C4 12.9 5.8 14 8 14s4-1.1 4-2.5V9.3l-4 2.29L4 9.3Z" />
+        ) : (
+          <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm0 1.5c-3 0-5.5 1.6-5.5 3.6V15h11v-1.9c0-2-2.5-3.6-5.5-3.6Z" />
+        )}
+      </svg>
+    </span>
+  );
+}
+
+function Avatar({
+  name,
+  color,
+  role,
+  speaking,
+}: {
+  name: string;
+  color: string;
+  role: 'teacher' | 'student';
+  speaking: boolean;
+}) {
+  return (
+    <span
+      className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+        speaking ? 'eco-avatar-speaking' : ''
+      }`}
+      // `color` here is `currentColor` for the speaking-ring keyframe.
+      style={{ background: color, color }}
+    >
+      <span className="text-sm font-semibold" style={{ color: 'var(--eco-ink)' }}>
+        {initialsOf(name)}
+      </span>
+      <RoleBadge role={role} />
+    </span>
+  );
+}
+
 export function RosterPanel({
   participants,
   agentPresent,
+  agentUid,
+  speakingUid,
   onSetProficiency,
 }: {
   participants: PublicParticipant[];
   agentPresent: boolean;
+  agentUid?: string;
+  /** RTC uid of whoever is speaking right now, from ClassroomAudio's volume poll. */
+  speakingUid?: string | null;
   onSetProficiency?: (participantId: string, proficiency: string) => void;
 }) {
   const teacher = participants.find((p) => p.role === 'teacher');
   const students = participants.filter((p) => p.role === 'student');
 
+  const levelLabel = (p?: string) =>
+    p === 'advanced' ? 'Level A' : p === 'beginner' ? 'Level C' : 'Level B';
+
   return (
-    <section className="eco-panel flex flex-col gap-3 p-4">
+    <section className="eco-panel flex flex-col gap-4 p-4">
       <h2 className="eco-label">In the room</h2>
-      <ul className="flex flex-col gap-2.5 text-sm">
+      <ul className="flex flex-col gap-3.5 text-sm">
         {teacher && (
-          <li className="flex items-center gap-2.5">
-            <span
-              className="eco-seat-dot"
-              style={{ background: seatColorVar(teacher.participantId) }}
+          <li className="flex items-center gap-3">
+            <Avatar
+              name={teacher.displayName}
+              color={seatColorVar(teacher.participantId)}
+              role="teacher"
+              speaking={speakingUid != null && speakingUid === teacher.uid}
             />
-            <span className="text-[var(--eco-cream)]">{teacher.displayName}</span>
-            <span className="text-xs text-[var(--eco-cream-faint)]">teacher</span>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-[var(--eco-cream)]">
+                {teacher.displayName}
+              </span>
+              <span className="text-xs text-[var(--eco-cream-faint)]">Teacher</span>
+            </div>
           </li>
         )}
-        <li className="flex items-center gap-2.5">
+
+        <li className="flex items-center gap-3">
           <span
-            className={`eco-lamp ${agentPresent ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
-          />
-          <span className="text-[var(--eco-cream)]">Athena</span>
-          <span className="text-xs text-[var(--eco-cream-faint)]">
-            {agentPresent ? 'AI co-teacher' : 'not started'}
+            className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+              agentPresent && speakingUid != null && speakingUid === agentUid
+                ? 'eco-orb-speaking'
+                : agentPresent
+                  ? 'eco-orb-idle'
+                  : ''
+            }`}
+            style={{
+              background: agentPresent
+                ? 'radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--eco-athena) 55%, transparent), transparent 70%), var(--eco-ink-sunken)'
+                : 'var(--eco-ink-sunken)',
+              color: 'var(--eco-athena)',
+              boxShadow: agentPresent
+                ? '0 0 14px 1px color-mix(in srgb, var(--eco-athena) 35%, transparent)'
+                : 'none',
+            }}
+          >
+            A
           </span>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-[var(--eco-cream)]">Athena</span>
+            <span className="text-xs text-[var(--eco-cream-faint)]">
+              {agentPresent ? 'AI teacher' : 'Not started'}
+            </span>
+          </div>
         </li>
+
         {students.map((student) => (
-          <li key={student.participantId} className="flex items-center gap-2.5">
-            <span
-              className="eco-seat-dot"
-              style={{ background: seatColorVar(student.participantId) }}
+          <li key={student.participantId} className="flex items-center gap-3">
+            <Avatar
+              name={student.displayName}
+              color={seatColorVar(student.participantId)}
+              role="student"
+              speaking={speakingUid != null && speakingUid === student.uid}
             />
-            <span className="text-[var(--eco-cream)]">{student.displayName}</span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[var(--eco-cream)]">
+                {student.displayName}
+              </span>
+              <span className="text-xs text-[var(--eco-cream-faint)]">Student</span>
+            </div>
             {onSetProficiency ? (
               <select
                 aria-label={`Explanation level for ${student.displayName}`}
-                className="ml-auto rounded-md border px-1.5 py-0.5 text-xs"
+                className="rounded-md border px-1.5 py-0.5 text-xs"
                 style={{
                   borderColor: 'var(--eco-rule)',
                   background: 'var(--eco-ink-sunken)',
@@ -137,13 +238,13 @@ export function RosterPanel({
                   onSetProficiency(student.participantId, e.target.value)
                 }
               >
-                <option value="beginner">beginner</option>
-                <option value="intermediate">intermediate</option>
-                <option value="advanced">advanced</option>
+                <option value="advanced">Level A (advanced)</option>
+                <option value="intermediate">Level B (intermediate)</option>
+                <option value="beginner">Level C (beginner)</option>
               </select>
             ) : (
-              <span className="ml-auto text-xs text-[var(--eco-cream-faint)]">
-                {student.proficiency}
+              <span className="text-xs text-[var(--eco-cream-faint)]">
+                {levelLabel(student.proficiency)}
               </span>
             )}
           </li>
@@ -212,8 +313,11 @@ export function TranscriptFeed({
 
   const seatOf = (segment: TranscriptSegment): string =>
     segment.speaker === 'agent'
-      ? 'var(--eco-glow)'
+      ? 'var(--eco-athena)'
       : seatColorVar(segment.participantId ?? segment.uid);
+
+  const timeOf = (at: number) =>
+    new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // `min-h-0` at every level of the flex chain is what actually lets the scroll
   // area own the leftover height. Without it a flex child refuses to shrink
@@ -237,42 +341,58 @@ export function TranscriptFeed({
               : 'Transcription starts when Athena joins the room.'}
           </p>
         ) : (
-          <ul className="flex flex-col gap-3.5">
+          <ul className="flex flex-col gap-4">
             {transcript.map((segment) => {
+              const isAgent = segment.speaker === 'agent';
+              const hue = seatOf(segment);
               const uncertain =
                 segment.attributionConfidence !== undefined &&
                 segment.attributionConfidence < UNCERTAIN_ATTRIBUTION_THRESHOLD;
               return (
                 <li
                   key={segment.segmentId}
-                  className="flex gap-3 border-l-2 pl-3"
-                  style={{ borderColor: seatOf(segment) }}
+                  className={`flex flex-col gap-1 ${isAgent ? 'items-start' : 'items-end'}`}
                 >
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 px-1">
+                    <span
+                      className="text-[0.7rem] font-semibold uppercase tracking-wide"
+                      style={{ color: hue }}
+                    >
+                      {nameOf(segment)}
+                    </span>
+                    <span className="eco-numerals text-[0.7rem] text-[var(--eco-cream-faint)]">
+                      {timeOf(segment.at)}
+                    </span>
+                    {uncertain && (
                       <span
-                        className="text-xs font-semibold uppercase tracking-wide"
-                        style={{ color: seatOf(segment) }}
+                        className="rounded px-1 text-[0.625rem] font-medium uppercase tracking-wide"
+                        style={{
+                          background: 'var(--eco-amber-dim)',
+                          color: 'var(--eco-amber)',
+                        }}
+                        title="Two people were speaking at close to the same volume — this attribution is a best guess, not a fact."
                       >
-                        {nameOf(segment)}
+                        unclear who
                       </span>
-                      {uncertain && (
-                        <span
-                          className="rounded px-1 text-[0.625rem] font-medium uppercase tracking-wide"
-                          style={{
-                            background: 'var(--eco-amber-dim)',
-                            color: 'var(--eco-amber)',
-                          }}
-                          title="Two people were speaking at close to the same volume — this attribution is a best guess, not a fact."
-                        >
-                          unclear who
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-[15px] leading-relaxed text-[var(--eco-cream)]">
-                      {segment.text}
-                    </span>
-                  </div>
+                    )}
+                  </span>
+                  <span
+                    className={`max-w-[85%] px-3 py-2 text-[15px] leading-relaxed text-[var(--eco-cream)] ${
+                      isAgent
+                        ? 'rounded-[0.75rem] rounded-tl-sm'
+                        : 'rounded-[0.75rem] rounded-tr-sm'
+                    }`}
+                    style={{
+                      background: isAgent
+                        ? 'var(--eco-athena-dim)'
+                        : 'var(--eco-ink-sunken)',
+                      border: `1px solid color-mix(in srgb, ${hue} ${
+                        isAgent ? 35 : 22
+                      }%, transparent)`,
+                    }}
+                  >
+                    {segment.text}
+                  </span>
                 </li>
               );
             })}
@@ -285,6 +405,8 @@ export function TranscriptFeed({
 }
 
 // ─── Quiz cards (§3.6) ───────────────────────────────────────────────────────
+
+const QUIZ_LETTERS = ['A', 'B', 'C', 'D'];
 
 export function QuizCards({
   quizzes,
@@ -299,40 +421,77 @@ export function QuizCards({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="eco-label">Quiz</h2>
+      <h2 className="eco-label" style={{ color: 'var(--eco-athena)' }}>
+        Quiz
+      </h2>
       {quizzes.slice(-3).map(({ quiz, myAnswer, myResult, correctAnswer, results }) => (
-        <article key={quiz.quizId} className="eco-panel flex flex-col gap-2 p-3.5">
+        <article
+          key={quiz.quizId}
+          className="eco-panel flex flex-col gap-2.5 p-3.5"
+          style={{ borderColor: 'color-mix(in srgb, var(--eco-athena) 30%, var(--eco-rule))' }}
+        >
+          {quiz.setIndex && quiz.setTotal && (
+            <span className="eco-label" style={{ color: 'var(--eco-athena)' }}>
+              Question {quiz.setIndex} of {quiz.setTotal}
+            </span>
+          )}
           <p className="text-sm font-medium text-[var(--eco-cream)]">
             {quiz.question}
           </p>
           <ul className="flex flex-col gap-1.5">
-            {(quiz.options ?? []).map((option) => {
+            {(quiz.options ?? []).map((option, i) => {
               const chosen = myAnswer === option;
               const isCorrect = correctAnswer === option;
-              const revealed = correctAnswer && isCorrect;
+              const revealed = Boolean(correctAnswer) && isCorrect;
               const wrongChoice = chosen && myResult === 'incorrect';
+              const emphasis = revealed
+                ? 'var(--eco-athena)'
+                : wrongChoice
+                  ? 'var(--eco-red)'
+                  : chosen
+                    ? 'var(--eco-athena)'
+                    : null;
               return (
                 <li key={option}>
                   <button
                     type="button"
                     disabled={!canAnswer || myAnswer !== undefined}
                     onClick={() => onAnswer(quiz.quizId, option)}
-                    className="w-full rounded-lg border px-3 py-1.5 text-left text-sm transition-colors disabled:cursor-default"
+                    className="flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-default"
                     style={{
-                      borderColor: revealed
-                        ? 'var(--eco-green)'
-                        : wrongChoice
-                          ? 'var(--eco-red)'
-                          : 'var(--eco-rule)',
+                      borderColor: emphasis ?? 'var(--eco-rule)',
                       background: revealed
-                        ? 'var(--eco-green-dim)'
+                        ? 'var(--eco-athena-dim)'
                         : wrongChoice
                           ? 'var(--eco-red-dim)'
                           : 'var(--eco-ink-sunken)',
                       color: 'var(--eco-cream)',
+                      boxShadow: revealed
+                        ? '0 0 10px -2px color-mix(in srgb, var(--eco-athena) 55%, transparent)'
+                        : 'none',
                     }}
                   >
-                    {option}
+                    <span
+                      className="eco-numerals flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[0.7rem] font-semibold"
+                      style={{
+                        borderColor: emphasis ?? 'var(--eco-rule)',
+                        color: emphasis ?? 'var(--eco-cream-dim)',
+                      }}
+                    >
+                      {QUIZ_LETTERS[i] ?? '·'}
+                    </span>
+                    <span className="min-w-0 flex-1">{option}</span>
+                    {revealed && (
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+                        <path
+                          d="M3 8.5 6.5 12 13 4"
+                          stroke="var(--eco-athena)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
                   </button>
                 </li>
               );
@@ -342,7 +501,7 @@ export function QuizCards({
             <p
               className="text-xs font-medium"
               style={{
-                color: myResult === 'correct' ? 'var(--eco-green)' : 'var(--eco-red)',
+                color: myResult === 'correct' ? 'var(--eco-athena)' : 'var(--eco-red)',
               }}
             >
               {myResult === 'correct' ? 'Correct.' : 'Not quite.'}

@@ -52,4 +52,18 @@ export const config = {
     .filter(Boolean),
 
   debugAgora: process.env.DEBUG_AGORA === '1',
+
+  /* Sarvam AI configuration */
+  sarvamApiKey: process.env.SARVAM_API_KEY ?? 'mock_sarvam_api_key',
+  sarvamSpeaker: process.env.SARVAM_SPEAKER ?? 'anushka',
+  sarvamTargetLanguageCode: process.env.SARVAM_TARGET_LANGUAGE_CODE ?? 'hi-IN',
+
+  /**
+   * Postgres connection string for durable session/report storage (see
+   * db/schema.ts). Optional: unset means persistence is a no-op, same
+   * graceful-fallback posture as every other integration here. A session
+   * still works end-to-end without it — it just isn't flushed anywhere once
+   * it ends.
+   */
+  databaseUrl: process.env.DATABASE_URL,
 } as const;
