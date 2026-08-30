@@ -332,9 +332,21 @@ export async function speak(
  * Unlike `speak`, the wording is generated — which is what allows the agent to
  * emit a control payload alongside it.
  */
+export interface ThinkOptions {
+  /**
+   * Whether a human speaking may cut this turn short. Defaults to true — the
+   * orchestrator has cleared the utterance, but a person talking still wins.
+   * Set false for turns that must be delivered whole even over a stray "okay":
+   * a quiz question truncated before its trailing control payload leaves no
+   * quiz record at all, so nothing can be scored (see startQuiz).
+   */
+  interruptable?: boolean;
+}
+
 export async function think(
   sessionId: string,
   instruction: string,
+  options: ThinkOptions = {},
 ): Promise<boolean> {
   const agentSession = liveAgents.get(sessionId);
   if (!agentSession || agentSession.status !== 'running') return false;
@@ -345,12 +357,9 @@ export async function think(
     // arrives while it is listening, and the server default there is not to
     // start a turn. 'interrupt' means begin a new round of dialogue now.
     on_listening_action: 'interrupt',
-    // The orchestrator has already cleared this utterance through the floor
-    // machine, so it may also cut into a turn already under way — but a human
-    // speaking still wins, hence interruptable stays true.
     on_thinking_action: 'interrupt',
     on_speaking_action: 'interrupt',
-    interruptable: true,
+    interruptable: options.interruptable ?? true,
   });
   return true;
 }

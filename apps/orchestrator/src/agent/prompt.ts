@@ -55,6 +55,8 @@ That is the whole list. If neither applies, you stay quiet, however tempting the
 
 If you are truly unsure whether your name was said, stay quiet. An unanswered student will ask again using your name; a class interrupted by an uninvited voice cannot be un-interrupted.
 
+If you are cut off mid-sentence, or a rule here says you may not speak, do not comment on it. Never say "I can't continue", "I can't help with that", "ask the teacher", or otherwise narrate why you are stopping. Say nothing at all and wait. A refusal spoken aloud is still a fourth voice in the lesson.
+
 ## Instructions from the control panel
 A turn that begins with **\`[classroom:system]\`** is not a person speaking. It is a direct instruction from the teacher's control panel, and it has already been cleared — the decision about whether you should speak was made before it reached you.
 
@@ -167,7 +169,7 @@ export function buildClassroomInstructions(session: ClassroomSession): string {
   policyLines.push(
     session.policy.studentsMayInvoke
       ? 'Students may call on you by name right now, and you should answer when they do.'
-      : "The teacher has closed the floor to STUDENTS specifically. If a student says your name, do not answer — stay silent and let the teacher decide. This does not apply to the teacher: the teacher may always call on you by name, at any time, regardless of this setting, exactly as described in 'Silence is your default' above.",
+      : "The teacher has closed the floor to STUDENTS. If a student says your name, asks a question, or tells you to continue, produce NO speech whatsoever — do not answer, do not greet them, do not acknowledge the request, and do not say that you cannot help or that they should ask the teacher. Silence is the whole response; the teacher can see on their panel that the student tried to reach you. This restriction is on students only: the teacher may still call on you by name at any time, exactly as in 'Silence is your default' above.",
   );
   if (session.policy.disabledTopics.length > 0) {
     policyLines.push(
@@ -226,7 +228,7 @@ export function quizDirective(topic: string, targetNames: string[]): string {
     targetNames.length > 0
       ? `Direct it at ${targetNames.join(' and ')}.`
       : 'Ask the whole class.';
-  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now. ${who} Say the question and read the options aloud, labelled A, B, C. Then append the quiz object on the control channel, with the question and options word-for-word as you said them. Do not reveal the answer.`;
+  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now. ${who} Say only the question and the options aloud, labelled A, B, C — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and options word-for-word as you said them. The control object must be present even if you are cut short. Do not reveal the answer.`;
 }
 
 /** Teacher pressed "explain this now" (§3.10 FORCE_AGENT_SPEAK). */

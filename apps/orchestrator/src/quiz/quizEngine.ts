@@ -260,6 +260,35 @@ export function answersFor(
   return session.answers.filter((a) => a.quizId === quizId);
 }
 
+/**
+ * True once every still-present target student has an answer on record for this
+ * quiz. Students who have left are not counted — otherwise a quiz issued to the
+ * whole class could never close if one person dropped. Returns false when there
+ * are no active targets at all, so an empty room never trips a "closed" event.
+ */
+export function allTargetsAnswered(
+  session: ClassroomSession,
+  quiz: QuizQuestion,
+): boolean {
+  const targetIds =
+    quiz.targetStudentIds.length > 0
+      ? quiz.targetStudentIds
+      : activeStudents(session).map((s) => s.participantId);
+
+  const activeTargets = targetIds.filter((id) => {
+    const p = session.participants.get(id);
+    return p?.role === 'student' && p.leftAt === undefined;
+  });
+  if (activeTargets.length === 0) return false;
+
+  const answered = new Set(
+    session.answers
+      .filter((a) => a.quizId === quiz.quizId)
+      .map((a) => a.participantId),
+  );
+  return activeTargets.every((id) => answered.has(id));
+}
+
 /** Broadcasts the quiz card. The answer key is stripped by `toPublicQuiz`. */
 export function broadcastQuiz(
   session: ClassroomSession,

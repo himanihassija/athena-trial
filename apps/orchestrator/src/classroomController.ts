@@ -51,6 +51,7 @@ import {
   quizDirective,
 } from './agent/prompt.js';
 import {
+  allTargetsAnswered,
   broadcastQuiz,
   normaliseAnswer,
   openQuizFor,
@@ -100,16 +101,24 @@ export function requestFloor(
     // Denials are surfaced to the teacher panel: "the agent tried to speak and
     // was blocked because you muted it" is exactly what makes the override
     // mechanism legible during a demo (§3.10).
+    console.info(
+      `[floor] denied ${trigger} for session ${session.sessionId}: ${decision.reason}`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
       reason: decision.reason,
       at: Date.now(),
     });
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
     return false;
   }
 
+  console.info(
+    `[floor] granted ${decision.trigger} for session ${session.sessionId}`,
+  );
   session.floor = onAgentSpeechStart(session.floor, Date.now());
   grantSpeakPermit(session, decision.trigger);
+  setRestraintMeter(session, 'speaking');
   broadcastFloor(session);
   return true;
 }
@@ -169,13 +178,7 @@ export async function handleAgentState(
     // The turn has ended (silent/listening/idle). Authorization does not
     // carry over: the next turn, whatever prompts it, needs its own permit.
     session.authorizedTurnInProgress = false;
-    if (session.restraintMeterState !== 'listening') {
-      session.restraintMeterState = 'listening';
-      publish(session.sessionId, {
-        kind: 'echosphere:restraint-meter-changed',
-        state: 'listening',
-      });
-    }
+    setRestraintMeter(session, 'listening');
     return { interrupted: false };
   }
 
@@ -190,11 +193,23 @@ export async function handleAgentState(
     await interruptAgent(session.sessionId).catch(() => undefined);
     releaseFloor(session);
     clearSpeakPermit(session);
+    // The engine started an un-permitted turn — most often a student addressed
+    // her while the floor was closed to students. Report the reason that
+    // actually applies so the teacher panel is not misleading.
+    const reason = session.policy.muted
+      ? 'AGENT_MUTED'
+      : !session.policy.studentsMayInvoke
+        ? 'STUDENT_INVOCATION_DISABLED'
+        : 'TEACHER_HOLDS_FLOOR';
+    console.info(
+      `[floor] interrupted an un-permitted turn in session ${session.sessionId}: ${reason}`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
-      reason: session.policy.muted ? 'AGENT_MUTED' : 'TEACHER_HOLDS_FLOOR',
+      reason,
       at: Date.now(),
     });
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
     return { interrupted: true };
   }
 
@@ -203,6 +218,7 @@ export async function handleAgentState(
   // invitation meant for this one.
   session.authorizedTurnInProgress = true;
   session.speakPermit = null;
+  setRestraintMeter(session, 'speaking');
   return { interrupted: false };
 }
 
@@ -338,11 +354,22 @@ export async function ingestTranscript(
     // Heard, understood, and deliberately not acted on. Surfaced so the
     // teacher can see that a student tried to reach her and decide whether to
     // open the floor.
+    console.info(
+      `[floor] student invocation blocked in session ${session.sessionId} — floor closed to students`,
+    );
     publishToTeachers(session.sessionId, {
       kind: 'echosphere:agent-blocked',
       reason: 'STUDENT_INVOCATION_DISABLED',
       at: now,
     });
+    // The ConvoAI engine hears the wake word on its own and will start
+    // answering regardless of this branch — the prompt tells her not to, but
+    // that is advisory. Cut it here, at the moment we see the student's turn,
+    // rather than waiting for the browser to relay her AGENT_STATE_CHANGED a
+    // round trip later; and make sure no stale permit lets it through.
+    clearSpeakPermit(session);
+    await interruptAgent(session.sessionId).catch(() => undefined);
+    setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
     // The engine will now answer on its own. This is the permit that makes that
@@ -677,7 +704,13 @@ export async function startQuiz(
     requestedAt: Date.now(),
   };
 
-  const ok = await think(session.sessionId, quizDirective(topic, names));
+  // Not interruptable: the quiz question, its spoken options, and the trailing
+  // {quiz} control payload are one turn, and if a student's stray "okay" cuts
+  // it before the payload, no quiz is ever recorded — so the on-screen card
+  // never appears and a spoken answer has nothing to score against.
+  const ok = await think(session.sessionId, quizDirective(topic, names), {
+    interruptable: false,
+  });
   if (!ok) {
     session.pendingQuiz = null;
     releaseFloor(session);
@@ -725,6 +758,22 @@ export function submitQuizAnswer(
     // An inferred level change matters to the agent as much as a teacher's
     // manual one, so the prompt is refreshed either way.
     void pushInstructions(session);
+  }
+
+  // Once every active target student has answered, the question is done: reveal
+  // the correct answer to the whole room so the card resolves instead of
+  // hanging open. Teachers already hold the key (broadcastQuiz sends it to them
+  // at issue time); this is the students' copy, and it is idempotent for the
+  // teacher.
+  if (allTargetsAnswered(session, result.quiz)) {
+    console.info(
+      `[quiz] all targets answered ${result.quiz.quizId} in session ${session.sessionId} — revealing answer`,
+    );
+    publish(session.sessionId, {
+      kind: 'echosphere:quiz-closed',
+      quizId,
+      correctAnswer: result.quiz.correctAnswer,
+    });
   }
 
   return { ok: true, detail: result.answer.correct ? 'correct' : 'incorrect' };
@@ -825,6 +874,40 @@ export function broadcastFloor(session: ClassroomSession): void {
     kind: 'echosphere:floor-changed',
     floor: session.floor,
   });
+}
+
+/** How long the meter shows 'held-back' before settling, when no turn-end event will. */
+const RESTRAINT_HELD_BACK_MS = 3000;
+
+/**
+ * Single writer for the restraint-meter UI state. It reflects genuine floor
+ * decisions, never synthesised events:
+ *   - 'speaking'  the floor was granted, or an autonomous turn was authorised
+ *   - 'held-back' a request to speak was denied, or an un-permitted turn was cut
+ *   - 'listening' resting state, restored when a turn ends
+ *
+ * A denial starts no turn, so no turn-end event follows to clear it — those
+ * callers pass `revertAfterMs` so the meter settles on its own.
+ */
+function setRestraintMeter(
+  session: ClassroomSession,
+  state: ClassroomSession['restraintMeterState'],
+  revertAfterMs?: number,
+): void {
+  if (session.restraintMeterState !== state) {
+    session.restraintMeterState = state;
+    publish(session.sessionId, {
+      kind: 'echosphere:restraint-meter-changed',
+      state,
+    });
+  }
+  if (revertAfterMs !== undefined) {
+    setTimeout(() => {
+      if (session.restraintMeterState === state) {
+        setRestraintMeter(session, 'listening');
+      }
+    }, revertAfterMs);
+  }
 }
 
 export function broadcastPolicy(session: ClassroomSession): void {

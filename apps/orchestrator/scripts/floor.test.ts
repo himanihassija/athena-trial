@@ -175,4 +175,43 @@ await t('a student CAN address her once the teacher opens the floor', () => {
   assert.equal(session.activeQuestionerId, student.participantId);
 });
 
+// ─── Restraint meter reflects real floor decisions (Phase 3 wiring) ──────────
+
+await t('a blocked student invocation drives the restraint meter to held-back', async () => {
+  const session = createSession('test');
+  const student = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  session.policy.studentsMayInvoke = false;
+
+  await ingestTranscript(session, {
+    uid: student.uid,
+    text: 'Athena, can you continue?',
+    isFinal: true,
+  });
+
+  assert.equal(session.speakPermit, null, 'no permit for a blocked student');
+  assert.equal(session.restraintMeterState, 'held-back');
+});
+
+await t('an authorised turn beginning drives the meter to speaking', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  await handleAgentState(session, 'thinking');
+  assert.equal(session.restraintMeterState, 'speaking');
+});
+
+await t('a turn ending returns the meter to listening', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'silent');
+  assert.equal(session.restraintMeterState, 'listening');
+});
+
+await t('an un-permitted autonomous turn being cut drives the meter to held-back', async () => {
+  const session = createSession('test');
+  const result = await handleAgentState(session, 'thinking');
+  assert.equal(result.interrupted, true);
+  assert.equal(session.restraintMeterState, 'held-back');
+});
+
 console.log(`\n${pass} passing`);
