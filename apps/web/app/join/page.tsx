@@ -100,10 +100,10 @@ export default function JoinPage() {
             <span className="eco-label">On air</span>
           </div>
           <h1 className="eco-wordmark text-5xl leading-none text-[var(--eco-cream)]">
-            Echosphere
+            Athena
           </h1>
           <p className="text-sm text-[var(--eco-cream-dim)]">
-            Audio-only live classroom with an AI co-teacher, tuned in and
+            Live classroom with an AI co-teacher, tuned in and
             listening.
           </p>
         </header>

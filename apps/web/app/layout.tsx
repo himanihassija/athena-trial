@@ -34,9 +34,9 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Meraki — AI Co-Teacher',
+  title: 'Athena — AI Co-Teacher',
   description:
-    'Audio-only live classroom with a restraint-focused AI co-teacher, built on Agora ConvoAI and Sarvam.',
+    'Live classroom with a restraint-focused AI co-teacher, built on Agora ConvoAI and Sarvam.',
   icons: {
     icon: [
       { url: '/favicon.ico' },
