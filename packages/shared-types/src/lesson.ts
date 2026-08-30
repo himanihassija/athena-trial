@@ -67,6 +67,10 @@ export interface QuizQuestion {
   /** participantIds this quiz was aimed at; empty means the whole class. */
   targetStudentIds: string[];
   createdAt: number;
+  /** Epoch ms when the question stops accepting answers and auto-closes. */
+  deadline: number;
+  /** Set once the quiz has closed (all answered, or the timer expired). */
+  closedAt?: number;
   /** What caused this quiz — teacher action or an auto-detected gap. */
   origin: 'teacher' | 'gap-detector';
 }

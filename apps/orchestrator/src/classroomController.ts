@@ -52,7 +52,9 @@ import {
 } from './agent/prompt.js';
 import {
   allTargetsAnswered,
+  answersFor,
   broadcastQuiz,
+  markQuizClosed,
   normaliseAnswer,
   openQuizFor,
   recordAnswer,
@@ -483,7 +485,54 @@ function applyControl(
       pending?.targetStudentIds ?? [],
     );
     broadcastQuiz(session, quiz);
+    scheduleQuizClose(session, quiz.quizId, quiz.deadline);
   }
+}
+
+/** Arms the countdown-expiry sweep for a freshly issued quiz. */
+function scheduleQuizClose(
+  session: ClassroomSession,
+  quizId: string,
+  deadline: number,
+): void {
+  setTimeout(
+    () => sweepExpiredQuiz(session, quizId),
+    Math.max(0, deadline - Date.now()),
+  );
+}
+
+/**
+ * Closes a quiz whose countdown has run out. Any active target student who has
+ * not answered is marked incorrect — a non-answer counts against the student's
+ * mastery stats — and the correct answer is revealed to the room. Safe to call
+ * more than once and after the "everyone answered" path has already closed it.
+ */
+export function sweepExpiredQuiz(
+  session: ClassroomSession,
+  quizId: string,
+): void {
+  if (session.endedAt !== null) return;
+  const quiz = session.quizzes.get(quizId);
+  if (!quiz || quiz.closedAt) return;
+
+  const answered = new Set(
+    answersFor(session, quizId).map((a) => a.participantId),
+  );
+  const targets =
+    quiz.targetStudentIds.length > 0
+      ? quiz.targetStudentIds
+      : activeStudents(session).map((s) => s.participantId);
+
+  for (const participantId of targets) {
+    const p = session.participants.get(participantId);
+    if (p?.role !== 'student' || p.leftAt !== undefined) continue;
+    if (answered.has(participantId)) continue;
+    // An empty answer scores as incorrect and bumps quizzesAnswered, through
+    // the normal path. Runs before markQuizClosed sets closedAt.
+    submitQuizAnswer(session, quizId, participantId, '', 'ui');
+  }
+
+  markQuizClosed(session, quiz);
 }
 
 function takePendingQuiz(session: ClassroomSession) {
@@ -760,20 +809,14 @@ export function submitQuizAnswer(
     void pushInstructions(session);
   }
 
-  // Once every active target student has answered, the question is done: reveal
-  // the correct answer to the whole room so the card resolves instead of
-  // hanging open. Teachers already hold the key (broadcastQuiz sends it to them
-  // at issue time); this is the students' copy, and it is idempotent for the
-  // teacher.
-  if (allTargetsAnswered(session, result.quiz)) {
+  // Once every active target student has answered, the question is done before
+  // its timer runs out: close it early and reveal the answer to the room so the
+  // card resolves instead of hanging open. markQuizClosed is idempotent with
+  // the countdown-expiry path.
+  if (allTargetsAnswered(session, result.quiz) && markQuizClosed(session, result.quiz)) {
     console.info(
       `[quiz] all targets answered ${result.quiz.quizId} in session ${session.sessionId} — revealing answer`,
     );
-    publish(session.sessionId, {
-      kind: 'echosphere:quiz-closed',
-      quizId,
-      correctAnswer: result.quiz.correctAnswer,
-    });
   }
 
   return { ok: true, detail: result.answer.correct ? 'correct' : 'incorrect' };

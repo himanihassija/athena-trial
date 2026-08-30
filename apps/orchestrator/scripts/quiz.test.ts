@@ -11,9 +11,13 @@
 
 import assert from 'node:assert/strict';
 import type { ClassroomEvent } from '@echosphere/shared-types';
-import { submitQuizAnswer } from './../src/classroomController.ts';
+import {
+  submitQuizAnswer,
+  sweepExpiredQuiz,
+} from './../src/classroomController.ts';
 import {
   allTargetsAnswered,
+  answersFor,
   recordQuizFromControl,
 } from './../src/quiz/quizEngine.ts';
 import { subscribe } from './../src/state/eventBus.ts';
@@ -104,6 +108,64 @@ t('a student who left does not keep the quiz open', () => {
   removeParticipant(session, bo.participantId);
   submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui');
   assert.equal(allTargetsAnswered(session, quiz), true);
+});
+
+t('every quiz carries a future deadline', () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', []);
+  assert.ok(quiz.deadline > Date.now());
+  assert.equal(quiz.closedAt, undefined);
+});
+
+t('sweepExpiredQuiz marks non-answerers incorrect, then closes and reveals', () => {
+  const session = createSession('t');
+  const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [
+    ana.participantId,
+    bo.participantId,
+  ]);
+  submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui'); // Ana answers, correctly
+  const { events, stop } = recorder(session.sessionId);
+
+  sweepExpiredQuiz(session, quiz.quizId);
+  stop();
+
+  const boAnswer = answersFor(session, quiz.quizId).find(
+    (a) => a.participantId === bo.participantId,
+  );
+  assert.ok(boAnswer, 'Bo, who never answered, should have a recorded answer');
+  assert.equal(boAnswer.correct, false, 'a non-answer counts as incorrect');
+  assert.equal((session.participants.get(bo.participantId) as { stats: { quizzesAnswered: number } }).stats.quizzesAnswered, 1);
+  assert.ok(quiz.closedAt, 'the quiz should be closed');
+  assert.ok(events.some((e) => e.kind === 'echosphere:quiz-closed'));
+});
+
+t('sweepExpiredQuiz is a no-op once the quiz has already closed', () => {
+  const session = createSession('t');
+  const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [ana.participantId]);
+  submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui'); // closes it (sole target answered)
+  const closedAt = quiz.closedAt;
+  assert.ok(closedAt);
+
+  sweepExpiredQuiz(session, quiz.quizId);
+  assert.equal(quiz.closedAt, closedAt, 'closedAt must not be rewritten');
+});
+
+t('a closed quiz rejects a late answer', () => {
+  const session = createSession('t');
+  const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const bo = addParticipant(session, { displayName: 'Bo', role: 'student' });
+  const quiz = recordQuizFromControl(session, QUIZ_CONTROL, 'teacher', [
+    ana.participantId,
+    bo.participantId,
+  ]);
+  sweepExpiredQuiz(session, quiz.quizId); // closes with both marked incorrect
+
+  const late = submitQuizAnswer(session, quiz.quizId, ana.participantId, 'B', 'ui');
+  assert.equal(late.ok, false);
 });
 
 console.log(`\n${pass} passing`);

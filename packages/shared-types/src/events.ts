@@ -73,6 +73,8 @@ export interface PublicQuiz {
   difficulty: QuizQuestion['difficulty'];
   targetStudentIds: string[];
   createdAt: number;
+  /** Epoch ms when the question stops accepting answers — drives the countdown. */
+  deadline: number;
 }
 
 export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
@@ -84,6 +86,7 @@ export function toPublicQuiz(quiz: QuizQuestion): PublicQuiz {
     difficulty: quiz.difficulty,
     targetStudentIds: quiz.targetStudentIds,
     createdAt: quiz.createdAt,
+    deadline: quiz.deadline,
   };
 }
 

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClassroomShell } from '@/components/classroom/ClassroomShell';
 import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
+import { QuizOverlay } from '@/components/classroom/QuizOverlay';
 import {
   AgentAbsentNotice,
   FloorIndicator,
@@ -217,6 +218,10 @@ export default function ClassroomPage() {
           />
         </aside>
       </div>
+
+      {!view.ended && (
+        <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
+      )}
     </main>
   );
 }
