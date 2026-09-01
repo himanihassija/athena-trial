@@ -15,7 +15,7 @@ const nextConfig = {
   // @echosphere/shared-types is published as TypeScript source rather than a
   // build artifact, so Next has to compile it alongside the app. This keeps the
   // domain types editable in one place without a build step in the loop.
-  transpilePackages: ['@echosphere/shared-types'],
+  transpilePackages: ['@echosphere/shared-types', '@netless/fastboard'],
   images: {
     unoptimized: true,
   },

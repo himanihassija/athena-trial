@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_POLICY,
   emptyStudentStats,
   type AgentPolicy,
+  type CatchupMessage,
   type FloorSnapshot,
   type JoinClassroomRequest,
   type LearningGap,
@@ -30,6 +31,7 @@ import {
   type StudentProfile,
   type TranscriptSegment,
   type InterventionRecord,
+  type WhiteboardPublicState,
 } from '@echosphere/shared-types';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
@@ -135,6 +137,16 @@ export interface ClassroomSession {
   suppressedInterventions: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   interventionHistory: InterventionRecord[];
+
+  whiteboard: {
+    open: boolean;
+    region: string;
+    uuid: string | null;
+    cards: WhiteboardPublicState['cards'];
+  };
+
+  /** Private catch-up threads, keyed by student participantId. */
+  catchupByParticipant: Map<string, CatchupMessage[]>;
 }
 
 const sessions = new Map<string, ClassroomSession>();
@@ -166,6 +178,13 @@ export function createSession(title: string): ClassroomSession {
     suppressedInterventions: [],
     restraintMeterState: 'listening',
     interventionHistory: [],
+    whiteboard: {
+      open: false,
+      region: 'us-sv',
+      uuid: null,
+      cards: [],
+    },
+    catchupByParticipant: new Map(),
   };
   sessions.set(sessionId, session);
   return session;

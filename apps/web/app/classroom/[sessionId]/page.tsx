@@ -11,6 +11,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClassroomShell } from '@/components/classroom/ClassroomShell';
 import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
+import { ClassroomBoard } from '@/components/classroom/ClassroomBoard';
+import { CatchupChatbot } from '@/components/classroom/CatchupChatbot';
 import { QuizOverlay } from '@/components/classroom/QuizOverlay';
 import {
   AgentAbsentNotice,
@@ -201,6 +203,12 @@ export default function ClassroomPage() {
             )}
           </ClassroomShell>
 
+          <ClassroomBoard
+            board={view.whiteboard}
+            join={view.whiteboardJoin}
+            joinError={view.whiteboardJoinError}
+          />
+
           <TranscriptFeed
             transcript={view.transcript}
             participants={view.participants}
@@ -225,6 +233,13 @@ export default function ClassroomPage() {
 
       {!view.ended && (
         <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
+      )}
+      {!view.ended && (
+        <CatchupChatbot
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          displayName={identity.displayName}
+        />
       )}
     </main>
   );

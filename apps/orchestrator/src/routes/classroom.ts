@@ -38,6 +38,12 @@ import { generateReport } from '../report/summary.js';
 import { persistSessionEnd } from '../report/persist.js';
 import { closeRoom, publish, subscribe } from '../state/eventBus.js';
 import {
+  joinPayload,
+  openWhiteboard,
+  publicWhiteboard,
+} from '../whiteboard/boardSession.js';
+import { answerCatchup, catchupHistory } from '../catchup/answer.js';
+import {
   activeParticipants,
   addParticipant,
   AGENT_UID,
@@ -213,6 +219,16 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       // enforcement path treats it as an uninvited turn and cuts it off after
       // the first two words.
       grantSpeakPermit(session, 'TEACHER_INVOKED');
+      try {
+        await openWhiteboard(session);
+      } catch (boardError) {
+        request.log.warn({ err: boardError }, 'Whiteboard room create failed; overlay still opens');
+        session.whiteboard.open = true;
+        publish(session.sessionId, {
+          kind: 'echosphere:whiteboard',
+          board: publicWhiteboard(session),
+        });
+      }
       publish(session.sessionId, { kind: 'echosphere:room-state', state: roomState(session) });
       return reply.send({ agentId, state: 'RUNNING' });
     } catch (error) {
@@ -235,6 +251,69 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     const session = requireSession(request, reply);
     if (!session) return;
     return reply.send((await agentStatus(session.sessionId)) ?? { agentId: null, status: 'idle' });
+  });
+
+  app.get('/api/sessions/:sessionId/whiteboard', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId } = z
+      .object({ participantId: z.string() })
+      .parse(request.query);
+    const participant = session.participants.get(participantId);
+    if (!participant || participant.leftAt !== undefined) {
+      return reply.code(403).send({ error: 'Unknown participant' });
+    }
+    try {
+      const payload = await joinPayload(
+        session,
+        participant.uid,
+        participant.role === 'teacher',
+      );
+      return reply.send(payload);
+    } catch (error) {
+      request.log.error({ err: error }, 'Whiteboard join failed');
+      return reply.code(502).send({
+        error: error instanceof Error ? error.message : 'Whiteboard join failed',
+      });
+    }
+  });
+
+  app.post('/api/sessions/:sessionId/catchup', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, text } = z
+      .object({
+        participantId: z.string(),
+        text: z.string().min(1).max(800),
+      })
+      .parse(request.body);
+    try {
+      const result = await answerCatchup(session, participantId, text);
+      return reply.send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Catch-up failed';
+      const code = message === 'Catch-up chat is for students' ? 403 : 400;
+      if (message === 'Unknown participant') {
+        return reply.code(403).send({ error: message });
+      }
+      return reply.code(code).send({ error: message });
+    }
+  });
+
+  app.get('/api/sessions/:sessionId/catchup', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId } = z
+      .object({ participantId: z.string() })
+      .parse(request.query);
+    const participant = session.participants.get(participantId);
+    if (!participant || participant.leftAt !== undefined) {
+      return reply.code(403).send({ error: 'Unknown participant' });
+    }
+    if (participant.role !== 'student') {
+      return reply.code(403).send({ error: 'Catch-up chat is for students' });
+    }
+    return reply.send({ history: catchupHistory(session, participantId) });
   });
 
   // ── Control path: SSE (§2) ────────────────────────────────────────────────
@@ -530,5 +609,6 @@ function roomState(session: ClassroomSession): RoomState {
     endedAt: session.endedAt,
     suppressedInterventions: session.suppressedInterventions,
     restraintMeterState: session.restraintMeterState,
+    whiteboard: publicWhiteboard(session),
   };
 }

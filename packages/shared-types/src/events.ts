@@ -18,6 +18,7 @@ import type {
   SpeakDenialReason,
 } from './floor.js';
 import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
+import type { WhiteboardCommand, WhiteboardPublicState } from './whiteboard.js';
 
 /** Discriminator prefix so classroom events are never confused with Agora's own. */
 export const ECHOSPHERE_EVENT_PREFIX = 'echosphere:' as const;
@@ -47,7 +48,9 @@ export type ClassroomEvent =
   | { kind: 'echosphere:session-ended'; sessionId: string }
   | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
   | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
-  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number };
+  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
+  | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
+  | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 
@@ -108,6 +111,7 @@ export interface RoomState {
   endedAt: number | null;
   suppressedInterventions?: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState?: 'listening' | 'ready' | 'held-back' | 'speaking';
+  whiteboard?: WhiteboardPublicState;
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

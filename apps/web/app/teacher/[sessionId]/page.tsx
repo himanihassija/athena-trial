@@ -19,6 +19,7 @@ import type {
 } from "@echosphere/shared-types";
 import { ClassroomShell } from "@/components/classroom/ClassroomShell";
 import { ClassroomAudio } from "@/components/classroom/ClassroomAudioLazy";
+import { ClassroomBoard } from "@/components/classroom/ClassroomBoard";
 import { TeacherControlPanel } from "@/components/classroom/TeacherControlPanel";
 import {
   AgentAbsentNotice,
@@ -417,6 +418,12 @@ export default function TeacherDashboardPage() {
               />
             )}
           </ClassroomShell>
+
+          <ClassroomBoard
+            board={view.whiteboard}
+            join={view.whiteboardJoin}
+            joinError={view.whiteboardJoinError}
+          />
 
           <TranscriptFeed
             transcript={view.transcript}

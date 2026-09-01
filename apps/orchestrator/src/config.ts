@@ -66,4 +66,13 @@ export const config = {
    * it ends.
    */
   databaseUrl: process.env.DATABASE_URL,
+
+  /**
+   * Agora Interactive Whiteboard (separate from the RTC App ID). Enable the
+   * product in Console, then copy App Identifier + a server-side SDK token.
+   * Optional: without them the voice overlay still opens when Athena joins.
+   */
+  whiteboardAppIdentifier: process.env.WHITEBOARD_APP_IDENTIFIER ?? '',
+  whiteboardSdkToken: process.env.WHITEBOARD_SDK_TOKEN ?? '',
+  whiteboardRegion: process.env.WHITEBOARD_REGION ?? 'us-sv',
 } as const;

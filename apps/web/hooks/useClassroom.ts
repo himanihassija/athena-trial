@@ -22,6 +22,8 @@ import type {
   RoomState,
   SpeakDenialReason,
   TranscriptSegment,
+  WhiteboardJoin,
+  WhiteboardPublicState,
 } from '@echosphere/shared-types';
 import { orchestrator } from '@/lib/orchestrator';
 
@@ -62,6 +64,9 @@ export interface ClassroomView {
   suppressedInterventions: SuppressedIntervention[];
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   restraintScore?: number;
+  whiteboard: WhiteboardPublicState | null;
+  whiteboardJoin: WhiteboardJoin | null;
+  whiteboardJoinError: string | null;
 }
 
 /** Keeps the rendered transcript bounded; the full log lives on the server. */
@@ -84,6 +89,7 @@ export function useClassroom(
   const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
   const [restraintMeterState, setRestraintMeterState] = useState<'listening' | 'ready' | 'held-back' | 'speaking'>('listening');
   const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
+  const [whiteboard, setWhiteboard] = useState<WhiteboardPublicState | null>(null);
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -97,6 +103,7 @@ export function useClassroom(
         setEnded(event.state.endedAt !== null);
         setSuppressedInterventions(event.state.suppressedInterventions ?? []);
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
+        if (event.state.whiteboard) setWhiteboard(event.state.whiteboard);
         break;
 
       case 'echosphere:participant-joined':
@@ -226,6 +233,13 @@ export function useClassroom(
         // Commands are applied server-side; the resulting policy/floor events
         // carry the effect. Nothing to mirror here.
         break;
+
+      case 'echosphere:whiteboard':
+        setWhiteboard(event.board);
+        break;
+
+      case 'echosphere:whiteboard-command':
+        break;
     }
   }, [participantId]);
 
@@ -269,6 +283,33 @@ export function useClassroom(
     };
   }, [sessionId, participantId, apply]);
 
+  const [whiteboardJoin, setWhiteboardJoin] = useState<WhiteboardJoin | null>(null);
+  const [whiteboardJoinError, setWhiteboardJoinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!participantId || !whiteboard?.open) {
+      setWhiteboardJoin(null);
+      return;
+    }
+    let cancelled = false;
+    void orchestrator
+      .getWhiteboard(sessionId, participantId)
+      .then((payload) => {
+        if (!cancelled) {
+          setWhiteboardJoin(payload);
+          setWhiteboardJoinError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setWhiteboardJoinError(err instanceof Error ? err.message : 'Could not join whiteboard');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, participantId, whiteboard?.open, whiteboard?.uuid]);
+
   /** Optimistic local echo so the tapped option shows immediately. */
   const recordAnswer = useCallback((quizId: string, answer: string) => {
     setQuizzes((prev) =>
@@ -293,5 +334,8 @@ export function useClassroom(
     suppressedInterventions,
     restraintMeterState,
     restraintScore,
+    whiteboard,
+    whiteboardJoin,
+    whiteboardJoinError,
   };
 }

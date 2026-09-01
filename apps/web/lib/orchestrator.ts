@@ -14,6 +14,9 @@ import type {
   SessionReport,
   TeacherCommand,
   TranscriptSegment,
+  WhiteboardJoin,
+  CatchupReply,
+  CatchupMessage,
 } from '@echosphere/shared-types';
 
 const BASE =
@@ -147,6 +150,22 @@ export const orchestrator = {
       method: 'POST',
       body: JSON.stringify({ state }),
     }),
+
+  getWhiteboard: (sessionId: string, participantId: string) =>
+    request<WhiteboardJoin>(
+      `/api/sessions/${sessionId}/whiteboard?participantId=${encodeURIComponent(participantId)}`,
+    ),
+
+  askCatchup: (sessionId: string, participantId: string, text: string) =>
+    request<CatchupReply>(`/api/sessions/${sessionId}/catchup`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, text }),
+    }),
+
+  getCatchup: (sessionId: string, participantId: string) =>
+    request<{ history: CatchupMessage[] }>(
+      `/api/sessions/${sessionId}/catchup?participantId=${encodeURIComponent(participantId)}`,
+    ),
 
   getTranscript: (sessionId: string) =>
     request<TranscriptSegment[]>(`/api/sessions/${sessionId}/transcript`),

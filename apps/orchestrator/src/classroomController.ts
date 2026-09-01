@@ -65,6 +65,8 @@ import {
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
 import { rememberAgentUtterance, stripSelfEcho } from './agent/echo.js';
+import { applyBoardCommand } from './whiteboard/boardSession.js';
+import { parseVoiceBoardCommand } from './whiteboard/voice.js';
 import { publish, publishTo, publishToTeachers } from './state/eventBus.js';
 import {
   AGENT_UID,
@@ -399,6 +401,15 @@ export async function ingestTranscript(
     }
   }
 
+  const boardSpeech = parseVoiceBoardCommand(spokenText);
+  if (boardSpeech && (participant.role === 'teacher' || addressed)) {
+    applyBoardCommand(session, {
+      action: boardSpeech.action,
+      text: boardSpeech.text,
+      source: participant.role === 'teacher' ? 'teacher' : 'athena',
+    });
+  }
+
   if (participant.role !== 'student') {
     broadcastFloor(session);
     return;
@@ -514,6 +525,14 @@ function applyControl(
     broadcastQuiz(session, quiz);
     scheduleQuizClose(session, quiz.quizId, quiz.deadline);
     return { quiz };
+  }
+
+  if (control.board) {
+    applyBoardCommand(session, {
+      action: control.board.action,
+      text: control.board.text,
+      source: 'athena',
+    });
   }
 
   return {};
