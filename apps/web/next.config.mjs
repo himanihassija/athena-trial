@@ -22,6 +22,27 @@ const nextConfig = {
   turbopack: {
     root: workspaceRoot,
   },
+  webpack: (config, { isServer }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'agora-foundation': resolve(appDir, 'node_modules/agora-foundation'),
+      'winston-transport': false,
+      winston: false,
+      'winston-daily-rotate-file': false,
+    };
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        'winston-transport': false,
+        winston: false,
+        'winston-daily-rotate-file': false,
+        fs: false,
+        path: false,
+        os: false,
+      };
+    }
+    return config;
+  },
   experimental: {
     webpackBuildWorker: true,
     parallelServerBuildTraces: true,

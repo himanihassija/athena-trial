@@ -30,6 +30,7 @@
     "agora-agent-client-toolkit": "1.2.0",
     "agora-agent-uikit": "1.1.0",
     "agora-agents": "^2.3.1",
+    "agora-foundation": "3.10.0-jk.2",
     "agora-rtc-react": "^2.5.1",
     "agora-rtc-sdk-ng": "^4.24.3",
     "agora-rtm": "^2.2.3",

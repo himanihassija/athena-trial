@@ -44,6 +44,23 @@ import {
 } from '../whiteboard/boardSession.js';
 import { answerCatchup, catchupHistory } from '../catchup/answer.js';
 import {
+  getWorkspaceState,
+  addStickyNote,
+  updateStickyNote,
+  voteStickyNote,
+  resolveStickyNote,
+  deleteStickyNote,
+} from '../workspace/workspaceManager.js';
+import { generateAbsentStudentPacket } from '../support/absentPacket.js';
+import {
+  getTargetedReadings,
+  approveReading,
+  rejectReading,
+} from '../support/targetedReading.js';
+import { getCatchupSlots, bookCatchupSlot } from '../support/catchupSlots.js';
+import { translateText } from '../support/multilingual.js';
+import { think } from '../agent/agentLifecycle.js';
+import {
   activeParticipants,
   addParticipant,
   AGENT_UID,
@@ -541,6 +558,217 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(rankedGaps(session));
   });
 
+  // ─── Workspace & Sticky Notes (Live Miro Integration) ─────────────────────
+
+  app.get('/api/sessions/:sessionId/workspace', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    return reply.send(getWorkspaceState(session));
+  });
+
+  app.post('/api/sessions/:sessionId/workspace/notes', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const body = z
+      .object({
+        topic: z.string().default(''),
+        content: z.string().min(1),
+        suggestedAnswer: z.string().optional(),
+        category: z
+          .enum(['held-back-doubt', 'student-question', 'core-concept', 'teacher-insight', 'key-takeaway'])
+          .optional(),
+        color: z.enum(['yellow', 'coral', 'cyan', 'purple', 'green', 'amber']).optional(),
+        authorName: z.string().optional(),
+        authorRole: z.enum(['athena', 'teacher', 'student']).optional(),
+        authorParticipantId: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+      })
+      .parse(request.body);
+
+    const note = addStickyNote(session, body);
+    return reply.code(201).send(note);
+  });
+
+  app.patch('/api/sessions/:sessionId/workspace/notes/:noteId', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { noteId } = request.params as { noteId: string };
+    const patch = request.body as Record<string, unknown>;
+    const updated = updateStickyNote(session, noteId, patch);
+    if (!updated) return reply.code(404).send({ error: 'Sticky note not found' });
+    return reply.send(updated);
+  });
+
+  app.post('/api/sessions/:sessionId/workspace/notes/:noteId/vote', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { noteId } = request.params as { noteId: string };
+    const { participantId } = z.object({ participantId: z.string() }).parse(request.body);
+    const updated = voteStickyNote(session, noteId, participantId);
+    if (!updated) return reply.code(404).send({ error: 'Sticky note not found' });
+    return reply.send(updated);
+  });
+
+  app.post('/api/sessions/:sessionId/workspace/notes/:noteId/resolve', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { noteId } = request.params as { noteId: string };
+    const { status } = z
+      .object({ status: z.enum(['pending', 'addressed', 'resolved', 'archived']) })
+      .parse(request.body);
+    const updated = resolveStickyNote(session, noteId, status);
+    if (!updated) return reply.code(404).send({ error: 'Sticky note not found' });
+    return reply.send(updated);
+  });
+
+  app.delete('/api/sessions/:sessionId/workspace/notes/:noteId', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { noteId } = request.params as { noteId: string };
+    const deleted = deleteStickyNote(session, noteId);
+    return reply.send({ ok: deleted });
+  });
+
+  app.post('/api/sessions/:sessionId/workspace/notes/:noteId/explain', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { noteId } = request.params as { noteId: string };
+    const ws = getWorkspaceState(session);
+    const note = ws.notes.find((n) => n.id === noteId);
+    if (!note) return reply.code(404).send({ error: 'Sticky note not found' });
+
+    // Instruct Athena to address this note out loud to the class
+    grantSpeakPermit(session, 'TEACHER_INVOKED');
+    const promptDirective = `The class wants to address a question from the shared board: "${note.content}". Please give a 2-3 sentence clear, encouraging explanation and invite a student to verify.`;
+    void think(session.sessionId, promptDirective);
+
+    // Mark as addressed
+    resolveStickyNote(session, noteId, 'addressed');
+    return reply.send({ ok: true, note });
+  });
+
+  // ─── Nobody Left Behind: Absent Student Packet ─────────────────────────────
+
+  app.get('/api/sessions/:sessionId/absent-packet', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const packet = await generateAbsentStudentPacket(session);
+    return reply.send(packet);
+  });
+
+  // ─── Nobody Left Behind: Targeted Reading (Teacher-Approved) ───────────────
+
+  app.get('/api/sessions/:sessionId/targeted-readings', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    return reply.send(getTargetedReadings(session));
+  });
+
+  app.post('/api/sessions/:sessionId/targeted-readings/:readingId/approve', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { readingId } = request.params as { readingId: string };
+    const { participantId } = z.object({ participantId: z.string() }).parse(request.body);
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only teachers can approve reading recommendations' });
+    }
+    const teacher = session.participants.get(participantId);
+    const approved = approveReading(session, readingId, teacher?.displayName ?? 'Teacher');
+    if (!approved) return reply.code(404).send({ error: 'Reading recommendation not found' });
+    return reply.send(approved);
+  });
+
+  app.post('/api/sessions/:sessionId/targeted-readings/:readingId/reject', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { readingId } = request.params as { readingId: string };
+    const { participantId } = z.object({ participantId: z.string() }).parse(request.body);
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only teachers can reject reading recommendations' });
+    }
+    const ok = rejectReading(session, readingId);
+    return reply.send({ ok });
+  });
+
+  // ─── Nobody Left Behind: Catch-up Sessions from Real Availability ──────────
+
+  app.get('/api/sessions/:sessionId/catchup-slots', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    return reply.send(getCatchupSlots(session));
+  });
+
+  app.post('/api/sessions/:sessionId/catchup-slots/book', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const body = z
+      .object({
+        slotId: z.string(),
+        studentId: z.string(),
+        studentName: z.string(),
+        topic: z.string(),
+        notes: z.string().optional(),
+        language: z.enum(['en', 'hi', 'es', 'fr', 'de', 'ta', 'te']).default('en'),
+      })
+      .parse(request.body);
+
+    try {
+      const booked = bookCatchupSlot(session, body);
+      return reply.send(booked);
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // ─── Hand-Raise Control Plane Signal ───────────────────────────────────────
+
+  app.post('/api/sessions/:sessionId/hand-raise', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, raised } = z
+      .object({ participantId: z.string(), raised: z.boolean() })
+      .parse(request.body);
+
+    const participant = session.participants.get(participantId);
+    if (!participant) return reply.code(404).send({ error: 'Participant not found' });
+
+    participant.handRaised = raised;
+    if (raised) {
+      session.raisedHands.add(participantId);
+      publish(session.sessionId, {
+        kind: 'echosphere:hand-raised',
+        participantId,
+        displayName: participant.displayName,
+        at: Date.now(),
+      });
+    } else {
+      session.raisedHands.delete(participantId);
+      publish(session.sessionId, {
+        kind: 'echosphere:hand-lowered',
+        participantId,
+      });
+    }
+
+    return reply.send({ ok: true, raisedHands: Array.from(session.raisedHands) });
+  });
+
+  // ─── Multilingual Real-Time Translation ────────────────────────────────────
+
+  app.post('/api/sessions/:sessionId/translate', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { text, targetLanguage, sourceLanguage } = z
+      .object({
+        text: z.string().min(1),
+        targetLanguage: z.enum(['en', 'hi', 'es', 'fr', 'de', 'ta', 'te']),
+        sourceLanguage: z.enum(['en', 'hi', 'es', 'fr', 'de', 'ta', 'te']).optional(),
+      })
+      .parse(request.body);
+
+    const translated = await translateText(text, targetLanguage, sourceLanguage);
+    return reply.send({ original: text, translated, language: targetLanguage });
+  });
+
   app.get('/api/sessions/:sessionId/report', async (request, reply) => {
     const session = requireSession(request, reply);
     if (!session) return;
@@ -610,5 +838,10 @@ function roomState(session: ClassroomSession): RoomState {
     suppressedInterventions: session.suppressedInterventions,
     restraintMeterState: session.restraintMeterState,
     whiteboard: publicWhiteboard(session),
+    workspace: getWorkspaceState(session),
+    targetedReadings: getTargetedReadings(session),
+    catchupSlots: getCatchupSlots(session),
+    raisedHands: Array.from(session.raisedHands),
   };
 }
+

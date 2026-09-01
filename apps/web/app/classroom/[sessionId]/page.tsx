@@ -21,6 +21,12 @@ import {
   RosterPanel,
   TranscriptFeed,
 } from '@/components/classroom/panels';
+import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
+import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
+import { OneOnOneTutorModal } from '@/components/support/OneOnOneTutorModal';
+import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel';
+import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
+import { LanguageSelector } from '@/components/support/LanguageSelector';
 import { useClassroom } from '@/hooks/useClassroom';
 import {
   clearIdentity,
@@ -37,13 +43,13 @@ export default function ClassroomPage() {
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakingUid, setSpeakingUid] = useState<string | null>(null);
-  // Whether the transcript pipeline is actually alive. Distinguishing this from
-  // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(
-    null,
-  );
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+
+  const [showAbsentPacket, setShowAbsentPacket] = useState(false);
+  const [show1on1Tutor, setShow1on1Tutor] = useState(false);
+  const [showCatchupBooking, setShowCatchupBooking] = useState(false);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -85,9 +91,12 @@ export default function ClassroomPage() {
     );
   }
 
+  const isHandRaised = view.raisedHands.includes(identity.participantId);
+
   return (
-    <main className="eco-room mx-auto flex h-screen max-w-5xl flex-col gap-3 overflow-hidden p-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-4 p-4">
+      {/* Header Bar */}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div>
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
             {view.room?.title ?? 'Classroom'}
@@ -111,8 +120,60 @@ export default function ClassroomPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
+          <LanguageSelector
+            currentLanguage={view.myLanguage}
+            onLanguageChange={view.changeLanguage}
+          />
+
+          {/* Raise Hand Control Plane Button */}
+          <button
+            type="button"
+            onClick={() => void view.toggleHandRaise()}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              isHandRaised
+                ? 'border-amber-400 bg-amber-500 text-black shadow-lg animate-pulse'
+                : 'border-[var(--eco-rule)] bg-black/40 text-[var(--eco-cream)] hover:bg-white/5'
+            }`}
+            title="Raise/Lower hand via real-time signaling bus"
+          >
+            <span>✋</span>
+            <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+          </button>
+
+          {/* Absent Student Packet */}
+          <button
+            type="button"
+            onClick={() => setShowAbsentPacket(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition"
+            title="Open comprehensive lesson catch-up packet"
+          >
+            <span>📦</span> Absent Packet
+          </button>
+
+          {/* 1:1 Tutor Button */}
+          <button
+            type="button"
+            onClick={() => setShow1on1Tutor(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-semibold text-purple-300 hover:bg-purple-500/20 transition"
+            title="Start private 1:1 tutoring session with Athena"
+          >
+            <span>👩‍🏫</span> 1:1 Tutor
+          </button>
+
+          {/* Schedule Catch-up */}
+          <button
+            type="button"
+            onClick={() => setShowCatchupBooking(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-blue-500/20 transition"
+            title="Book a live 1:1 catchup session with teacher & Athena"
+          >
+            <span>📅</span> Catch-up
+          </button>
+
           <FloorIndicator floor={view.floor} policy={view.policy} />
+
           <button
             type="button"
             onClick={() => setMicEnabled((on) => !on)}
@@ -127,6 +188,7 @@ export default function ClassroomPage() {
           >
             {micEnabled ? '●' : '○'}
           </button>
+
           <button
             type="button"
             onClick={() => void leave()}
@@ -172,12 +234,9 @@ export default function ClassroomPage() {
         </p>
       )}
 
-
-      <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          {/* ClassroomShell wraps only the audio. Transcript, roster and quiz
-              cards all render from the orchestrator's SSE stream, so an RTM
-              problem should cost the room its audio — not its entire UI. */}
+      {/* Main Classroom Layout */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <ClassroomShell identity={identity}>
             {(rtm) => (
               <ClassroomAudio
@@ -188,11 +247,6 @@ export default function ClassroomPage() {
                 rtcToken={identity.rtcToken}
                 rtmClient={rtm}
                 agentUid={identity.agentUid}
-                // Students never relay. Human turns arrive without a speaker
-                // id, so the relaying browser has to infer one from its own
-                // volume indicator — and two browsers inferring separately
-                // logged the same sentence twice, under two different names.
-                // The teacher's tab is the single authority.
                 isRelay={false}
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
@@ -209,6 +263,15 @@ export default function ClassroomPage() {
             joinError={view.whiteboardJoinError}
           />
 
+          {/* Shared Live Miro Workspace & Held-Back Doubts */}
+          <MiroWorkspacePane
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="student"
+            workspace={view.workspace}
+            onRefresh={view.refreshWorkspace}
+          />
+
           <TranscriptFeed
             transcript={view.transcript}
             participants={view.participants}
@@ -216,7 +279,14 @@ export default function ClassroomPage() {
           />
         </div>
 
-        <aside className="flex w-full shrink-0 flex-col gap-5 overflow-y-auto md:w-72">
+        {/* Sidebar */}
+        <aside className="flex w-full flex-col gap-5 lg:w-80">
+          <TargetedReadingPanel
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="student"
+            readings={view.targetedReadings}
+          />
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
@@ -241,6 +311,32 @@ export default function ClassroomPage() {
           displayName={identity.displayName}
         />
       )}
+
+      {/* Modals */}
+      <AbsentStudentPacketModal
+        sessionId={sessionId}
+        isOpen={showAbsentPacket}
+        onClose={() => setShowAbsentPacket(false)}
+        onOpenCatchupBooking={() => setShowCatchupBooking(true)}
+      />
+
+      <OneOnOneTutorModal
+        sessionId={sessionId}
+        studentId={identity.participantId}
+        studentName={identity.displayName}
+        isOpen={show1on1Tutor}
+        onClose={() => setShow1on1Tutor(false)}
+        gaps={view.gaps}
+        language={view.myLanguage}
+      />
+
+      <CatchupBookingModal
+        sessionId={sessionId}
+        studentId={identity.participantId}
+        studentName={identity.displayName}
+        isOpen={showCatchupBooking}
+        onClose={() => setShowCatchupBooking(false)}
+      />
     </main>
   );
 }

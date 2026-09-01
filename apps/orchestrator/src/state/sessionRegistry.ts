@@ -145,6 +145,11 @@ export interface ClassroomSession {
     cards: WhiteboardPublicState['cards'];
   };
 
+  workspace?: import('@echosphere/shared-types').MiroWorkspaceState;
+  targetedReadings?: import('@echosphere/shared-types').TargetedReadingItem[];
+  catchupSlots?: import('@echosphere/shared-types').CatchupAvailabilitySlot[];
+  raisedHands: Set<string>;
+
   /** Private catch-up threads, keyed by student participantId. */
   catchupByParticipant: Map<string, CatchupMessage[]>;
 }
@@ -184,6 +189,7 @@ export function createSession(title: string): ClassroomSession {
       uuid: null,
       cards: [],
     },
+    raisedHands: new Set(),
     catchupByParticipant: new Map(),
   };
   sessions.set(sessionId, session);
@@ -297,6 +303,8 @@ export function toPublicParticipant(p: Participant): PublicParticipant {
     displayName: p.displayName,
     role: p.role,
     proficiency: p.role === 'student' ? (p as StudentProfile).proficiency : undefined,
+    language: p.language,
+    handRaised: p.handRaised,
   };
 }
 

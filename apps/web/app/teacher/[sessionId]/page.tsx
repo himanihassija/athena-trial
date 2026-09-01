@@ -39,11 +39,19 @@ import {
 } from "@/lib/orchestrator";
 import { RestraintMeter } from "@/components/meraki/RestraintMeter";
 import { SuppressedInterventionsPanel } from "@/components/meraki/SuppressedInterventionsPanel";
+import { MiroWorkspacePane } from "@/components/workspace/MiroWorkspacePane";
+import { AbsentStudentPacketModal } from "@/components/support/AbsentStudentPacketModal";
+import { TargetedReadingPanel } from "@/components/support/TargetedReadingPanel";
+import { CatchupBookingModal } from "@/components/support/CatchupBookingModal";
+import { LanguageSelector } from "@/components/support/LanguageSelector";
 
 export default function TeacherDashboardPage() {
   const params = useParams<{ sessionId: string }>();
   const router = useRouter();
   const sessionId = params.sessionId;
+
+  const [showAbsentPacket, setShowAbsentPacket] = useState(false);
+  const [showCatchupBooking, setShowCatchupBooking] = useState(false);
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
@@ -210,7 +218,19 @@ export default function TeacherDashboardPage() {
             <span style={{ color: "var(--eco-glow)" }}>{sessionId}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <LanguageSelector
+            currentLanguage={view.myLanguage}
+            onLanguageChange={view.changeLanguage}
+          />
+          <button
+            type="button"
+            onClick={() => setShowAbsentPacket(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition"
+            title="Generate and view the Absent-Student Lesson Packet"
+          >
+            <span>📦</span> Absent Packet
+          </button>
           <FloorIndicator floor={view.floor} policy={view.policy} />
           <button
             type="button"
@@ -236,6 +256,22 @@ export default function TeacherDashboardPage() {
           </button>
         </div>
       </header>
+
+      {/* Hand Raised Notification Banner */}
+      {view.raisedHands.length > 0 && (
+        <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="text-base animate-bounce">✋</span>
+            <span>
+              <strong>{view.raisedHands.length} student(s) raised their hand:</strong>{' '}
+              {view.raisedHands
+                .map((id) => view.participants.find((p) => p.participantId === id)?.displayName ?? id)
+                .join(', ')}
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-300/80">Signal received over control plane</span>
+        </div>
+      )}
 
       {notice && (
         <p
@@ -425,6 +461,14 @@ export default function TeacherDashboardPage() {
             joinError={view.whiteboardJoinError}
           />
 
+          <MiroWorkspacePane
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="teacher"
+            workspace={view.workspace}
+            onRefresh={view.refreshWorkspace}
+          />
+
           <TranscriptFeed
             transcript={view.transcript}
             participants={view.participants}
@@ -433,6 +477,13 @@ export default function TeacherDashboardPage() {
         </div>
 
         <aside className="flex w-full flex-col gap-5 lg:w-80">
+          <TargetedReadingPanel
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="teacher"
+            readings={view.targetedReadings}
+            onRefresh={() => void orchestrator.getTargetedReadings(sessionId)}
+          />
           <RestraintMeter
             state={view.restraintMeterState}
             score={view.restraintScore}
@@ -464,6 +515,22 @@ export default function TeacherDashboardPage() {
           <BlockedAttempts attempts={view.blockedAttempts} />
         </aside>
       </div>
+
+      {/* Modals */}
+      <AbsentStudentPacketModal
+        sessionId={sessionId}
+        isOpen={showAbsentPacket}
+        onClose={() => setShowAbsentPacket(false)}
+        onOpenCatchupBooking={() => setShowCatchupBooking(true)}
+      />
+
+      <CatchupBookingModal
+        sessionId={sessionId}
+        studentId={identity.participantId}
+        studentName={identity.displayName}
+        isOpen={showCatchupBooking}
+        onClose={() => setShowCatchupBooking(false)}
+      />
 
       {report && <ReportView report={report} title={view.room?.title} />}
     </main>
