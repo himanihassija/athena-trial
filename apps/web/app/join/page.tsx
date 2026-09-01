@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Role } from '@echosphere/shared-types';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   orchestrator,
   storeIdentity,
@@ -92,30 +93,45 @@ export default function JoinPage() {
   const nameValid = displayName.trim().length > 0;
 
   return (
-    <main className="eco-room flex min-h-screen justify-center px-6 py-14">
-      <div className="flex w-full max-w-lg flex-col gap-8">
-        <header className="flex flex-col gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="eco-lamp eco-lamp-glow eco-pulse" />
-            <span className="eco-label">On air</span>
-          </div>
-          <h1 className="eco-wordmark text-5xl leading-none text-[var(--eco-cream)]">
+    <div
+      className="min-h-screen bg-cover bg-center bg-fixed bg-no-repeat"
+      style={{
+        backgroundImage:
+          'linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.48) 100%), url(/classroom-bg.png)',
+      }}
+    >
+      {/* ── Top nav ─────────────────────────────────────────────────────── */}
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+        <div className="flex items-center gap-2.5">
+          <span className="eco-lamp eco-lamp-glow eco-pulse" />
+          <span className="eco-wordmark text-lg text-[var(--eco-cream)]">
             Athena
+          </span>
+        </div>
+        <ThemeToggle />
+      </header>
+
+      {/* ── Hero ────────────────────────────────────────────────────────── */}
+      <main className="mx-auto flex w-full max-w-lg flex-col items-center gap-8 px-6 pb-16 pt-6 sm:pt-16">
+        <div className="eco-glass flex w-full flex-col items-center gap-2 p-8 text-center animate-fade-up">
+          <span
+            className="eco-lamp eco-lamp-amber eco-pulse mb-2"
+            style={{ width: '0.625rem', height: '0.625rem' }}
+          />
+          <h1 className="eco-display text-3xl leading-tight text-[var(--eco-cream)] sm:text-4xl">
+            Welcome to the{' '}
+            <span style={{ color: 'var(--eco-athena)' }}>classroom</span>
           </h1>
-          <p className="text-sm text-[var(--eco-cream-dim)]">
-            Live classroom with an AI co-teacher, tuned in and
-            listening.
+          <p className="max-w-sm text-sm text-[var(--eco-cream-dim)]">
+            Your AI co-teacher is tuned in and listening. Enter your name to
+            join a live lesson.
           </p>
-        </header>
+        </div>
 
         {reachable === false && (
           <p
-            className="rounded-[0.625rem] border px-4 py-3 text-sm"
-            style={{
-              borderColor: 'var(--eco-amber)',
-              background: 'var(--eco-amber-dim)',
-              color: 'var(--eco-cream)',
-            }}
+            className="eco-glass w-full px-4 py-3 text-sm animate-fade-up animate-fade-up-d1"
+            style={{ color: 'var(--eco-cream)' }}
           >
             Cannot reach the orchestrator at{' '}
             <code className="eco-numerals">{orchestrator.baseUrl}</code>. Start
@@ -127,7 +143,7 @@ export default function JoinPage() {
           </p>
         )}
 
-        <section className="eco-panel flex flex-col gap-5 p-5">
+        <section className="eco-glass flex w-full flex-col gap-5 p-6 animate-fade-up animate-fade-up-d1">
           <label className="flex flex-col gap-1.5">
             <span className="eco-label-dim">Your name</span>
             <input
@@ -143,25 +159,30 @@ export default function JoinPage() {
           <fieldset className="flex flex-col gap-1.5">
             <legend className="eco-label-dim">Join as</legend>
             <div className="flex gap-2">
-              {(['student', 'teacher'] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setRole(option)}
-                  className="flex-1 rounded-lg border px-3 py-2 text-sm capitalize transition-colors"
-                  style={
-                    role === option
-                      ? {
-                          borderColor: 'var(--eco-glow)',
-                          background: 'var(--eco-glow-dim)',
-                          color: 'var(--eco-glow-bright)',
-                        }
-                      : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
-                  }
-                >
-                  {option}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setRole('student')}
+                className="flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors"
+                style={
+                  role === 'student'
+                    ? { borderColor: 'var(--eco-athena)', background: 'var(--eco-athena)', color: 'var(--eco-ink)' }
+                    : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
+                }
+              >
+                Join as student
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('teacher')}
+                className="flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors"
+                style={
+                  role === 'teacher'
+                    ? { borderColor: 'var(--eco-athena)', color: 'var(--eco-athena)' }
+                    : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
+                }
+              >
+                Join as teacher
+              </button>
             </div>
             <p className="text-xs text-[var(--eco-cream-faint)]">
               {role === 'teacher'
@@ -190,7 +211,7 @@ export default function JoinPage() {
         </section>
 
         {role === 'teacher' && (
-          <section className="eco-panel flex flex-col gap-2 p-4">
+          <section className="eco-glass flex w-full flex-col gap-2 p-5 animate-fade-up animate-fade-up-d2">
             <h2 className="eco-label-dim">Start a new lesson</h2>
             <div className="flex gap-2">
               <input
@@ -205,7 +226,7 @@ export default function JoinPage() {
                 disabled={!nameValid || busy}
                 onClick={() => void createAndJoin()}
                 className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
-                style={{ background: 'var(--eco-glow)', color: 'var(--eco-ink)' }}
+                style={{ background: 'var(--eco-athena)', color: 'var(--eco-ink)' }}
               >
                 {busy ? 'Creating…' : 'Create'}
               </button>
@@ -227,8 +248,8 @@ export default function JoinPage() {
           </section>
         )}
 
-        <section className="flex flex-col gap-2">
-          <h2 className="eco-label">
+        <section className="flex w-full flex-col gap-2 animate-fade-up animate-fade-up-d2">
+          <h2 className="eco-label px-1">
             {sessions.length > 0 ? 'Live classrooms' : 'No live classrooms yet'}
           </h2>
 
@@ -237,7 +258,7 @@ export default function JoinPage() {
               create a lesson, so point them at the role toggle instead of leaving
               them on a dead end. */}
           {sessions.length === 0 && reachable !== false && (
-            <div className="eco-panel-sunken flex flex-col items-start gap-2 border-dashed p-4">
+            <div className="eco-glass flex flex-col items-start gap-2 p-4">
               {role === 'teacher' ? (
                 <p className="text-sm text-[var(--eco-cream-dim)]">
                   Give your lesson a title above and press{' '}
@@ -253,7 +274,7 @@ export default function JoinPage() {
                     type="button"
                     onClick={() => setRole('teacher')}
                     className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)]"
-                    style={{ borderColor: 'var(--eco-glow)' }}
+                    style={{ borderColor: 'var(--eco-athena)' }}
                   >
                     I&rsquo;m the teacher — start a lesson
                   </button>
@@ -266,7 +287,7 @@ export default function JoinPage() {
             {sessions.map((session) => (
               <li
                 key={session.sessionId}
-                className="eco-panel flex items-center justify-between p-3.5"
+                className="eco-glass flex items-center justify-between p-3.5"
               >
                 <div className="flex items-center gap-3">
                   <span
@@ -290,7 +311,7 @@ export default function JoinPage() {
                     void join(session.sessionId);
                   }}
                   className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
-                  style={{ borderColor: 'var(--eco-glow)' }}
+                  style={{ borderColor: 'var(--eco-athena)' }}
                 >
                   {busy && selectedSessionId === session.sessionId
                     ? 'Joining…'
@@ -303,17 +324,17 @@ export default function JoinPage() {
 
         {error && (
           <p
-            className="rounded-[0.625rem] border px-4 py-3 text-sm"
-            style={{
-              borderColor: 'var(--eco-red)',
-              background: 'var(--eco-red-dim)',
-              color: 'var(--eco-cream)',
-            }}
+            className="eco-glass w-full px-4 py-3 text-sm"
+            style={{ color: 'var(--eco-cream)' }}
           >
             {error}
           </p>
         )}
-      </div>
-    </main>
+      </main>
+
+      <footer className="mx-auto w-full max-w-6xl px-6 pb-6 text-center text-xs text-[var(--eco-cream-faint)]">
+        Powered by the Athena co-teacher engine
+      </footer>
+    </div>
   );
 }

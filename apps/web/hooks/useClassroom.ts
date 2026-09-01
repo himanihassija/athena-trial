@@ -47,6 +47,12 @@ export interface SuppressedIntervention {
   score: number;
 }
 
+/** Fires once when this student answers every question in a quiz set correctly. */
+export interface CelebrationTrigger {
+  topic: string;
+  at: number;
+}
+
 export interface ClassroomView {
   room: RoomState | null;
   participants: PublicParticipant[];
@@ -62,6 +68,7 @@ export interface ClassroomView {
   suppressedInterventions: SuppressedIntervention[];
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   restraintScore?: number;
+  celebration: CelebrationTrigger | null;
 }
 
 /** Keeps the rendered transcript bounded; the full log lives on the server. */
@@ -84,6 +91,7 @@ export function useClassroom(
   const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
   const [restraintMeterState, setRestraintMeterState] = useState<'listening' | 'ready' | 'held-back' | 'speaking'>('listening');
   const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
+  const [celebration, setCelebration] = useState<CelebrationTrigger | null>(null);
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -222,6 +230,12 @@ export function useClassroom(
         );
         break;
 
+      case 'echosphere:quiz-set-perfect':
+        // publishTo already scoped this to just this student on the server,
+        // so no participantId check is needed here.
+        setCelebration({ topic: event.topic, at: Date.now() });
+        break;
+
       case 'echosphere:command':
         // Commands are applied server-side; the resulting policy/floor events
         // carry the effect. Nothing to mirror here.
@@ -293,5 +307,6 @@ export function useClassroom(
     suppressedInterventions,
     restraintMeterState,
     restraintScore,
+    celebration,
   };
 }

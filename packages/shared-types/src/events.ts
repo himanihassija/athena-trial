@@ -47,7 +47,9 @@ export type ClassroomEvent =
   | { kind: 'echosphere:session-ended'; sessionId: string }
   | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
   | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
-  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number };
+  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
+  /** A student answered every question in a quiz set correctly. Sent only to that student. */
+  | { kind: 'echosphere:quiz-set-perfect'; topic: string };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 

@@ -911,6 +911,7 @@ export async function maybeAdvanceQuizSet(
 
   if (set.asked >= set.total) {
     console.info(`[quiz] set complete (${set.total} questions) in session ${session.sessionId}`);
+    announcePerfectScores(session, set);
     session.activeQuizSet = null;
     return;
   }
@@ -929,6 +930,37 @@ export async function maybeAdvanceQuizSet(
   );
   if (!(await issueSetQuestion(session))) {
     session.activeQuizSet = null;
+  }
+}
+
+/**
+ * Fires a celebration event to any student who answered every question in a
+ * just-finished quiz set correctly. Sent only to that student (`publishTo`) —
+ * classmates and the teacher don't see it.
+ */
+function announcePerfectScores(
+  session: ClassroomSession,
+  set: NonNullable<ClassroomSession['activeQuizSet']>,
+): void {
+  // Only meaningful once every question in the set has actually been issued.
+  if (set.quizIds.length < set.total) return;
+
+  const targets =
+    set.targetStudentIds.length > 0
+      ? set.targetStudentIds
+      : activeStudents(session).map((s) => s.participantId);
+
+  for (const participantId of targets) {
+    const allCorrect = set.quizIds.every((quizId) =>
+      session.answers.some(
+        (a) => a.quizId === quizId && a.participantId === participantId && a.correct,
+      ),
+    );
+    if (!allCorrect) continue;
+    publishTo(session.sessionId, participantId, {
+      kind: 'echosphere:quiz-set-perfect',
+      topic: set.topic,
+    });
   }
 }
 

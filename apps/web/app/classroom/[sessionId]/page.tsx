@@ -12,6 +12,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { ClassroomShell } from '@/components/classroom/ClassroomShell';
 import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
 import { QuizOverlay } from '@/components/classroom/QuizOverlay';
+import { QuizCelebration } from '@/components/classroom/QuizCelebration';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   AgentAbsentNotice,
   FloorIndicator,
@@ -110,6 +112,7 @@ export default function ClassroomPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <FloorIndicator floor={view.floor} policy={view.policy} />
           <button
             type="button"
@@ -226,6 +229,7 @@ export default function ClassroomPage() {
       {!view.ended && (
         <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
       )}
+      <QuizCelebration celebration={view.celebration} />
     </main>
   );
 }

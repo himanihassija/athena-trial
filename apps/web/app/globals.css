@@ -140,13 +140,45 @@
 body {
   font-family: var(--font-sans);
   /* Every route is the Echosphere classroom (app/page.tsx redirects to /join),
-     so the whole document sits on the warm near-black ground — the centered,
-     max-width page shells no longer float on a light gutter. */
+     so the whole document sits on the eco ground defined below. Light by
+     default; the dotted texture and warmth read correctly in both themes
+     because every value here comes from the --eco-* custom properties. The
+     study-doodle wallpaper is a separate ::before layer below, so it can be
+     inverted for dark mode without touching this base. */
   color: var(--eco-cream);
   background:
     radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--eco-cream) 4%, transparent) 1px, transparent 0)
       0 0 / 26px 26px,
     var(--eco-ink);
+}
+
+/*
+ * Study-doodle wallpaper — a fixed, full-viewport layer behind everything,
+ * kept separate from body's own background so a CSS filter can flip it for
+ * dark mode without a second image asset. Same source PNG in both themes:
+ * light mode uses it as drawn (dark linework on a pale ground); dark mode
+ * inverts it (pale linework on a dark ground) via `invert(1)`.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: url('/study-pattern.png') repeat 0 0 / 480px 480px;
+  opacity: 0.4;
+}
+
+[data-eco-theme='dark'] body::before {
+  filter: invert(1) brightness(1.6);
+  opacity: 0.55;
+}
+
+/* Explicit placeholder color — left to browser defaults, some render too
+   faint against the light theme's white input fields to read comfortably. */
+::placeholder {
+  color: var(--eco-cream-faint);
+  opacity: 1;
 }
 
 /* --- Entry animations --- */
@@ -213,14 +245,17 @@ body {
  *      client with the video panes removed. On-air lamps, level meters, a
  *      warm dial glow.
  *
- *   2. A study lamp on a desk at night. Pure broadcast-desk chrome reads cold
- *      and a little intimidating for a classroom a nine-year-old might sit
- *      in, so the second reference pulls it back toward something humane: one
- *      warm pool of light on a dark surface, not a wall of equipment.
+ *   2. A study lamp on a desk at daytime. Pure broadcast-desk chrome reads
+ *      cold and a little intimidating for a classroom a nine-year-old might
+ *      sit in, so the second reference pulls it back toward something
+ *      humane: light streaming through a classroom window, not a wall of
+ *      equipment.
  *
  * Rules that hold everywhere below:
- *   - The ground is WARM near-black, never blue-black. Blue-black reads as a
- *     dashboard; this is a room with a lamp on in it.
+ *   - LIGHT is the default ground — warm paper/cream, never a cold, sterile
+ *     white. It should read like daylight in a real classroom, not a
+ *     dashboard. Dark mode (`[data-eco-theme="dark"]`) is available via the
+ *     toggle and keeps the original warm near-black "lamp at night" mood.
  *   - The accent is a tube-radio "magic eye" glow — the little indicator on
  *     an old radio that glows brightest when the dial is perfectly tuned.
  *     It is the one color idea in this file that is actually load-bearing for
@@ -240,10 +275,10 @@ body {
  */
 
 :root {
-  /* Meraki core palette */
-  --ink:        #0B0B0D;   /* app ground — warm near-black, not pure, not blue */
-  --slate:      #151417;   /* card / panel surface */
-  --paper:      #EEF1F4;   /* type on the dark ground */
+  /* Meraki core palette — LIGHT (default) */
+  --ink:        #F7F4EE;   /* app ground — warm paper, daylight not dashboard */
+  --slate:      #FFFFFF;   /* card / panel surface */
+  --paper:      #211D14;   /* type on the light ground — warm near-black */
   --chalk:      #FBFCFD;   /* cards, raised surfaces */
   --marigold:   #E8A317;   /* attention — the agent has something to say */
   --teal:       #0F766E;   /* active — the agent is speaking */
@@ -252,27 +287,80 @@ body {
   /* Map old Echo theme variables to new Meraki tokens to preserve CSS compatibility */
   --eco-ink: var(--ink);
   --eco-ink-raised: var(--slate);
-  --eco-ink-sunken: #101013;
+  --eco-ink-sunken: #F1ECE0;
 
   /* Tube glow — the general UI accent (still teal) */
   --eco-glow: var(--teal);
-  --eco-glow-bright: #14b8a6;
-  --eco-glow-dim: #115e59;
+  --eco-glow-bright: #0d9488;
+  --eco-glow-dim: #DCEEEB;
 
   /*
    * Athena's identity colour — a warm amber/gold. Used ONLY for the AI:
    * her orb, her transcript accent, active-quiz state. Never for the general
    * UI accent and never for error/danger.
    */
+  --eco-athena: #E8A317;
+  --eco-athena-dim: #FBEBC9;
+
+  /* Warm ink type — never pure black, never pure white, on this ground */
+  --eco-cream: var(--paper);
+  --eco-cream-dim: #4A4438;
+  --eco-cream-faint: #6B6355;
+
+  /* Signals — kept close to convention; these need to be read instantly */
+  --eco-red: var(--clay);
+  --eco-red-dim: #F7E4DA;
+  --eco-amber: var(--marigold);
+  --eco-amber-dim: #FBEBC9;
+  --eco-green: var(--teal);
+  --eco-green-dim: #DCEEEB;
+  --eco-blue: #0284c7;
+  --eco-blue-dim: #E0F2FE;
+
+  /* Hairline card border — warm light gray, not a cool-tinted rule */
+  --eco-rule: #E4DFD3;
+
+  /*
+   * Camera-off participant avatar hues — one per person, assigned by hashing
+   * participantId in lib/seatColor.ts. Four distinct hues: teal, amber, rose,
+   * violet (see the UI restyle spec). Same hues in both themes — only the
+   * ground and panel colors change.
+   */
+  --eco-seat-1: #2FA89A;   /* teal   */
+  --eco-seat-2: #D98A3D;   /* amber  */
+  --eco-seat-3: #C23A5E;   /* rose   */
+  --eco-seat-4: #7B5FD9;   /* violet */
+}
+
+/*
+ * Dark theme override — applied by ThemeToggle setting
+ * document.documentElement.dataset.ecoTheme = 'dark'. Same values the app
+ * shipped with before the light theme became the default.
+ */
+:root[data-eco-theme='dark'] {
+  --ink:        #0B0B0D;
+  --slate:      #151417;
+  --paper:      #EEF1F4;
+  --chalk:      #FBFCFD;
+  --marigold:   #E8A317;
+  --teal:       #0F766E;
+  --clay:       #B85C38;
+
+  --eco-ink: var(--ink);
+  --eco-ink-raised: var(--slate);
+  --eco-ink-sunken: #101013;
+
+  --eco-glow: var(--teal);
+  --eco-glow-bright: #14b8a6;
+  --eco-glow-dim: #115e59;
+
   --eco-athena: #EFB65C;
   --eco-athena-dim: #3a2b0e;
 
-  /* Warm cream type — never pure white on this ground */
   --eco-cream: var(--paper);
   --eco-cream-dim: #94a3b8;
   --eco-cream-faint: #64748b;
 
-  /* Signals — kept close to convention; these need to be read instantly */
   --eco-red: var(--clay);
   --eco-red-dim: #451a0e;
   --eco-amber: var(--marigold);
@@ -282,18 +370,12 @@ body {
   --eco-blue: #38bdf8;
   --eco-blue-dim: #0c4a6e;
 
-  /* Hairline card border — warm dark, not a cool-tinted rule */
   --eco-rule: #2A2822;
 
-  /*
-   * Camera-off participant avatar hues — one per person, assigned by hashing
-   * participantId in lib/seatColor.ts. Four distinct hues: teal, amber, rose,
-   * violet (see the UI restyle spec).
-   */
-  --eco-seat-1: #2FA89A;   /* teal   */
-  --eco-seat-2: #D98A3D;   /* amber  */
-  --eco-seat-3: #C23A5E;   /* rose   */
-  --eco-seat-4: #7B5FD9;   /* violet */
+  --eco-seat-1: #2FA89A;
+  --eco-seat-2: #D98A3D;
+  --eco-seat-3: #C23A5E;
+  --eco-seat-4: #7B5FD9;
 }
 
 .eco-room {
@@ -357,6 +439,21 @@ body {
   background: var(--eco-ink-sunken);
   border: 1px solid var(--eco-rule);
   border-radius: 0.625rem;
+}
+
+/**
+ * A translucent glass panel over a photographic background — the join
+ * screen's hero card. Distinct from .eco-panel (which is a flat opaque
+ * surface for content that sits on the plain ground) because this one needs
+ * to let the classroom photo show through at the edges.
+ */
+.eco-glass {
+  background: color-mix(in srgb, var(--eco-ink-raised) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--eco-cream) 14%, transparent);
+  border-radius: 1.25rem;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 20px 60px -20px color-mix(in srgb, var(--eco-ink) 45%, transparent);
 }
 
 /**

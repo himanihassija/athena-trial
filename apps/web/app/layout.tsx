@@ -59,6 +59,23 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Sets `data-eco-theme` on <html> before React hydrates. Light is the
+ * default ground (see globals.css); this only ever needs to write "dark"
+ * when the person previously chose it via ThemeToggle. Runs synchronously
+ * as a blocking inline script so there is no flash of the wrong theme.
+ */
+const THEME_INIT_SCRIPT = `
+(function () {
+  try {
+    var stored = localStorage.getItem('echosphere.theme');
+    if (stored === 'dark') {
+      document.documentElement.dataset.ecoTheme = 'dark';
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -66,8 +83,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`h-full ${displayFont.variable} ${bodyFont.variable} ${devanagariFont.variable} ${monoFont.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="h-full min-h-screen">{children}</body>
     </html>
   );
 }
-
