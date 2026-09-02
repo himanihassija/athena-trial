@@ -96,7 +96,9 @@ Fields, all optional:
 
 - \`"to"\`: the exact name of the student you are answering this turn, spelled as it appears in the room list. Send it every time you answer a specific person.
 - \`"gap"\`: send when two or more students have shown the same confusion. \`{"topic":"...","students":["Name","Name"]}\`. Use a short topic name, two or three words.
-- \`"quiz"\`: send **only** when you have just asked a quiz question out loud. \`{"topic":"...","question":"...","options":["...","...","..."],"answer":"B","difficulty":"easy"}\`. \`answer\` is the letter of the correct option. Two to four options, each short enough to say aloud. The \`question\` and \`options\` must be word-for-word what you spoke, because they are also rendered on screen.
+- \`"quiz"\`: send **only** when you have just asked a quiz question out loud. \`{"topic":"...","question":"...","options":["...","...","...","..."],"answer":"<letter>","difficulty":"easy"}\`. Exactly four options, in the same A, B, C, D order you spoke them, each short enough to say aloud. The \`question\` and \`options\` must be word-for-word what you spoke, because they are also rendered on screen.
+
+  \`answer\` is the letter of the option that is actually correct. **Work it out from your own options before you write it.** Count the options in order — the first is A, the second B, the third C, the fourth D — and give the letter of the one that is genuinely right. It is A, B, C or D with equal likelihood; the letter in the example below carries no meaning, and copying it marks a correct student wrong.
 
 Answering one student:
 \`{"to":"Ana"}\`
@@ -104,8 +106,8 @@ Answering one student:
 Noticing a shared misconception:
 \`{"to":"Bilal","gap":{"topic":"common denominator","students":["Ana","Bilal"]}}\`
 
-Posing a quiz:
-\`{"quiz":{"topic":"common denominator","question":"What do you do first when adding one half and one third?","options":["Add the denominators","Find the least common denominator","Multiply the numerators"],"answer":"B","difficulty":"easy"}}\`
+Posing a quiz — note that \`answer\` here is "C" only because "Find the least common denominator" is the third option; count your own options and use whichever letter is genuinely correct:
+\`{"quiz":{"topic":"common denominator","question":"What do you do first when adding one half and one third?","options":["Add the denominators","Multiply the numerators","Find the least common denominator","Subtract the smaller denominator"],"answer":"C","difficulty":"easy"}}\`
 
 If none of these apply, append \`{}\`.`;
 
@@ -222,7 +224,17 @@ export function gapInterjectionDirective(
   return `[classroom:system] ${affectedCount} students have shown the same confusion about "${topic}". You have been given a natural pause to address it. Acknowledge it lightly without singling anyone out, give one clearer explanation of that specific point, and hand back to the teacher. Two or three sentences.`;
 }
 
-/** Asks the agent to pose a quiz out loud and report it on the control channel. */
+/**
+ * Asks the agent to pose a quiz out loud and report it on the control channel.
+ *
+ * The labels are spoken as "Option A", never as a bare "A." — an isolated
+ * letter is the least reliable thing you can hand a neural TTS. It carries
+ * almost no context, so the engine falls back to whatever letter-name reading
+ * is most probable, and on a multilingual voice that can be another language's
+ * inventory entirely (a bare "D." was coming out as "shahar"). The word
+ * "Option" in front gives the engine enough context to read the letter as a
+ * label. The full option text was never affected — it has plenty of context.
+ */
 export function quizDirective(
   topic: string,
   targetNames: string[],
@@ -238,7 +250,7 @@ export function quizDirective(
           .map((q) => `"${q}"`)
           .join('; ')}. Ask a DIFFERENT question on the same topic — new angle, do not repeat or lightly reword any of those.`
       : '';
-  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options, labelled A, B, C, D. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them. The control object must be present even if you are cut short. Do not reveal the answer.`;
+  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options. Introduce each one by saying the words "Option A", "Option B", "Option C", "Option D" — always the word "Option" followed by the letter, never a bare letter on its own and never a letter followed by a full stop, because speech synthesis mispronounces an isolated letter. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them — but in the object put ONLY the option text itself, never the "Option A" lead-in, because the screen adds the letter on its own. The control object must be present even if you are cut short. Do not reveal the answer.`;
 }
 
 /**

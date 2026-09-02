@@ -472,6 +472,38 @@ function ingestAgentTurn(
 }
 
 /**
+ * How long the same question text is treated as a redelivery of one turn rather
+ * than a deliberate re-ask. Comfortably longer than the 25s history poll plus
+ * the reveal linger, and far shorter than a lesson, so a teacher genuinely
+ * asking the same question again later still gets a fresh card.
+ */
+const QUIZ_REDELIVERY_WINDOW_MS = 90_000;
+
+/**
+ * True when this exact question has already been turned into a card moments
+ * ago — i.e. the second of the two delivery paths has just arrived.
+ *
+ * Keyed on the question and its options rather than on a turn id, because the
+ * two paths carry different identity: the history poll has no turn id at all,
+ * and the relay's is the browser's. The text is the only thing they share.
+ */
+function isDuplicateQuizPayload(
+  session: ClassroomSession,
+  incoming: { question: string; options?: string[] },
+): boolean {
+  const key = (q: string, o: string[] | undefined) =>
+    `${q.trim().toLowerCase()}::${(o ?? []).map((x) => x.trim().toLowerCase()).join('|')}`;
+  const incomingKey = key(incoming.question, incoming.options);
+  const cutoff = Date.now() - QUIZ_REDELIVERY_WINDOW_MS;
+
+  for (const quiz of session.quizzes.values()) {
+    if (quiz.createdAt < cutoff) continue;
+    if (key(quiz.question, quiz.options) === incomingKey) return true;
+  }
+  return false;
+}
+
+/**
  * Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap).
  * Returns the quiz it created, if any, so a multi-question set can track it.
  */
@@ -499,6 +531,17 @@ function applyControl(
   }
 
   if (control.quiz) {
+    // One spoken turn can reach here twice: `issueSetQuestion` recovers the
+    // payload from the agent's history, and the same turn also arrives as a
+    // relayed RTM transcript through `ingestAgentTurn`. Both call this, and
+    // `recordQuizFromControl` mints a fresh quizId each time — which is how one
+    // question ended up on screen as two identical cards, both labelled with
+    // the same "Question N of M". Neither path can be dropped: the history poll
+    // is the reliable one for a Start Quiz set, but a quiz Athena poses on her
+    // own is only ever seen via the relay. So the payload itself is the key.
+    if (isDuplicateQuizPayload(session, control.quiz)) {
+      return {};
+    }
     const pending = takePendingQuiz(session);
     const set = session.activeQuizSet;
     const quiz = recordQuizFromControl(

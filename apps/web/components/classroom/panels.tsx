@@ -333,7 +333,10 @@ export function TranscriptFeed({
           </span>
         )}
       </div>
-      <div className="eco-panel min-h-0 flex-1 overflow-y-auto p-4">
+      {/* `max-h` matters only on mobile, where the page scrolls and this panel
+          has no bounded parent to take its height from — without it a long
+          transcript would push the quiz sidebar arbitrarily far down the page. */}
+      <div className="eco-panel max-h-[60vh] min-h-0 flex-1 overflow-y-auto p-4 md:max-h-none">
         {transcript.length === 0 ? (
           <p className="text-sm text-[var(--eco-cream-faint)]">
             {agentPresent

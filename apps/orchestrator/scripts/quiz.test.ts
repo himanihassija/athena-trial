@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict';
 import type { ClassroomEvent } from '@echosphere/shared-types';
 import {
+  ingestTranscript,
   maybeAdvanceQuizSet,
   startQuiz,
   submitQuizAnswer,
@@ -24,6 +25,7 @@ import {
 } from './../src/quiz/quizEngine.ts';
 import { subscribe } from './../src/state/eventBus.ts';
 import {
+  AGENT_UID,
   addParticipant,
   createSession,
   removeParticipant,
@@ -207,6 +209,66 @@ await t('every question in a set requests the floor (a muted agent blocks Start 
   const result = await startQuiz(session, 'fractions', [], 'teacher');
   assert.equal(result.ok, false, 'a muted agent must block the quiz');
   assert.equal(session.activeQuizSet, null, 'no half-started set is left behind');
+});
+
+/**
+ * One spoken turn used to become two identical cards on screen, both labelled
+ * with the same "Question N of M". The payload reaches `applyControl` from two
+ * places — the agent-history poll in `issueSetQuestion` and the relayed RTM
+ * transcript in `ingestAgentTurn` — and each minted a fresh quizId.
+ */
+await t('the same quiz payload delivered twice creates only one card', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const turn =
+    'Which of the following numbers is even? Option A: 3. Option B: 7. Option C: 10. Option D: 15. ' +
+    '{"quiz":{"topic":"even numbers","question":"Which of the following numbers is even?",' +
+    '"options":["3","7","10","15"],"answer":"C","difficulty":"easy"}}';
+
+  await ingestTranscript(session, { uid: AGENT_UID, text: turn, isFinal: true, turnId: 1 });
+  await ingestTranscript(session, { uid: AGENT_UID, text: turn, isFinal: true, turnId: 2 });
+
+  assert.equal(session.quizzes.size, 1, 'a redelivered payload must not create a second card');
+});
+
+await t('a genuinely different question still gets its own card', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const q1 =
+    'Q one? {"quiz":{"topic":"t","question":"Which number is even?","options":["3","10"],"answer":"B"}}';
+  const q2 =
+    'Q two? {"quiz":{"topic":"t","question":"Which number is odd?","options":["3","10"],"answer":"A"}}';
+
+  await ingestTranscript(session, { uid: AGENT_UID, text: q1, isFinal: true, turnId: 1 });
+  await ingestTranscript(session, { uid: AGENT_UID, text: q2, isFinal: true, turnId: 2 });
+
+  assert.equal(session.quizzes.size, 2, 'the dedupe must key on the payload, not just fire once');
+});
+
+/**
+ * The answer letter is resolved to option text, so an off-by-one in the letter
+ * silently marks a correct student wrong — the bug seen live, where "which is
+ * even?" with options 3/7/10/15 came back as "B".
+ */
+await t('the answer letter maps to the option at that position', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const quiz = recordQuizFromControl(
+    session,
+    {
+      topic: 'even numbers',
+      question: 'Which of the following numbers is even?',
+      options: ['3', '7', '10', '15'],
+      answer: 'C',
+    },
+    'teacher',
+    [],
+  );
+
+  assert.equal(quiz.correctAnswer, '10', 'C must resolve to the third option');
 });
 
 console.log(`\n${pass} passing`);

@@ -12,7 +12,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CelebrationTrigger } from '@/hooks/useClassroom';
 
 const CONFETTI_COLORS = ['#f4c95d', '#ff8a5c', '#6bc5a0', '#5aa9e6', '#e07a9e'];
@@ -42,44 +42,56 @@ interface Balloon {
   color: string;
 }
 
+/**
+ * The randomised layouts are built here rather than during render.
+ *
+ * `Math.random()` in a render path — including inside `useMemo`, which is a
+ * caching hint and not a guarantee — lets React recompute different positions
+ * on any re-render it chooses to make, so the shower could visibly reshuffle
+ * mid-animation. Building them in the effect that already responds to a new
+ * celebration keeps render pure and pins each shower's geometry for its whole
+ * run.
+ */
+function rollConfetti(): ConfettiPiece[] {
+  return Array.from({ length: CONFETTI_COUNT }, (_, id) => ({
+    id,
+    left: Math.random() * 100,
+    delay: Math.random() * 1.2,
+    duration: 3.8 + Math.random() * 2.2,
+    color: CONFETTI_COLORS[id % CONFETTI_COLORS.length] ?? '#f4c95d',
+    rotate: Math.random() * 360,
+  }));
+}
+
+function rollBalloons(): Balloon[] {
+  return Array.from({ length: BALLOON_COUNT }, (_, id) => ({
+    id,
+    left: 10 + id * (80 / BALLOON_COUNT) + (Math.random() * 6 - 3),
+    delay: Math.random() * 1.0,
+    duration: 5.0 + Math.random() * 2.0,
+    color: CONFETTI_COLORS[(id + 2) % CONFETTI_COLORS.length] ?? '#5aa9e6',
+  }));
+}
+
 export interface QuizCelebrationProps {
   celebration: CelebrationTrigger | null;
 }
 
 export function QuizCelebration({ celebration }: QuizCelebrationProps) {
   const [visible, setVisible] = useState(false);
-
-  // Re-rolled only when a new celebration actually fires, so the shower looks
-  // fresh each time rather than replaying identical positions.
-  const confetti = useMemo<ConfettiPiece[]>(
-    () =>
-      Array.from({ length: CONFETTI_COUNT }, (_, id) => ({
-        id,
-        left: Math.random() * 100,
-        delay: Math.random() * 1.2,
-        duration: 3.8 + Math.random() * 2.2,
-        color: CONFETTI_COLORS[id % CONFETTI_COLORS.length] ?? '#f4c95d',
-        rotate: Math.random() * 360,
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [celebration?.at],
-  );
-
-  const balloons = useMemo<Balloon[]>(
-    () =>
-      Array.from({ length: BALLOON_COUNT }, (_, id) => ({
-        id,
-        left: 10 + id * (80 / BALLOON_COUNT) + (Math.random() * 6 - 3),
-        delay: Math.random() * 1.0,
-        duration: 5.0 + Math.random() * 2.0,
-        color: CONFETTI_COLORS[(id + 2) % CONFETTI_COLORS.length] ?? '#5aa9e6',
-      })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [celebration?.at],
-  );
+  // Held together so one celebration's confetti and balloons are always rolled
+  // from the same trigger.
+  const [shower, setShower] = useState<{
+    confetti: ConfettiPiece[];
+    balloons: Balloon[];
+  }>({ confetti: [], balloons: [] });
 
   useEffect(() => {
     if (!celebration) return;
+    // Re-rolled only when a new celebration actually fires, so the shower looks
+    // fresh each time rather than replaying identical positions. Batched with
+    // `setVisible`, so no frame renders an empty shower.
+    setShower({ confetti: rollConfetti(), balloons: rollBalloons() });
     setVisible(true);
 
     // Best-effort playback. A missing file (404) or a browser autoplay
@@ -92,6 +104,8 @@ export function QuizCelebration({ celebration }: QuizCelebrationProps) {
   }, [celebration]);
 
   if (!celebration || !visible) return null;
+
+  const { confetti, balloons } = shower;
 
   return (
     <div

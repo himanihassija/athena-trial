@@ -86,7 +86,12 @@ export default function ClassroomPage() {
   }
 
   return (
-    <main className="eco-room mx-auto flex h-screen max-w-5xl flex-col gap-3 overflow-hidden p-4">
+    // Below `md` the row below stacks into a column and the sidebar keeps its
+    // natural (tall) height, so a fixed `h-screen`/`overflow-hidden` shell
+    // clipped the quiz cards with nothing left to scroll. Small screens get
+    // normal document scrolling; the app-shell layout is kept from `md` up,
+    // where the sidebar is a bounded column that scrolls on its own.
+    <main className="eco-room mx-auto flex min-h-screen max-w-5xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
@@ -211,7 +216,9 @@ export default function ClassroomPage() {
           />
         </div>
 
-        <aside className="flex w-full shrink-0 flex-col gap-5 overflow-y-auto md:w-72">
+        {/* The internal scroll only makes sense once this is a bounded column
+            (`md` and up). On mobile it is part of the page's own scroll. */}
+        <aside className="flex w-full shrink-0 flex-col gap-5 md:w-72 md:overflow-y-auto">
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
