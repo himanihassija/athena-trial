@@ -113,8 +113,7 @@ export default function ClassroomPage() {
             Joined as {identity.displayName} ·{' '}
             {view.connected ? 'connected' : 'reconnecting…'}
             {view.policy?.studentsMayInvoke ? (
-              <>
-                {' '}· say{' '}
+              <>{' '}· say{' '}
                 <strong
                   className="font-semibold"
                   style={{ color: 'var(--eco-glow)' }}
@@ -143,7 +142,6 @@ export default function ClassroomPage() {
             style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
             title="Raise or lower your hand"
           >
-            <span aria-hidden>✋</span>
             <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
           </button>
 
@@ -154,7 +152,7 @@ export default function ClassroomPage() {
             style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
             title="Open the catch-up packet for this lesson"
           >
-            <span aria-hidden>📦</span> Absent Packet
+            Absent Packet
           </button>
 
           <button
@@ -164,7 +162,7 @@ export default function ClassroomPage() {
             style={{ '--chip-accent': 'var(--eco-athena)' } as CSSProperties}
             title="Start a private 1:1 session with Athena"
           >
-            <span aria-hidden>👩‍🏫</span> 1:1 Tutor
+            1:1 Tutor
           </button>
 
           <button
@@ -174,7 +172,7 @@ export default function ClassroomPage() {
             style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
             title="Book a live catch-up with your teacher"
           >
-            <span aria-hidden>📅</span> Catch-up
+            Catch-up
           </button>
 
           <FloorIndicator floor={view.floor} policy={view.policy} />

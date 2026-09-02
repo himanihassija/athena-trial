@@ -179,8 +179,7 @@ export function QuizCelebration({ celebration }: QuizCelebrationProps) {
           fontWeight: 600,
         }}
       >
-        Perfect score on {celebration.topic}! 🎉
-      </div>
+        Perfect score on {celebration.topic}! </div>
     </div>
   );
 }

@@ -129,7 +129,7 @@ export function MiroWorkspacePane({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-serif text-base font-semibold tracking-wide text-[var(--eco-cream)]">
+              <h2 className="eco-display text-base font-semibold tracking-wide text-[var(--eco-cream)]">
                 Live Shared Workspace
               </h2>
               {heldBackCount > 0 && (
@@ -193,7 +193,6 @@ export function MiroWorkspacePane({
       <div className="relative min-h-[16rem] flex-1 overflow-y-auto p-4">
         {filteredNotes.length === 0 ? (
           <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-[var(--eco-rule)]/60 bg-[var(--eco-ink-sunken)] p-6 text-center text-sm text-[var(--eco-cream-faint)]">
-            <div className="mb-2 text-2xl">📌</div>
             <p className="font-medium text-[var(--eco-cream)]">No sticky notes in this view yet</p>
             <p className="mt-1 max-w-sm text-xs">
               When Athena restrains an intervention or when students ask questions, notes are automatically pinned here live.
@@ -230,7 +229,7 @@ export function MiroWorkspacePane({
                       </span>
                       {note.isHeldBackDoubt && note.restraintScore !== undefined && (
                         <span className="text-[10px] font-mono text-[var(--eco-amber)]/80" title="Restraint Score">
-                          🛡️ Restraint: {Math.round(note.restraintScore * 100)}%
+                          Restraint: {Math.round(note.restraintScore * 100)}%
                         </span>
                       )}
                     </div>
@@ -288,7 +287,7 @@ export function MiroWorkspacePane({
                           className="flex items-center gap-1 rounded-md bg-[color-mix(in_srgb,var(--eco-athena)_20%,transparent)] px-2 py-0.5 text-xs font-medium text-[var(--eco-athena)] ring-1 ring-purple-400/40 hover:bg-[color-mix(in_srgb,var(--eco-athena)_30%,transparent)] transition disabled:opacity-50"
                           title="Ask Athena to speak this doubt out loud"
                         >
-                          {explainingId === note.id ? 'Addressing...' : '🗣️ Explain'}
+                          {explainingId === note.id ? 'Addressing...' : 'Explain'}
                         </button>
 
                         {/* Resolve Button (Teacher or Author) */}
@@ -319,7 +318,7 @@ export function MiroWorkspacePane({
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--eco-ink)_70%,transparent)] p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-md rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-6 shadow-2xl">
-            <h3 className="font-serif text-lg font-semibold text-[var(--eco-cream)]">
+            <h3 className="eco-display text-lg font-semibold text-[var(--eco-cream)]">
               Pin New Sticky Note to Shared Workspace
             </h3>
             <p className="mt-1 text-xs text-[var(--eco-cream-faint)]">

@@ -108,9 +108,8 @@ END:VCALENDAR`;
       <div className="w-full max-w-lg rounded-2xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] shadow-2xl overflow-hidden">
         <header className="flex items-center justify-between border-b border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <span className="text-xl">📅</span>
             <div>
-              <h3 className="font-serif text-base font-semibold text-[var(--eco-cream)]">
+              <h3 className="eco-display text-base font-semibold text-[var(--eco-cream)]">
                 Book 1:1 Catch-up Tutoring Session
               </h3>
               <p className="text-xs text-[var(--eco-cream-faint)]">
@@ -133,7 +132,7 @@ END:VCALENDAR`;
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--eco-green)_20%,transparent)] text-2xl text-[var(--eco-green)] ring-1 ring-emerald-500/40">
                 ✓
               </div>
-              <h4 className="font-serif text-lg font-semibold text-[var(--eco-cream)]">
+              <h4 className="eco-display text-lg font-semibold text-[var(--eco-cream)]">
                 Session Confirmed!
               </h4>
               <p className="text-xs text-[var(--eco-cream)]/90 max-w-sm mx-auto">
@@ -146,7 +145,7 @@ END:VCALENDAR`;
                   onClick={handleDownloadCalendar}
                   className="rounded-lg bg-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)] px-4 py-2 text-xs font-semibold text-[var(--eco-amber)] ring-1 ring-amber-400/40 hover:bg-[color-mix(in_srgb,var(--eco-amber)_30%,transparent)]"
                 >
-                  📥 Add to Calendar (.ics)
+                  Add to Calendar (.ics)
                 </button>
                 <button
                   type="button"
@@ -193,7 +192,7 @@ END:VCALENDAR`;
                           }`}
                         >
                           <div className="flex items-center justify-between text-[11px]">
-                            <span>📅 {slot.date}</span>
+                            <span>{slot.date}</span>
                             <span className="font-semibold">{slot.startTime}</span>
                           </div>
                           <div className="mt-1 text-[10px] text-[var(--eco-cream-faint)]">

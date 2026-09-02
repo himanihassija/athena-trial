@@ -55,7 +55,7 @@ export function SuppressedInterventionsPanel({ interventions }: SuppressedInterv
                         Score: {item.score.toFixed(2)}
                       </span>
                     </div>
-                    <p className="text-xs font-serif italic text-slate-200 leading-normal">
+                    <p className="text-xs italic text-slate-200 leading-normal">
                       &ldquo;{item.text}&rdquo;
                     </p>
                     <div className="text-[10px] font-mono text-slate-400 border-t border-slate-500/10 pt-1 mt-1 flex items-center justify-between">

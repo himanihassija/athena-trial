@@ -9,13 +9,13 @@ import type { LanguageCode, LanguageOption } from '@echosphere/shared-types';
 import { tryComplete } from '../llm/complete.js';
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
-  { code: 'en', label: 'English', nativeName: 'English', flag: '🇺🇸' },
-  { code: 'hi', label: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳' },
-  { code: 'es', label: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
-  { code: 'fr', label: 'French', nativeName: 'Français', flag: '🇫🇷' },
-  { code: 'de', label: 'German', nativeName: 'Deutsch', flag: '🇩🇪' },
-  { code: 'ta', label: 'Tamil', nativeName: 'தமிழ்', flag: '🇮🇳' },
-  { code: 'te', label: 'Telugu', nativeName: 'తెలుగు', flag: '🇮🇳' },
+  { code: 'en', label: 'English', nativeName: 'English' },
+  { code: 'hi', label: 'Hindi', nativeName: 'हिन्दी' },
+  { code: 'es', label: 'Spanish', nativeName: 'Español' },
+  { code: 'fr', label: 'French', nativeName: 'Français' },
+  { code: 'de', label: 'German', nativeName: 'Deutsch' },
+  { code: 'ta', label: 'Tamil', nativeName: 'தமிழ்' },
+  { code: 'te', label: 'Telugu', nativeName: 'తెలుగు' },
 ];
 
 export async function translateText(

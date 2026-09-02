@@ -56,12 +56,9 @@ export function AbsentStudentPacketModal({
         {/* Header */}
         <header className="flex items-center justify-between border-b border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[var(--eco-amber)] to-amber-600 font-serif text-lg font-bold text-[var(--eco-ink)] shadow-md">
-              📦
-            </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-lg font-semibold text-[var(--eco-cream)]">
+                <h2 className="eco-display text-lg font-semibold text-[var(--eco-cream)]">
                   The Absent-Student Packet
                 </h2>
                 <span className="rounded-full bg-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)] px-2.5 py-0.5 text-xs font-semibold text-[var(--eco-amber)] ring-1 ring-amber-400/40">
@@ -80,7 +77,7 @@ export function AbsentStudentPacketModal({
               onClick={handlePrint}
               className="rounded-lg bg-[var(--eco-panel)] px-3 py-1.5 text-xs font-medium text-[var(--eco-cream)] ring-1 ring-[var(--eco-rule)] hover:bg-[var(--eco-ink-raised)]"
             >
-              🖨️ Print / PDF
+              Print / PDF
             </button>
             <button
               type="button"
@@ -109,9 +106,9 @@ export function AbsentStudentPacketModal({
               {/* Section 1: Executive Summary */}
               <section className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-amber)]">
-                  <span>📖</span> Section 1: Executive Summary
+                  Section 1: Executive Summary
                 </div>
-                <h3 className="mt-1 font-serif text-base font-medium text-[var(--eco-cream)]">
+                <h3 className="mt-1 eco-display text-base font-medium text-[var(--eco-cream)]">
                   {packet.lessonTitle} ({packet.durationMinutes} minutes class)
                 </h3>
                 <p className="mt-2 text-xs leading-relaxed text-[var(--eco-cream)]/90 whitespace-pre-line">
@@ -139,7 +136,7 @@ export function AbsentStudentPacketModal({
               {packet.flaggedConcepts.length > 0 && (
                 <section className="rounded-xl border border-[color-mix(in_srgb,var(--eco-athena)_30%,transparent)] bg-[color-mix(in_srgb,var(--eco-athena)_10%,var(--eco-ink-sunken))] p-5 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-athena)]">
-                    <span>💡</span> Section 2: Core Concepts & Pitfalls Addressed
+                    Section 2: Core Concepts & Pitfalls Addressed
                   </div>
                   <div className="mt-3 space-y-3">
                     {packet.flaggedConcepts.map((item, idx) => (
@@ -160,7 +157,7 @@ export function AbsentStudentPacketModal({
               {/* Section 3: Audio Timeline Highlights */}
               <section className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-blue)]">
-                  <span>🎙️</span> Section 3: Key Audio Highlights
+                  Section 3: Key Audio Highlights
                 </div>
                 <div className="mt-3 space-y-2 max-h-56 overflow-y-auto">
                   {packet.timelineHighlights.length === 0 ? (
@@ -190,7 +187,7 @@ export function AbsentStudentPacketModal({
               {packet.stickyNotesSnapshot.length > 0 && (
                 <section className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-5 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-amber)]">
-                    <span>📌</span> Section 4: Shared Workspace & Held-Back Doubts
+                    Section 4: Shared Workspace & Held-Back Doubts
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {packet.stickyNotesSnapshot.slice(0, 6).map((note) => (
@@ -218,7 +215,7 @@ export function AbsentStudentPacketModal({
               <section className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-green)]">
-                    <span>✅</span> Section 5: Diagnostic Quick-Check
+                    Section 5: Diagnostic Quick-Check
                   </div>
                   {quizSubmitted && (
                     <span className="rounded-full bg-[color-mix(in_srgb,var(--eco-green)_20%,transparent)] px-2.5 py-0.5 text-xs font-semibold text-[var(--eco-green)]">
@@ -294,7 +291,7 @@ export function AbsentStudentPacketModal({
               {/* Section 6: Next Steps & Catch-up CTA */}
               <section className="rounded-xl border border-[color-mix(in_srgb,var(--eco-amber)_40%,transparent)] bg-gradient-to-r from-amber-950/30 to-yellow-950/30 p-5 shadow-lg flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h4 className="font-serif text-sm font-semibold text-[var(--eco-amber)]">
+                  <h4 className="eco-display text-sm font-semibold text-[var(--eco-amber)]">
                     Still have questions or need 1:1 guidance?
                   </h4>
                   <p className="mt-1 text-xs text-[var(--eco-cream)]/80">
@@ -310,7 +307,7 @@ export function AbsentStudentPacketModal({
                     }}
                     className="rounded-lg bg-[var(--eco-amber)] px-4 py-2 text-xs font-semibold text-[var(--eco-ink)] hover:bg-[var(--eco-amber)] shadow-md transition"
                   >
-                    📅 Schedule 1:1 Catch-up
+                    Schedule 1:1 Catch-up
                   </button>
                 </div>
               </section>

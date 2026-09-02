@@ -16,7 +16,6 @@ export interface LanguageOption {
   code: LanguageCode;
   label: string;
   nativeName: string;
-  flag: string;
 }
 
 export interface AbsentStudentPacket {

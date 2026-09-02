@@ -8,14 +8,14 @@ interface LanguageSelectorProps {
   onLanguageChange: (lang: LanguageCode) => void;
 }
 
-const LANGUAGES: Array<{ code: LanguageCode; label: string; native: string; flag: string }> = [
-  { code: 'en', label: 'English', native: 'English', flag: '🇺🇸' },
-  { code: 'hi', label: 'Hindi', native: 'हिन्दी', flag: '🇮🇳' },
-  { code: 'es', label: 'Spanish', native: 'Español', flag: '🇪🇸' },
-  { code: 'fr', label: 'French', native: 'Français', flag: '🇫🇷' },
-  { code: 'de', label: 'German', native: 'Deutsch', flag: '🇩🇪' },
-  { code: 'ta', label: 'Tamil', native: 'தமிழ்', flag: '🇮🇳' },
-  { code: 'te', label: 'Telugu', native: 'తెలుగు', flag: '🇮🇳' },
+const LANGUAGES: Array<{ code: LanguageCode; label: string; native: string }> = [
+  { code: 'en', label: 'English', native: 'English' },
+  { code: 'hi', label: 'Hindi', native: 'हिन्दी' },
+  { code: 'es', label: 'Spanish', native: 'Español' },
+  { code: 'fr', label: 'French', native: 'Français' },
+  { code: 'de', label: 'German', native: 'Deutsch' },
+  { code: 'ta', label: 'Tamil', native: 'தமிழ்' },
+  { code: 'te', label: 'Telugu', native: 'తెలుగు' },
 ];
 
 export function LanguageSelector({ currentLanguage, onLanguageChange }: LanguageSelectorProps) {
@@ -30,7 +30,6 @@ export function LanguageSelector({ currentLanguage, onLanguageChange }: Language
         className="flex items-center gap-1.5 rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] px-2.5 py-1.5 text-xs text-[var(--eco-cream)] transition hover:border-[var(--eco-rule)]/80 hover:bg-[color-mix(in_srgb,var(--eco-ink)_60%,transparent)] shadow-sm"
         title="Change Co-Teacher AI & Classroom Language"
       >
-        <span>{active.flag}</span>
         <span className="font-medium">{active.native}</span>
         <span className="text-[10px] text-[var(--eco-cream-faint)]">▼</span>
       </button>
@@ -57,7 +56,6 @@ export function LanguageSelector({ currentLanguage, onLanguageChange }: Language
                 }`}
               >
                 <span className="flex items-center gap-2">
-                  <span>{lang.flag}</span>
                   <span>{lang.native}</span>
                 </span>
                 {currentLanguage === lang.code && <span className="text-[var(--eco-amber)]">✓</span>}

@@ -76,7 +76,10 @@
   --viz-stop-3: 285 58% 48%;
 
   /* Font */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* The loaded body face first; the system stack is only a fallback. Keeps
+     anything outside .eco-room on the same typeface as everything inside it. */
+  --font-sans: var(--font-body), var(--font-devanagari), system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {

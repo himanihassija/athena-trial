@@ -67,12 +67,9 @@ export function OneOnOneTutorModal({
         {/* Header */}
         <header className="flex items-center justify-between border-b border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--eco-athena)_20%,transparent)] text-xl ring-1 ring-purple-500/40">
-              👩‍🏫
-            </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-serif text-base font-semibold text-[var(--eco-cream)]">
+                <h3 className="eco-display text-base font-semibold text-[var(--eco-cream)]">
                   1:1 AI Tutoring with Athena
                 </h3>
                 <span className="rounded-full bg-[color-mix(in_srgb,var(--eco-athena)_20%,transparent)] px-2 py-0.5 text-[10px] font-semibold text-[var(--eco-athena)]">
@@ -104,7 +101,7 @@ export function OneOnOneTutorModal({
                 onClick={() => handleFocusGap(gap)}
                 className="rounded-md bg-[color-mix(in_srgb,var(--eco-amber)_10%,transparent)] px-2 py-0.5 text-[11px] text-[var(--eco-amber)] border border-[color-mix(in_srgb,var(--eco-amber)_30%,transparent)] hover:bg-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)] transition"
               >
-                🔍 {gap.topic}
+                {gap.topic}
               </button>
             ))}
           </div>

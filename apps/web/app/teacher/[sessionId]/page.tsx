@@ -228,7 +228,7 @@ export default function TeacherDashboardPage() {
             className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition"
             title="Generate and view the Absent-Student Lesson Packet"
           >
-            <span>📦</span> Absent Packet
+            Absent Packet
           </button>
           <FloorIndicator floor={view.floor} policy={view.policy} />
           <button
@@ -260,7 +260,6 @@ export default function TeacherDashboardPage() {
       {view.raisedHands.length > 0 && (
         <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 animate-in fade-in">
           <div className="flex items-center gap-2">
-            <span className="text-base animate-bounce">✋</span>
             <span>
               <strong>{view.raisedHands.length} student(s) raised their hand:</strong>{' '}
               {view.raisedHands

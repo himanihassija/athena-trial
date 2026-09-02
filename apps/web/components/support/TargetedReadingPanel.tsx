@@ -55,10 +55,9 @@ export function TargetedReadingPanel({
     <div className="eco-panel flex flex-col rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] shadow-xl overflow-hidden">
       <header className="flex items-center justify-between border-b border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-base">📚</span>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-serif text-sm font-semibold text-[var(--eco-cream)]">
+              <h3 className="eco-display text-sm font-semibold text-[var(--eco-cream)]">
                 Targeted Reading {role === 'teacher' ? '(Teacher Review)' : '(Approved for You)'}
               </h3>
               {role === 'teacher' && pendingCount > 0 && (
@@ -100,7 +99,7 @@ export function TargetedReadingPanel({
                         {item.topic}
                       </span>
                       <span className="text-[10px] text-[var(--eco-cream-faint)]">
-                        ⏱️ {item.estimatedReadTime}
+                        ⏱{item.estimatedReadTime}
                       </span>
                       {isPending && (
                         <span className="rounded bg-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--eco-amber)]">
@@ -173,7 +172,7 @@ export function TargetedReadingPanel({
                 <span className="text-[10px] font-semibold text-[var(--eco-amber)] uppercase tracking-wider">
                   {selectedReading.topic} · {selectedReading.estimatedReadTime} read
                 </span>
-                <h3 className="font-serif text-base font-semibold text-[var(--eco-cream)]">
+                <h3 className="eco-display text-base font-semibold text-[var(--eco-cream)]">
                   {selectedReading.title}
                 </h3>
               </div>
