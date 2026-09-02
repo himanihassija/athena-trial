@@ -10,6 +10,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { config } from './config.js';
+import { registerErrorHandler } from './errors.js';
 import { classroomRoutes } from './routes/classroom.js';
 import { inspectRoutes } from './routes/inspect.js';
 import { completionsRoutes } from './routes/completions.js';
@@ -37,6 +38,11 @@ await app.register(cors, {
   origin: config.corsOrigins,
   credentials: true,
 });
+
+// Registered on the root instance, before the route plugins, so every route
+// inherits it. Routes throw `ZodError` from `schema.parse(...)`; without this
+// Fastify reported those as 500 and echoed the raw issue dump to the caller.
+registerErrorHandler(app);
 
 app.get('/health', async () => ({
   ok: true,
