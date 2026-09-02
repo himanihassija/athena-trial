@@ -33,6 +33,8 @@ export interface Participant {
   joinedAt: number;
   /** Set when the participant's RTC connection drops; kept for post-class reporting. */
   leftAt?: number;
+  language?: import('./support.js').LanguageCode;
+  handRaised?: boolean;
 }
 
 export interface StudentProfile extends Participant {

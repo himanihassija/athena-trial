@@ -18,6 +18,8 @@ import type {
   SpeakDenialReason,
 } from './floor.js';
 import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
+import type { MiroWorkspaceState, MiroStickyNote, MiroCommand } from './workspace.js';
+import type { TargetedReadingItem, CatchupAvailabilitySlot, LanguageCode } from './support.js';
 
 /** Discriminator prefix so classroom events are never confused with Agora's own. */
 export const ECHOSPHERE_EVENT_PREFIX = 'echosphere:' as const;
@@ -49,7 +51,15 @@ export type ClassroomEvent =
   | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
   | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
   /** A student answered every question in a quiz set correctly. Sent only to that student. */
-  | { kind: 'echosphere:quiz-set-perfect'; topic: string };
+  | { kind: 'echosphere:quiz-set-perfect'; topic: string }
+  | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
+  | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }
+  | { kind: 'echosphere:sticky-note-updated'; note: MiroStickyNote }
+  | { kind: 'echosphere:targeted-reading-updated'; items: TargetedReadingItem[] }
+  | { kind: 'echosphere:catchup-slots-updated'; slots: CatchupAvailabilitySlot[] }
+  | { kind: 'echosphere:hand-raised'; participantId: string; displayName: string; at: number }
+  | { kind: 'echosphere:hand-lowered'; participantId: string }
+  | { kind: 'echosphere:language-changed'; participantId: string; language: LanguageCode };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 
@@ -60,6 +70,8 @@ export interface PublicParticipant {
   displayName: string;
   role: Role;
   proficiency?: ProficiencyTag;
+  language?: LanguageCode;
+  handRaised?: boolean;
 }
 
 /**
@@ -110,6 +122,10 @@ export interface RoomState {
   endedAt: number | null;
   suppressedInterventions?: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState?: 'listening' | 'ready' | 'held-back' | 'speaking';
+  workspace?: MiroWorkspaceState;
+  targetedReadings?: TargetedReadingItem[];
+  catchupSlots?: CatchupAvailabilitySlot[];
+  raisedHands?: string[];
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

@@ -7,10 +7,11 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ClassroomShell } from '@/components/classroom/ClassroomShell';
 import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
+import { CatchupChatbot } from '@/components/classroom/CatchupChatbot';
 import { QuizOverlay } from '@/components/classroom/QuizOverlay';
 import { QuizCelebration } from '@/components/classroom/QuizCelebration';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -21,6 +22,12 @@ import {
   RosterPanel,
   TranscriptFeed,
 } from '@/components/classroom/panels';
+import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
+import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
+import { OneOnOneTutorModal } from '@/components/support/OneOnOneTutorModal';
+import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel';
+import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
+import { LanguageSelector } from '@/components/support/LanguageSelector';
 import { useClassroom } from '@/hooks/useClassroom';
 import {
   clearIdentity,
@@ -37,13 +44,13 @@ export default function ClassroomPage() {
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakingUid, setSpeakingUid] = useState<string | null>(null);
-  // Whether the transcript pipeline is actually alive. Distinguishing this from
-  // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(
-    null,
-  );
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+
+  const [showAbsentPacket, setShowAbsentPacket] = useState(false);
+  const [show1on1Tutor, setShow1on1Tutor] = useState(false);
+  const [showCatchupBooking, setShowCatchupBooking] = useState(false);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -85,14 +92,19 @@ export default function ClassroomPage() {
     );
   }
 
+  const isHandRaised = view.raisedHands.includes(identity.participantId);
+
   return (
     // Below `md` the row below stacks into a column and the sidebar keeps its
     // natural (tall) height, so a fixed `h-screen`/`overflow-hidden` shell
     // clipped the quiz cards with nothing left to scroll. Small screens get
     // normal document scrolling; the app-shell layout is kept from `md` up,
     // where the sidebar is a bounded column that scrolls on its own.
-    <main className="eco-room mx-auto flex min-h-screen max-w-5xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    //
+    // `max-w-6xl` rather than 5xl: the sidebar gained the targeted-reading
+    // panel in the support-features merge and needs the extra width.
+    <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div>
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
             {view.room?.title ?? 'Classroom'}
@@ -116,9 +128,57 @@ export default function ClassroomPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ThemeToggle />
+          <LanguageSelector
+            currentLanguage={view.myLanguage}
+            onLanguageChange={view.changeLanguage}
+          />
+
+          <button
+            type="button"
+            onClick={() => void view.toggleHandRaise()}
+            data-active={isHandRaised}
+            className={`eco-action-chip ${isHandRaised ? 'eco-pulse' : ''}`}
+            style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
+            title="Raise or lower your hand"
+          >
+            <span aria-hidden>✋</span>
+            <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAbsentPacket(true)}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
+            title="Open the catch-up packet for this lesson"
+          >
+            <span aria-hidden>📦</span> Absent Packet
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShow1on1Tutor(true)}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-athena)' } as CSSProperties}
+            title="Start a private 1:1 session with Athena"
+          >
+            <span aria-hidden>👩‍🏫</span> 1:1 Tutor
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCatchupBooking(true)}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
+            title="Book a live catch-up with your teacher"
+          >
+            <span aria-hidden>📅</span> Catch-up
+          </button>
+
           <FloorIndicator floor={view.floor} policy={view.policy} />
+
           <button
             type="button"
             onClick={() => setMicEnabled((on) => !on)}
@@ -133,6 +193,7 @@ export default function ClassroomPage() {
           >
             {micEnabled ? '●' : '○'}
           </button>
+
           <button
             type="button"
             onClick={() => void leave()}
@@ -178,12 +239,9 @@ export default function ClassroomPage() {
         </p>
       )}
 
-
-      <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          {/* ClassroomShell wraps only the audio. Transcript, roster and quiz
-              cards all render from the orchestrator's SSE stream, so an RTM
-              problem should cost the room its audio — not its entire UI. */}
+      {/* Main Classroom Layout */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           <ClassroomShell identity={identity}>
             {(rtm) => (
               <ClassroomAudio
@@ -194,11 +252,6 @@ export default function ClassroomPage() {
                 rtcToken={identity.rtcToken}
                 rtmClient={rtm}
                 agentUid={identity.agentUid}
-                // Students never relay. Human turns arrive without a speaker
-                // id, so the relaying browser has to infer one from its own
-                // volume indicator — and two browsers inferring separately
-                // logged the same sentence twice, under two different names.
-                // The teacher's tab is the single authority.
                 isRelay={false}
                 micEnabled={micEnabled}
                 onToolkitReady={setTranscriptionLive}
@@ -209,6 +262,15 @@ export default function ClassroomPage() {
             )}
           </ClassroomShell>
 
+          {/* Shared Live Miro Workspace & Held-Back Doubts */}
+          <MiroWorkspacePane
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="student"
+            workspace={view.workspace}
+            onRefresh={view.refreshWorkspace}
+          />
+
           <TranscriptFeed
             transcript={view.transcript}
             participants={view.participants}
@@ -218,7 +280,13 @@ export default function ClassroomPage() {
 
         {/* The internal scroll only makes sense once this is a bounded column
             (`md` and up). On mobile it is part of the page's own scroll. */}
-        <aside className="flex w-full shrink-0 flex-col gap-5 md:w-72 md:overflow-y-auto">
+        <aside className="flex w-full shrink-0 flex-col gap-5 md:w-72 md:overflow-y-auto lg:w-80">
+          <TargetedReadingPanel
+            sessionId={sessionId}
+            participantId={identity.participantId}
+            role="student"
+            readings={view.targetedReadings}
+          />
           <RosterPanel
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
@@ -237,6 +305,39 @@ export default function ClassroomPage() {
         <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
       )}
       <QuizCelebration celebration={view.celebration} />
+
+      {!view.ended && (
+        <CatchupChatbot
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          displayName={identity.displayName}
+        />
+      )}
+
+      {/* Modals */}
+      <AbsentStudentPacketModal
+        sessionId={sessionId}
+        isOpen={showAbsentPacket}
+        onClose={() => setShowAbsentPacket(false)}
+        onOpenCatchupBooking={() => setShowCatchupBooking(true)}
+      />
+
+      <OneOnOneTutorModal
+        sessionId={sessionId}
+        studentId={identity.participantId}
+        studentName={identity.displayName}
+        isOpen={show1on1Tutor}
+        onClose={() => setShow1on1Tutor(false)}
+        gaps={view.gaps}
+      />
+
+      <CatchupBookingModal
+        sessionId={sessionId}
+        studentId={identity.participantId}
+        studentName={identity.displayName}
+        isOpen={showCatchupBooking}
+        onClose={() => setShowCatchupBooking(false)}
+      />
     </main>
   );
 }

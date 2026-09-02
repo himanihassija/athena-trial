@@ -14,6 +14,8 @@ import type {
   SessionReport,
   TeacherCommand,
   TranscriptSegment,
+  CatchupReply,
+  CatchupMessage,
 } from '@echosphere/shared-types';
 
 const BASE =
@@ -148,6 +150,17 @@ export const orchestrator = {
       body: JSON.stringify({ state }),
     }),
 
+  askCatchup: (sessionId: string, participantId: string, text: string) =>
+    request<CatchupReply>(`/api/sessions/${sessionId}/catchup`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, text }),
+    }),
+
+  getCatchup: (sessionId: string, participantId: string) =>
+    request<{ history: CatchupMessage[] }>(
+      `/api/sessions/${sessionId}/catchup?participantId=${encodeURIComponent(participantId)}`,
+    ),
+
   getTranscript: (sessionId: string) =>
     request<TranscriptSegment[]>(`/api/sessions/${sessionId}/transcript`),
 
@@ -218,6 +231,137 @@ export const orchestrator = {
       `/api/sessions/${sessionId}/report?participantId=${encodeURIComponent(participantId)}`,
     ),
 
+  catchupChat: (sessionId: string, participantId: string, text: string) =>
+    request<CatchupReply>(`/api/sessions/${sessionId}/catchup`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, text }),
+    }),
+
+  // ─── Shared Workspace & Sticky Notes (Miro Integration) ───────────────────
+
+  getWorkspace: (sessionId: string) =>
+    request<import('@echosphere/shared-types').MiroWorkspaceState>(
+      `/api/sessions/${sessionId}/workspace`,
+    ),
+
+  addStickyNote: (
+    sessionId: string,
+    payload: {
+      topic?: string;
+      content: string;
+      category?: import('@echosphere/shared-types').StickyNoteCategory;
+      color?: import('@echosphere/shared-types').StickyNoteColor;
+      authorName?: string;
+      authorRole?: 'athena' | 'teacher' | 'student';
+      authorParticipantId?: string;
+      tags?: string[];
+    },
+  ) =>
+    request<import('@echosphere/shared-types').MiroStickyNote>(
+      `/api/sessions/${sessionId}/workspace/notes`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
+  updateStickyNote: (
+    sessionId: string,
+    noteId: string,
+    patch: Partial<import('@echosphere/shared-types').MiroStickyNote>,
+  ) =>
+    request<import('@echosphere/shared-types').MiroStickyNote>(
+      `/api/sessions/${sessionId}/workspace/notes/${noteId}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+
+  voteStickyNote: (sessionId: string, noteId: string, participantId: string) =>
+    request<import('@echosphere/shared-types').MiroStickyNote>(
+      `/api/sessions/${sessionId}/workspace/notes/${noteId}/vote`,
+      { method: 'POST', body: JSON.stringify({ participantId }) },
+    ),
+
+  resolveStickyNote: (
+    sessionId: string,
+    noteId: string,
+    status: import('@echosphere/shared-types').StickyNoteStatus,
+  ) =>
+    request<import('@echosphere/shared-types').MiroStickyNote>(
+      `/api/sessions/${sessionId}/workspace/notes/${noteId}/resolve`,
+      { method: 'POST', body: JSON.stringify({ status }) },
+    ),
+
+  deleteStickyNote: (sessionId: string, noteId: string) =>
+    request<{ ok: boolean }>(`/api/sessions/${sessionId}/workspace/notes/${noteId}`, {
+      method: 'DELETE',
+    }),
+
+  explainStickyNote: (sessionId: string, noteId: string) =>
+    request<{ ok: boolean; note: import('@echosphere/shared-types').MiroStickyNote }>(
+      `/api/sessions/${sessionId}/workspace/notes/${noteId}/explain`,
+      { method: 'POST' },
+    ),
+
+  // ─── Nobody Left Behind: Absent-Student Packet ─────────────────────────────
+
+  getAbsentPacket: (sessionId: string) =>
+    request<import('@echosphere/shared-types').AbsentStudentPacket>(
+      `/api/sessions/${sessionId}/absent-packet`,
+    ),
+
+  // ─── Nobody Left Behind: Targeted Reading (Teacher-Approved) ───────────────
+
+  getTargetedReadings: (sessionId: string) =>
+    request<import('@echosphere/shared-types').TargetedReadingItem[]>(
+      `/api/sessions/${sessionId}/targeted-readings`,
+    ),
+
+  approveTargetedReading: (sessionId: string, readingId: string, participantId: string) =>
+    request<import('@echosphere/shared-types').TargetedReadingItem>(
+      `/api/sessions/${sessionId}/targeted-readings/${readingId}/approve`,
+      { method: 'POST', body: JSON.stringify({ participantId }) },
+    ),
+
+  rejectTargetedReading: (sessionId: string, readingId: string, participantId: string) =>
+    request<{ ok: boolean }>(
+      `/api/sessions/${sessionId}/targeted-readings/${readingId}/reject`,
+      { method: 'POST', body: JSON.stringify({ participantId }) },
+    ),
+
+  // ─── Nobody Left Behind: Catch-up Sessions from Real Availability ──────────
+
+  getCatchupSlots: (sessionId: string) =>
+    request<import('@echosphere/shared-types').CatchupAvailabilitySlot[]>(
+      `/api/sessions/${sessionId}/catchup-slots`,
+    ),
+
+  bookCatchupSlot: (
+    sessionId: string,
+    booking: import('@echosphere/shared-types').CatchupBookingRequest,
+  ) =>
+    request<import('@echosphere/shared-types').CatchupAvailabilitySlot>(
+      `/api/sessions/${sessionId}/catchup-slots/book`,
+      { method: 'POST', body: JSON.stringify(booking) },
+    ),
+
+  // ─── Hand-Raise Control Plane Signal ───────────────────────────────────────
+
+  raiseHand: (sessionId: string, participantId: string, raised: boolean) =>
+    request<{ ok: boolean; raisedHands: string[] }>(`/api/sessions/${sessionId}/hand-raise`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, raised }),
+    }),
+
+  // ─── Multilingual Real-Time Translation ────────────────────────────────────
+
+  translateText: (
+    sessionId: string,
+    text: string,
+    targetLanguage: import('@echosphere/shared-types').LanguageCode,
+    sourceLanguage?: import('@echosphere/shared-types').LanguageCode,
+  ) =>
+    request<{ original: string; translated: string; language: string }>(
+      `/api/sessions/${sessionId}/translate`,
+      { method: 'POST', body: JSON.stringify({ text, targetLanguage, sourceLanguage }) },
+    ),
+
   /**
    * The exact system prompt the agent is running with. Useful for showing that
    * a proficiency change or a lesson upload actually reached the agent, since
@@ -255,6 +399,8 @@ export const orchestrator = {
     return source;
   },
 };
+
+export const orchestratorClient = orchestrator;
 
 // ─── Browser-local session identity ──────────────────────────────────────────
 

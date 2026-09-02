@@ -22,6 +22,10 @@ import type {
   RoomState,
   SpeakDenialReason,
   TranscriptSegment,
+  MiroWorkspaceState,
+  TargetedReadingItem,
+  CatchupAvailabilitySlot,
+  LanguageCode,
 } from '@echosphere/shared-types';
 import { orchestrator } from '@/lib/orchestrator';
 
@@ -69,6 +73,14 @@ export interface ClassroomView {
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   restraintScore?: number;
   celebration: CelebrationTrigger | null;
+  workspace: MiroWorkspaceState | null;
+  targetedReadings: TargetedReadingItem[];
+  catchupSlots: CatchupAvailabilitySlot[];
+  raisedHands: string[];
+  myLanguage: LanguageCode;
+  toggleHandRaise: () => Promise<void>;
+  changeLanguage: (lang: LanguageCode) => void;
+  refreshWorkspace: () => Promise<void>;
 }
 
 /** Keeps the rendered transcript bounded; the full log lives on the server. */
@@ -92,6 +104,11 @@ export function useClassroom(
   const [restraintMeterState, setRestraintMeterState] = useState<'listening' | 'ready' | 'held-back' | 'speaking'>('listening');
   const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
   const [celebration, setCelebration] = useState<CelebrationTrigger | null>(null);
+  const [workspace, setWorkspace] = useState<MiroWorkspaceState | null>(null);
+  const [targetedReadings, setTargetedReadings] = useState<TargetedReadingItem[]>([]);
+  const [catchupSlots, setCatchupSlots] = useState<CatchupAvailabilitySlot[]>([]);
+  const [raisedHands, setRaisedHands] = useState<string[]>([]);
+  const [myLanguage, setMyLanguage] = useState<LanguageCode>('en');
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -105,6 +122,10 @@ export function useClassroom(
         setEnded(event.state.endedAt !== null);
         setSuppressedInterventions(event.state.suppressedInterventions ?? []);
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
+        if (event.state.workspace) setWorkspace(event.state.workspace);
+        if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
+        if (event.state.catchupSlots) setCatchupSlots(event.state.catchupSlots);
+        if (event.state.raisedHands) setRaisedHands(event.state.raisedHands);
         break;
 
       case 'echosphere:participant-joined':
@@ -240,17 +261,56 @@ export function useClassroom(
         // Commands are applied server-side; the resulting policy/floor events
         // carry the effect. Nothing to mirror here.
         break;
+
+      case 'echosphere:workspace-changed':
+        setWorkspace(event.workspace);
+        break;
+
+      case 'echosphere:sticky-note-added':
+        setWorkspace((prev) =>
+          prev
+            ? { ...prev, notes: [event.note, ...prev.notes.filter((n) => n.id !== event.note.id)] }
+            : null,
+        );
+        break;
+
+      case 'echosphere:sticky-note-updated':
+        setWorkspace((prev) =>
+          prev
+            ? { ...prev, notes: prev.notes.map((n) => (n.id === event.note.id ? event.note : n)) }
+            : null,
+        );
+        break;
+
+      case 'echosphere:targeted-reading-updated':
+        setTargetedReadings(event.items);
+        break;
+
+      case 'echosphere:catchup-slots-updated':
+        setCatchupSlots(event.slots);
+        break;
+
+      case 'echosphere:hand-raised':
+        setRaisedHands((prev) => [...new Set([...prev, event.participantId])]);
+        break;
+
+      case 'echosphere:hand-lowered':
+        setRaisedHands((prev) => prev.filter((id) => id !== event.participantId));
+        break;
+
+      case 'echosphere:language-changed':
+        setParticipants((prev) =>
+          prev.map((p) =>
+            p.participantId === event.participantId ? { ...p, language: event.language } : p,
+          ),
+        );
+        break;
     }
   }, [participantId]);
 
   useEffect(() => {
     if (!participantId) return;
 
-    // The SSE stream only carries deltas from the moment it connects, and the
-    // room-state frame has no transcript — so anyone who joins mid-lesson (or
-    // reconnects) would see a blank transcript until the next person speaks.
-    // Backfill the history once; new segments arrive over SSE and the
-    // segmentId de-dupe in `apply` absorbs any overlap.
     let cancelled = false;
     void orchestrator
       .getTranscript(sessionId)
@@ -283,6 +343,29 @@ export function useClassroom(
     };
   }, [sessionId, participantId, apply]);
 
+  const toggleHandRaise = useCallback(async () => {
+    if (!participantId) return;
+    const isCurrentlyRaised = raisedHands.includes(participantId);
+    try {
+      await orchestrator.raiseHand(sessionId, participantId, !isCurrentlyRaised);
+    } catch (err) {
+      console.error('Hand raise failed', err);
+    }
+  }, [sessionId, participantId, raisedHands]);
+
+  const changeLanguage = useCallback((lang: LanguageCode) => {
+    setMyLanguage(lang);
+  }, []);
+
+  const refreshWorkspace = useCallback(async () => {
+    try {
+      const ws = await orchestrator.getWorkspace(sessionId);
+      setWorkspace(ws);
+    } catch {
+      // Ignored
+    }
+  }, [sessionId]);
+
   /** Optimistic local echo so the tapped option shows immediately. */
   const recordAnswer = useCallback((quizId: string, answer: string) => {
     setQuizzes((prev) =>
@@ -308,5 +391,13 @@ export function useClassroom(
     restraintMeterState,
     restraintScore,
     celebration,
+    workspace,
+    targetedReadings,
+    catchupSlots,
+    raisedHands,
+    myLanguage,
+    toggleHandRaise,
+    changeLanguage,
+    refreshWorkspace,
   };
 }

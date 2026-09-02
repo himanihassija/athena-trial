@@ -65,6 +65,8 @@ import {
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
 import { rememberAgentUtterance, stripSelfEcho } from './agent/echo.js';
+import { recordHeldBackDoubt } from './workspace/workspaceManager.js';
+import { suggestReadingForGap } from './support/targetedReading.js';
 import { publish, publishTo, publishToTeachers } from './state/eventBus.js';
 import {
   AGENT_UID,
@@ -376,6 +378,13 @@ export async function ingestTranscript(
     clearSpeakPermit(session);
     await interruptAgent(session.sessionId).catch(() => undefined);
     setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
+    recordHeldBackDoubt(
+      session,
+      spokenText,
+      'Student question held back while teacher holds the floor',
+      0.85,
+      'Held-Back Student Question',
+    );
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
     // The permit that makes the answer legitimate; without it the enforcement
@@ -526,7 +535,8 @@ function applyControl(
       .map((name) => matchParticipantByName(roster, name))
       .filter((id): id is string => id !== undefined);
     if (ids.length > 0) {
-      recordReportedGap(session, control.gap.topic, ids);
+      const update = recordReportedGap(session, control.gap.topic, ids);
+      if (update?.gap) void suggestReadingForGap(session, update.gap);
     }
   }
 

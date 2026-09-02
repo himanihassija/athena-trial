@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_POLICY,
   emptyStudentStats,
   type AgentPolicy,
+  type CatchupMessage,
   type FloorSnapshot,
   type JoinClassroomRequest,
   type LearningGap,
@@ -135,6 +136,14 @@ export interface ClassroomSession {
   suppressedInterventions: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   interventionHistory: InterventionRecord[];
+
+  workspace?: import('@echosphere/shared-types').MiroWorkspaceState;
+  targetedReadings?: import('@echosphere/shared-types').TargetedReadingItem[];
+  catchupSlots?: import('@echosphere/shared-types').CatchupAvailabilitySlot[];
+  raisedHands: Set<string>;
+
+  /** Private catch-up threads, keyed by student participantId. */
+  catchupByParticipant: Map<string, CatchupMessage[]>;
 }
 
 const sessions = new Map<string, ClassroomSession>();
@@ -166,6 +175,8 @@ export function createSession(title: string): ClassroomSession {
     suppressedInterventions: [],
     restraintMeterState: 'listening',
     interventionHistory: [],
+    raisedHands: new Set(),
+    catchupByParticipant: new Map(),
   };
   sessions.set(sessionId, session);
   return session;
@@ -278,6 +289,8 @@ export function toPublicParticipant(p: Participant): PublicParticipant {
     displayName: p.displayName,
     role: p.role,
     proficiency: p.role === 'student' ? (p as StudentProfile).proficiency : undefined,
+    language: p.language,
+    handRaised: p.handRaised,
   };
 }
 

@@ -29,11 +29,17 @@ export interface GapControl {
   students: string[];
 }
 
+export interface BoardControl {
+  action: 'show' | 'hide' | 'write' | 'clear';
+  text?: string;
+}
+
 export interface CoTeacherControl {
   /** Display name of the student being answered this turn (§3.5, §3.9). */
   to?: string;
   gap?: GapControl;
   quiz?: QuizControl;
+  board?: BoardControl;
 }
 
 export interface ParsedTurn {
@@ -102,6 +108,22 @@ function readQuiz(value: unknown): QuizControl | undefined {
   };
 }
 
+function readBoard(value: unknown): BoardControl | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  if (
+    v.action !== 'show' &&
+    v.action !== 'hide' &&
+    v.action !== 'write' &&
+    v.action !== 'clear'
+  ) {
+    return undefined;
+  }
+  const text = typeof v.text === 'string' ? v.text.trim() : undefined;
+  if (v.action === 'write' && !text) return undefined;
+  return { action: v.action, text };
+}
+
 function readGap(value: unknown): GapControl | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
@@ -132,6 +154,8 @@ export function parseAgentTurn(text: string): ParsedTurn {
   if (gap) control.gap = gap;
   const quiz = readQuiz(raw.quiz);
   if (quiz) control.quiz = quiz;
+  const board = readBoard(raw.board);
+  if (board) control.board = board;
 
   const spoken = (text.slice(0, span.start) + text.slice(span.end))
     .replace(/\s{2,}/g, ' ')

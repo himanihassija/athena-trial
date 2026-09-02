@@ -538,3 +538,72 @@ body::before {
   .eco-orb-speaking,
   .eco-avatar-speaking { animation: none; }
 }
+/* ---------------------------------------------------------------------------
+   Header action chips — "Absent Packet", "1:1 Tutor", "Catch-up", "Raise Hand".
+   Merged in from the support-features branch, where each was written with
+   hardcoded Tailwind colours (bg-amber-500/10, text-purple-300, bg-black/40).
+   Those are dark-theme-only and render as dark blocks on the light ground, so
+   the accent is passed per-button as `--chip-accent` and mixed against the
+   themed surface tokens instead. One rule themes every chip in both modes.
+   --------------------------------------------------------------------------- */
+.eco-action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 0.5rem;
+  border: 1px solid
+    color-mix(in srgb, var(--chip-accent, var(--eco-rule)) 35%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--chip-accent, var(--eco-rule)) 12%,
+    var(--eco-ink-sunken)
+  );
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--chip-accent, var(--eco-cream));
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.eco-action-chip:hover {
+  background: color-mix(
+    in srgb,
+    var(--chip-accent, var(--eco-rule)) 22%,
+    var(--eco-ink-sunken)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--chip-accent, var(--eco-rule)) 55%,
+    transparent
+  );
+}
+
+/* Raised hand is a state, not an accent: it inverts so it reads across the room. */
+.eco-action-chip[data-active='true'] {
+  background: var(--chip-accent, var(--eco-amber));
+  border-color: var(--chip-accent, var(--eco-amber));
+  color: var(--eco-ink);
+}
+
+/* ---------------------------------------------------------------------------
+   Shared-workspace sticky notes.
+   The hue is per-note data (that is the point of sticky notes), but the merged
+   branch baked each surface in as a dark hex gradient, which reads as a black
+   card on the light ground. The hue now arrives as `--note-hue` and is mixed
+   against the themed surface token, so a note is a deep tint in dark mode and a
+   pale one in light mode — the way a real sticky note behaves.
+   --------------------------------------------------------------------------- */
+.eco-sticky {
+  border: 1px solid color-mix(in srgb, var(--note-hue) 40%, transparent);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--note-hue) 16%, var(--eco-ink-sunken)),
+    color-mix(in srgb, var(--note-hue) 8%, var(--eco-ink-sunken))
+  );
+}
+
+.eco-sticky-header {
+  background: color-mix(in srgb, var(--note-hue) 22%, transparent);
+  color: var(--note-hue);
+}

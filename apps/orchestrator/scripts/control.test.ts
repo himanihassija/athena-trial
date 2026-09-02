@@ -81,4 +81,13 @@ t('name matching is loose', () => {
   assert.equal(matchParticipantByName(roster, 'Nobody'), undefined);
 });
 
+t('reads a board write payload', () => {
+  const r = parseAgentTurn(
+    'Here is the method. {"board":{"action":"write","text":"LCD of 2 and 3 is 6"}}',
+  );
+  assert.equal(r.control?.board?.action, 'write');
+  assert.equal(r.control?.board?.text, 'LCD of 2 and 3 is 6');
+  assert.ok(!r.spoken.includes('{'));
+});
+
 console.log(`\n${pass} passing`);
