@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 
   console.log('\n── Create a lesson as teacher');
   await teacher.getByPlaceholder('e.g. Ana').fill('Ms Rao');
-  await teacher.getByRole('button', { name: 'teacher', exact: true }).click();
+  await teacher.getByRole('button', { name: 'Join as teacher', exact: true }).click();
   await teacher.getByPlaceholder(/Lesson title/).fill('Adding unlike fractions');
   await teacher.getByRole('button', { name: /Create/ }).click();
   await teacher.waitForURL(/\/teacher\//, { timeout: 15_000 });

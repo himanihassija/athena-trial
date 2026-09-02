@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type {
   SessionReport,
@@ -225,7 +225,8 @@ export default function TeacherDashboardPage() {
           <button
             type="button"
             onClick={() => setShowAbsentPacket(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-500/20 transition"
+            className="eco-action-chip"
+            style={{ "--chip-accent": "var(--eco-amber)" } as CSSProperties}
             title="Generate and view the Absent-Student Lesson Packet"
           >
             Absent Packet
@@ -258,7 +259,12 @@ export default function TeacherDashboardPage() {
 
       {/* Hand Raised Notification Banner */}
       {view.raisedHands.length > 0 && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200 animate-in fade-in">
+        <div className="flex items-center justify-between rounded-xl border px-4 py-2.5 text-xs animate-in fade-in"
+          style={{
+            borderColor: "color-mix(in srgb, var(--eco-amber) 40%, transparent)",
+            background: "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
+            color: "var(--eco-amber)",
+          }}>
           <div className="flex items-center gap-2">
             <span>
               <strong>{view.raisedHands.length} student(s) raised their hand:</strong>{' '}
@@ -267,7 +273,7 @@ export default function TeacherDashboardPage() {
                 .join(', ')}
             </span>
           </div>
-          <span className="text-[10px] text-amber-300/80">Signal received over control plane</span>
+          <span className="text-[10px] text-[var(--eco-cream-faint)]">Signal received over control plane</span>
         </div>
       )}
 

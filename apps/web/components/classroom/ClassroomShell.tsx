@@ -215,7 +215,12 @@ export function ClassroomShell({ identity, children }: ClassroomShellProps) {
 
   if (duplicateIdentity) {
     return (
-      <div className="flex flex-col items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+      <div className="flex flex-col items-start gap-3 rounded-md border p-4 text-sm"
+        style={{
+          borderColor: 'color-mix(in srgb, var(--eco-amber) 40%, transparent)',
+          background: 'color-mix(in srgb, var(--eco-amber) 12%, var(--eco-ink-sunken))',
+          color: 'var(--eco-cream)',
+        }}>
         <p>
           This classroom identity is already connected somewhere else. That
           normally means you duplicated a tab — duplicating copies the stored
@@ -234,7 +239,8 @@ export function ClassroomShell({ identity, children }: ClassroomShellProps) {
             // which logs the uid out before the next join reuses the app ID.
             router.push('/join');
           }}
-          className="rounded-md border border-amber-900 px-3 py-1.5"
+          className="rounded-md border px-3 py-1.5"
+          style={{ borderColor: 'var(--eco-amber)', color: 'var(--eco-amber)' }}
         >
           Rejoin as someone else
         </button>
