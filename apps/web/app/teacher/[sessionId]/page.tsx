@@ -49,6 +49,7 @@ import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPack
 import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel';
 import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
 import { LanguageSelector } from '@/components/support/LanguageSelector';
+import { CatchupChatbot } from '@/components/classroom/CatchupChatbot';
 
 function AppMenuIcon() {
   return (
@@ -404,6 +405,71 @@ export default function TeacherDashboardPage() {
       ),
     },
     {
+      id: 'bookings',
+      label: '1:1 Bookings',
+      content: (
+        <div className="flex flex-col gap-4">
+          <div className="eco-panel p-4 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <h2 className="eco-label">1:1 Student Connect Appointments</h2>
+              <button
+                type="button"
+                onClick={() => setShowCatchupBooking(true)}
+                className="rounded-lg bg-[var(--eco-amber)] px-3 py-1 text-xs font-semibold text-[var(--eco-ink)] hover:brightness-110"
+              >
+                + Add / Manage Slots
+              </button>
+            </div>
+            <p className="text-xs text-[var(--eco-cream-faint)]">
+              Scheduled office hours and remedial sessions booked by students.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {view.catchupSlots && view.catchupSlots.filter((s) => s.isBooked).length > 0 ? (
+              view.catchupSlots
+                .filter((s) => s.isBooked)
+                .map((slot) => (
+                  <div
+                    key={slot.slotId}
+                    className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 text-xs text-[var(--eco-cream)] space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-emerald-300">
+                        {slot.bookedByStudentName || 'Student'}
+                      </span>
+                      <span className="rounded bg-[var(--eco-panel)] px-2 py-0.5 text-[10px] font-bold text-amber-400">
+                        {slot.date} · {slot.startTime}-{slot.endTime}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[var(--eco-cream-dim)]">
+                      <strong>Focus Topic:</strong> {slot.topic || 'General Review'}
+                    </p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-emerald-400 font-medium">✓ Confirmed with Athena AI</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await orchestrator.cancelCatchupSlot(sessionId, slot.slotId);
+                          await view.refreshCatchupSlots?.();
+                        }}
+                        className="text-[10px] text-rose-400 hover:underline"
+                      >
+                        Cancel Slot
+                      </button>
+                    </div>
+                  </div>
+                ))
+            ) : (
+              <div className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] p-6 text-center text-xs text-[var(--eco-cream-faint)]">
+                No 1:1 appointments booked yet. Students can schedule directly from their classroom menu.
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
       id: 'quizzes',
       label: 'Quizzes',
       content: (
@@ -450,6 +516,34 @@ export default function TeacherDashboardPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAbsentPacket(true)}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition hover:scale-105"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--eco-athena) 60%, transparent)',
+              background: 'color-mix(in srgb, var(--eco-athena) 20%, transparent)',
+              color: 'var(--eco-athena)',
+            }}
+            title="Dispatch lesson transcript, summary & diagnostic quiz to absent students via WhatsApp/Email"
+          >
+            <span>Absent Dispatcher</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCatchupBooking(true)}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm transition hover:scale-105"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--eco-amber) 60%, transparent)',
+              background: 'color-mix(in srgb, var(--eco-amber) 15%, transparent)',
+              color: 'var(--eco-amber)',
+            }}
+            title="Manage 1:1 Connect slots"
+          >
+            <span>1:1 Slots</span>
+          </button>
+
           <LanguageSelector
             currentLanguage={view.myLanguage}
             onLanguageChange={view.changeLanguage}
@@ -685,6 +779,13 @@ export default function TeacherDashboardPage() {
         studentName={identity.displayName}
         isOpen={showCatchupBooking}
         onClose={() => setShowCatchupBooking(false)}
+      />
+
+      <CatchupChatbot
+        sessionId={sessionId}
+        participantId={identity.participantId}
+        displayName={identity.displayName}
+        role="teacher"
       />
     </main>
   );

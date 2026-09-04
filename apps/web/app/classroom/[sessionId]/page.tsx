@@ -257,6 +257,48 @@ export default function ClassroomPage() {
 
           <button
             type="button"
+            onClick={() => setShow1on1Tutor(true)}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition hover:scale-105"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--eco-amber) 60%, transparent)',
+              background: 'color-mix(in srgb, var(--eco-amber) 15%, transparent)',
+              color: 'var(--eco-amber)',
+            }}
+            title="Open dedicated Socratic AI Teaching Assistant for step-by-step help"
+          >
+            <span>AI Assistant</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowCatchupBooking(true)}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm transition hover:scale-105"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--eco-blue) 60%, transparent)',
+              background: 'color-mix(in srgb, var(--eco-blue) 15%, transparent)',
+              color: 'var(--eco-blue)',
+            }}
+            title="Schedule a 1:1 tutoring connect with the teacher"
+          >
+            <span>1:1 Connect</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAbsentPacket(true)}
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm transition hover:scale-105"
+            style={{
+              borderColor: 'var(--eco-rule)',
+              background: 'var(--eco-ink-sunken)',
+              color: 'var(--eco-cream-dim)',
+            }}
+            title="View absent catch-up packet & share via WhatsApp/Email"
+          >
+            <span>Absent Packet</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => void view.toggleHandRaise()}
             data-active={isHandRaised}
             className={`eco-action-chip ${isHandRaised ? 'eco-pulse' : ''}`}

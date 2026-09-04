@@ -4,7 +4,7 @@
  * the live voice Athena on the Agora channel is not interrupted.
  */
 
-export type CatchupSpeaker = 'student' | 'athena';
+export type CatchupSpeaker = 'student' | 'teacher' | 'athena';
 
 export interface CatchupMessage {
   role: CatchupSpeaker;

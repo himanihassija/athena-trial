@@ -108,15 +108,23 @@ export function ParticipantGrid({
         >
           {tile.handRaised && (
             <span
-              className="eco-pulse absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border text-sm"
+              className="eco-pulse absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border"
               style={{
                 borderColor: 'var(--eco-amber)',
                 background: 'var(--eco-amber-dim)',
+                color: 'var(--eco-amber)',
               }}
               aria-label={`${tile.name} raised their hand`}
-              title="Hand raised"
             >
-              ✋
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11m0 0V4.5a1.5 1.5 0 0 1 3 0V11m0 0V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6v-2a1.5 1.5 0 0 1 3 0"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </span>
           )}
 

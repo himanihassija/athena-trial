@@ -86,6 +86,7 @@ export interface ClassroomView {
   toggleHandRaise: () => Promise<void>;
   changeLanguage: (lang: LanguageCode) => void;
   refreshWorkspace: () => Promise<void>;
+  refreshCatchupSlots: () => Promise<void>;
   screenShareAllowed: string[];
   activeScreenShare: ActiveScreenShare | null;
   toggleScreenShare: (sharing: boolean) => Promise<void>;
@@ -404,6 +405,15 @@ export function useClassroom(
     }
   }, [sessionId]);
 
+  const refreshCatchupSlots = useCallback(async () => {
+    try {
+      const slots = await orchestrator.getCatchupSlots(sessionId);
+      setCatchupSlots(slots);
+    } catch {
+      // Ignored
+    }
+  }, [sessionId]);
+
   /** Optimistic local echo so the tapped option shows immediately. */
   const recordAnswer = useCallback((quizId: string, answer: string) => {
     setQuizzes((prev) =>
@@ -467,6 +477,7 @@ export function useClassroom(
     toggleHandRaise,
     changeLanguage,
     refreshWorkspace,
+    refreshCatchupSlots,
     screenShareAllowed,
     activeScreenShare,
     toggleScreenShare,

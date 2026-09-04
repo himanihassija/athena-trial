@@ -144,3 +144,118 @@ Format response as JSON:
     targetedReadings,
   };
 }
+
+import type { AbsentDispatchPayload, AbsentDispatchResult, DispatchChannel } from '@echosphere/shared-types';
+import { randomUUID } from 'node:crypto';
+
+export async function dispatchAbsentPacket(
+  session: ClassroomSession,
+  payload: AbsentDispatchPayload,
+): Promise<AbsentDispatchResult> {
+  const packet = await generateAbsentStudentPacket(session);
+  const studentName = payload.studentName || 'Student';
+  const receiptId = `dispatch-${randomUUID().slice(0, 8)}`;
+  const now = Date.now();
+
+  const channels: DispatchChannel[] =
+    payload.channel === 'both' ? ['whatsapp', 'email'] : [payload.channel];
+
+  // 1. Compose Rich WhatsApp Digest
+  const takeawaysList = packet.keyTakeaways.map((t) => `• ${t}`).join('\n');
+  const quizPreview = payload.includeQuiz && packet.diagnosticQuiz.length > 0
+    ? `\n\n🎯 *Diagnostic Quick-Check (${packet.diagnosticQuiz.length} Questions):*\n1. ${packet.diagnosticQuiz[0]?.question ?? ''}`
+    : '';
+
+  const parentNote = payload.parentNote ? `\n\n📝 *Teacher Note:* ${payload.parentNote}` : '';
+
+  const whatsappMessageText = `📚 *Athena EchoSphere — Lesson Catch-up Packet*
+━━━━━━━━━━━━━━━━━━━━━━
+Hi ${studentName}! Here is everything covered in today's lesson:
+📖 *Lesson:* ${session.title} (${packet.durationMinutes} mins)
+
+✨ *Executive Summary:*
+${packet.executiveSummary.slice(0, 320)}...
+
+🔑 *Key Takeaways:*
+${takeawaysList}${quizPreview}${parentNote}
+
+🌐 *View Full Interactive Digital Packet:*
+https://echosphere.classroom/session/${session.sessionId}/catchup`;
+
+  const cleanPhone = (payload.recipientPhone || '').replace(/[^\d+]/g, '');
+  const encodedMsg = encodeURIComponent(whatsappMessageText);
+  const whatsappDeepLink = cleanPhone
+    ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`
+    : `https://api.whatsapp.com/send?text=${encodedMsg}`;
+
+  // 2. Compose Rich HTML Email Digest
+  const emailSubject = `[Athena Co-Teacher] Catch-up Notes & Diagnostic for ${session.title} (${studentName})`;
+  const emailBodyHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"/><style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; margin: 0; padding: 24px; }
+.card { background: #ffffff; max-width: 620px; margin: 0 auto; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; }
+.header { background: #0f172a; color: #ffffff; padding: 20px 24px; }
+.header h1 { margin: 0 0 4px 0; font-size: 20px; }
+.content { padding: 24px; }
+.highlight { background: #f1f5f9; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
+.quiz { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 16px 0; }
+.btn { display: inline-block; background: #0f172a; color: #ffffff !important; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; margin-top: 12px; }
+</style></head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>Athena EchoSphere · Classroom Catch-Up</h1>
+    <p style="margin: 0; opacity: 0.8; font-size: 13px;">Lesson: <strong>${session.title}</strong> · Duration: ${packet.durationMinutes} mins</p>
+  </div>
+  <div class="content">
+    <p>Dear ${studentName} & Family,</p>
+    <p>Here is your personalized AI Co-Teacher packet summarizing today's live lecture so you do not miss a beat.</p>
+    
+    <div class="highlight">
+      <strong>Executive Summary:</strong>
+      <p style="margin: 4px 0 0 0;">${packet.executiveSummary}</p>
+    </div>
+
+    <h3>Key Takeaways & Milestones:</h3>
+    <ul>
+      ${packet.keyTakeaways.map((t) => `<li>${t}</li>`).join('')}
+    </ul>
+
+    ${payload.parentNote ? `<p><strong>Teacher Note:</strong> ${payload.parentNote}</p>` : ''}
+
+    ${
+      payload.includeQuiz && packet.diagnosticQuiz.length > 0 && packet.diagnosticQuiz[0]
+        ? `<div class="quiz">
+            <h4 style="margin: 0 0 8px 0;">🎯 Quick Diagnostic Check:</h4>
+            <p style="margin: 0 0 8px 0;"><strong>Q1: ${packet.diagnosticQuiz[0].question}</strong></p>
+            <ul>${(packet.diagnosticQuiz[0].options ?? []).map((opt) => `<li>${opt}</li>`).join('')}</ul>
+          </div>`
+        : ''
+    }
+
+    <p style="text-align: center;">
+      <a href="https://echosphere.classroom/session/${session.sessionId}/catchup" class="btn">Open Full Interactive Packet & Quizzes</a>
+    </p>
+  </div>
+</div>
+</body>
+</html>
+  `.trim();
+
+  return {
+    ok: true,
+    sessionId: session.sessionId,
+    dispatchedAt: now,
+    channels,
+    recipientEmail: payload.recipientEmail,
+    recipientPhone: payload.recipientPhone,
+    whatsappDeepLink,
+    whatsappMessageText,
+    emailSubject,
+    emailBodyHtml,
+    deliveryReceiptId: receiptId,
+  };
+}
+

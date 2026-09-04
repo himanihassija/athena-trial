@@ -77,3 +77,52 @@ export function bookCatchupSlot(
 
   return slot;
 }
+
+export function cancelCatchupSlot(
+  session: ClassroomSession,
+  slotId: string,
+): CatchupAvailabilitySlot {
+  const slots = getCatchupSlots(session);
+  const slot = slots.find((s) => s.slotId === slotId);
+
+  if (!slot) {
+    throw new Error('Slot not found.');
+  }
+
+  slot.isBooked = false;
+  slot.bookedByStudentId = undefined;
+  slot.bookedByStudentName = undefined;
+  slot.topic = undefined;
+
+  publish(session.sessionId, {
+    kind: 'echosphere:catchup-slots-updated',
+    slots,
+  });
+
+  return slot;
+}
+
+export function addCustomSlot(
+  session: ClassroomSession,
+  slotData: { date: string; startTime: string; endTime: string; teacherName?: string },
+): CatchupAvailabilitySlot {
+  const slots = getCatchupSlots(session);
+  const newSlot: CatchupAvailabilitySlot = {
+    slotId: `slot-${randomUUID().slice(0, 8)}`,
+    date: slotData.date,
+    startTime: slotData.startTime,
+    endTime: slotData.endTime,
+    teacherName: slotData.teacherName || 'Ms. Henderson & Athena AI',
+    isBooked: false,
+  };
+
+  slots.push(newSlot);
+
+  publish(session.sessionId, {
+    kind: 'echosphere:catchup-slots-updated',
+    slots,
+  });
+
+  return newSlot;
+}
+

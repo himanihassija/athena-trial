@@ -46,13 +46,14 @@ import {
   resolveStickyNote,
   deleteStickyNote,
 } from '../workspace/workspaceManager.js';
-import { generateAbsentStudentPacket } from '../support/absentPacket.js';
+import { generateAbsentStudentPacket, dispatchAbsentPacket } from '../support/absentPacket.js';
 import {
   getTargetedReadings,
   approveReading,
   rejectReading,
 } from '../support/targetedReading.js';
-import { getCatchupSlots, bookCatchupSlot } from '../support/catchupSlots.js';
+import { getCatchupSlots, bookCatchupSlot, addCustomSlot, cancelCatchupSlot } from '../support/catchupSlots.js';
+import { handleTeachingAssistantRequest } from '../support/teachingAssistant.js';
 import { translateText } from '../support/multilingual.js';
 import { think } from '../agent/agentLifecycle.js';
 import {
@@ -616,6 +617,47 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(packet);
   });
 
+  app.post('/api/sessions/:sessionId/absent-packet/dispatch', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const body = z
+      .object({
+        sessionId: z.string(),
+        studentName: z.string().optional(),
+        recipientEmail: z.string().optional(),
+        recipientPhone: z.string().optional(),
+        channel: z.enum(['email', 'whatsapp', 'both']).default('whatsapp'),
+        includeQuiz: z.boolean().default(true),
+        includeTranscript: z.boolean().default(true),
+        parentNote: z.string().optional(),
+      })
+      .parse(request.body);
+
+    const result = await dispatchAbsentPacket(session, body);
+    return reply.send(result);
+  });
+
+  // ─── Nobody Left Behind: Socratic AI Teaching Assistant for Weaker Students ──
+
+  app.post('/api/sessions/:sessionId/teaching-assistant/help', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const body = z
+      .object({
+        sessionId: z.string(),
+        studentId: z.string(),
+        studentName: z.string(),
+        question: z.string(),
+        mode: z.enum(['step_by_step', 'socratic_hint', 'concept_simplify', 'practice_problem']).optional(),
+        struggleTopic: z.string().optional(),
+        hintLevel: z.number().min(1).max(3).optional(),
+      })
+      .parse(request.body);
+
+    const response = await handleTeachingAssistantRequest(session, body);
+    return reply.send(response);
+  });
+
   // ─── Nobody Left Behind: Targeted Reading (Teacher-Approved) ───────────────
 
   app.get('/api/sessions/:sessionId/targeted-readings', async (request, reply) => {
@@ -675,6 +717,34 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     try {
       const booked = bookCatchupSlot(session, body);
       return reply.send(booked);
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  app.post('/api/sessions/:sessionId/catchup-slots/create', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const body = z
+      .object({
+        date: z.string(),
+        startTime: z.string(),
+        endTime: z.string(),
+        teacherName: z.string().optional(),
+      })
+      .parse(request.body);
+
+    const slot = addCustomSlot(session, body);
+    return reply.send(slot);
+  });
+
+  app.post('/api/sessions/:sessionId/catchup-slots/:slotId/cancel', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { slotId } = request.params as { slotId: string };
+    try {
+      const canceled = cancelCatchupSlot(session, slotId);
+      return reply.send(canceled);
     } catch (err: any) {
       return reply.code(400).send({ error: err.message });
     }
