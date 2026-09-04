@@ -225,46 +225,8 @@ export default function JoinPage() {
             </div>
           </div>
 
-          {/* Right Hero Art (Speech Bubble + Robot Mascot sitting on the edge of the Live Classrooms card) */}
-          <div className="relative hidden shrink-0 items-end justify-end lg:flex lg:w-[42%]">
-            {/* Speech Bubble floating near the Brain/Head of the Robot Mascot */}
-            <div className="relative z-20 mb-32 -mr-3 -rotate-6 transition-transform hover:-rotate-3">
-              <div
-                className="relative rounded-[22px] border border-[#F3ECE0] px-4 py-3 shadow-[0_6px_20px_rgba(0,0,0,0.08)] backdrop-blur-sm dark:border-white/10 dark:bg-[#1E293B]"
-                style={{ backgroundColor: '#FFFDF9' }}
-              >
-                <div
-                  className="text-[22px] font-bold leading-[1.2] text-[#1F2937] dark:text-[#F8FAFC]"
-                  style={{ fontFamily: 'var(--font-caveat), cursive' }}
-                >
-                  <p>Better Learning</p>
-                  <p className="relative inline-block">
-                    Together
-                    {/* Hand-drawn Orange Underline Swash directly under 'Together' */}
-                    <svg
-                      className="absolute -bottom-1 left-0 h-2.5 w-full"
-                      viewBox="0 0 100 10"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M 2 5 Q 50 9 98 4"
-                        stroke="#F59E0B"
-                        strokeWidth="3.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </p>
-                </div>
-
-                {/* Speech Tail pointing right toward robot head / brain */}
-                <div
-                  className="absolute -right-2.5 top-2/3 h-4 w-4 -translate-y-1/2 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
-                  style={{ backgroundColor: '#FFFDF9' }}
-                />
-              </div>
-            </div>
-
+          {/* Right Hero Art (Robot Mascot sitting on the edge of the Live Classrooms card) */}
+          <div className="relative hidden shrink-0 items-end justify-end lg:flex lg:w-[36%]">
             {/* 3D Transparent Robot Mascot sitting on the bottom boundary (top edge of Live Classrooms card) */}
             <div className="relative z-10 w-[300px] -mb-7">
               <Image
