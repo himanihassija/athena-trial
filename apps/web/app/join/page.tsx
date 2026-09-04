@@ -130,13 +130,13 @@ export default function JoinPage() {
       <div className="relative z-10 mx-auto flex min-h-screen max-w-[1440px] flex-col justify-between px-6 py-6 sm:px-10 lg:px-12">
         {/* ── 1. HEADER ROW ────────────────────────────────────────────── */}
         <header className="flex w-full items-center justify-between">
-          <div className="flex items-start gap-2.5">
-            <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[#14B8A6] shadow-[0_0_8px_#14B8A6]" />
+          <div className="flex items-start gap-3">
+            <div className="mt-2.5 h-3.5 w-3.5 rounded-full bg-[#14B8A6] shadow-[0_0_12px_#14B8A6]" />
             <div>
-              <h1 className="text-[26px] font-extrabold uppercase leading-none tracking-[0.12em] text-[#111111] dark:text-white">
+              <h1 className="text-[34px] sm:text-[38px] font-black uppercase leading-none tracking-[0.14em] text-[#111111] dark:text-white">
                 ATHENA
               </h1>
-              <p className="mt-0.5 text-[13px] font-medium text-[#6B7280] dark:text-[#94A3B8]">
+              <p className="mt-1 text-[15px] sm:text-[16px] font-semibold text-[#4B5563] dark:text-[#94A3B8]">
                 Your AI Co-teacher
               </p>
             </div>
@@ -161,8 +161,8 @@ export default function JoinPage() {
         {/* ── 2. HERO + HERO ART ───────────────────────────────────────── */}
         <section className="relative my-6 flex flex-col gap-6 lg:my-8 lg:flex-row lg:items-end lg:justify-between">
           {/* Left Hero Text (~62% width) */}
-          <div className="flex flex-col gap-2.5 lg:max-w-[62%]">
-            <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#9CA3AF] dark:text-[#94A3B8]">
+          <div className="flex flex-col gap-3 lg:max-w-[62%]">
+            <div className="text-[14px] sm:text-[15.5px] font-black uppercase tracking-[0.2em] text-[#4B5563] dark:text-[#CBD5E1]">
               LEARN • TEACH • GROW TOGETHER
             </div>
             <h2 className="text-[38px] font-extrabold leading-[1.15] sm:text-[46px]">
