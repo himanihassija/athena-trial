@@ -18,6 +18,11 @@ type Theme = 'light' | 'dark';
 
 function applyTheme(theme: Theme): void {
   document.documentElement.dataset.ecoTheme = theme;
+  if (theme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {

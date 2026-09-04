@@ -135,8 +135,12 @@ export function useClassroom(
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
+        // Restored: the screen-share merge dropped these two, which is what
+        // hydrates a late joiner or a reload. Without them a reloading student
+        // loses their raised hand and the room's booked catch-up slots.
         if (event.state.catchupSlots) setCatchupSlots(event.state.catchupSlots);
         if (event.state.raisedHands) setRaisedHands(event.state.raisedHands);
+        // No cast needed: RoomState declares both fields.
         setScreenShareAllowed(event.state.screenShareAllowed ?? []);
         setActiveScreenShare(event.state.activeScreenShare ?? null);
         break;

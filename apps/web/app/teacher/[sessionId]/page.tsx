@@ -73,6 +73,7 @@ export default function TeacherDashboardPage() {
 
   const [showAbsentPacket, setShowAbsentPacket] = useState(false);
   const [showCatchupBooking, setShowCatchupBooking] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
@@ -414,15 +415,39 @@ export default function TeacherDashboardPage() {
   return (
     <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
-        <div>
+        <div className="flex flex-col gap-1">
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
             {view.room?.title ?? 'Classroom'}
           </h1>
-          <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
-            Teacher view · {identity.displayName} ·{' '}
-            {view.connected ? 'connected' : 'reconnecting…'} · share code{' '}
-            <span style={{ color: 'var(--eco-glow)' }}>{sessionId}</span>
-          </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="eco-numerals text-[var(--eco-cream-faint)]">
+              Teacher: {identity.displayName} · {view.connected ? 'connected' : 'reconnecting…'}
+            </span>
+            <span className="text-[var(--eco-rule)]">|</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-[var(--eco-cream-dim)]">Class Share Code:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(sessionId);
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2000);
+                }}
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-0.5 font-mono text-xs font-bold tracking-widest transition shadow-sm hover:scale-105"
+                style={{
+                  background: 'color-mix(in srgb, var(--eco-athena) 20%, transparent)',
+                  color: 'var(--eco-athena)',
+                  border: '1px solid color-mix(in srgb, var(--eco-athena) 50%, transparent)',
+                }}
+                title="Click to copy 4-digit class share code"
+              >
+                <span className="text-sm font-bold">{sessionId}</span>
+                <span className="text-[10px] font-sans font-normal opacity-80">
+                  {copiedCode ? '✓ Copied' : 'Copy'}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <LanguageSelector
