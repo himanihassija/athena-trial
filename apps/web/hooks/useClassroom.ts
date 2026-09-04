@@ -135,10 +135,8 @@ export function useClassroom(
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
-        if (event.state.catchupSlots) setCatchupSlots(event.state.catchupSlots);
-        if (event.state.raisedHands) setRaisedHands(event.state.raisedHands);
-        setScreenShareAllowed(event.state.screenShareAllowed ?? []);
-        setActiveScreenShare(event.state.activeScreenShare ?? null);
+        setScreenShareAllowed((event.state as any).screenShareAllowed ?? []);
+        setActiveScreenShare((event.state as any).activeScreenShare ?? null);
         break;
 
       case 'echosphere:participant-joined':

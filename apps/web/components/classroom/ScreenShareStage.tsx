@@ -24,17 +24,19 @@ export function ScreenShareStage({
   selfUid: string;
 }) {
   const { screenTrack, error } = useLocalScreenTrack(isSharing, {}, 'auto');
-  usePublish(screenTrack ? [screenTrack] : []);
+  const videoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
+  const tracksToPublish = Array.isArray(screenTrack) ? screenTrack : screenTrack ? [screenTrack] : [];
+  usePublish(tracksToPublish);
 
   // The browser's native "Stop sharing" bar ends the capture without going
   // through our own button; without this listener the room would keep
   // believing the share is live until someone notices.
   useEffect(() => {
-    if (!screenTrack) return;
-    const mediaTrack = screenTrack.getMediaStreamTrack();
+    if (!videoTrack) return;
+    const mediaTrack = videoTrack.getMediaStreamTrack();
     mediaTrack.addEventListener('ended', onSharingEnded);
     return () => mediaTrack.removeEventListener('ended', onSharingEnded);
-  }, [screenTrack, onSharingEnded]);
+  }, [videoTrack, onSharingEnded]);
 
   useEffect(() => {
     if (error) onSharingEnded();
@@ -62,8 +64,8 @@ export function ScreenShareStage({
         </span>
       </div>
       <div className="relative min-h-0 flex-1 bg-black">
-        {isSharing && screenTrack ? (
-          <LocalVideoTrack track={screenTrack} play className="h-full w-full object-contain" />
+        {isSharing && videoTrack ? (
+          <LocalVideoTrack track={videoTrack} play className="h-full w-full object-contain" />
         ) : remoteSharerTrack ? (
           <RemoteVideoTrack
             track={remoteSharerTrack}
