@@ -3,9 +3,9 @@
  * classroom (PS31 §2).
  *
  * The orchestrator is authoritative for everything here — roster, floor state,
- * agent policy, quizzes, gaps. This hook never derives those locally; it only
- * applies the events it is sent. That way the teacher's mute and the students'
- * view of the room can never disagree.
+ * agent policy, quizzes, gaps, screen sharing. This hook never derives those
+ * locally; it only applies the events it is sent. That way the teacher's mute
+ * and the students' view of the room can never disagree.
  */
 
 'use client';
@@ -57,6 +57,11 @@ export interface CelebrationTrigger {
   at: number;
 }
 
+export interface ActiveScreenShare {
+  participantId: string;
+  displayName: string;
+}
+
 export interface ClassroomView {
   room: RoomState | null;
   participants: PublicParticipant[];
@@ -81,6 +86,10 @@ export interface ClassroomView {
   toggleHandRaise: () => Promise<void>;
   changeLanguage: (lang: LanguageCode) => void;
   refreshWorkspace: () => Promise<void>;
+  screenShareAllowed: string[];
+  activeScreenShare: ActiveScreenShare | null;
+  toggleScreenShare: (sharing: boolean) => Promise<void>;
+  setScreenSharePermission: (targetParticipantId: string, allowed: boolean) => Promise<void>;
 }
 
 /** Keeps the rendered transcript bounded; the full log lives on the server. */
@@ -109,6 +118,8 @@ export function useClassroom(
   const [catchupSlots, setCatchupSlots] = useState<CatchupAvailabilitySlot[]>([]);
   const [raisedHands, setRaisedHands] = useState<string[]>([]);
   const [myLanguage, setMyLanguage] = useState<LanguageCode>('en');
+  const [screenShareAllowed, setScreenShareAllowed] = useState<string[]>([]);
+  const [activeScreenShare, setActiveScreenShare] = useState<ActiveScreenShare | null>(null);
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -126,6 +137,8 @@ export function useClassroom(
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
         if (event.state.catchupSlots) setCatchupSlots(event.state.catchupSlots);
         if (event.state.raisedHands) setRaisedHands(event.state.raisedHands);
+        setScreenShareAllowed(event.state.screenShareAllowed ?? []);
+        setActiveScreenShare(event.state.activeScreenShare ?? null);
         break;
 
       case 'echosphere:participant-joined':
@@ -305,6 +318,27 @@ export function useClassroom(
           ),
         );
         break;
+
+      case 'echosphere:screen-share-permission-changed':
+        setScreenShareAllowed((prev) =>
+          event.allowed
+            ? [...new Set([...prev, event.participantId])]
+            : prev.filter((id) => id !== event.participantId),
+        );
+        break;
+
+      case 'echosphere:screen-share-started':
+        setActiveScreenShare({
+          participantId: event.participantId,
+          displayName: event.displayName,
+        });
+        break;
+
+      case 'echosphere:screen-share-stopped':
+        setActiveScreenShare((prev) =>
+          prev?.participantId === event.participantId ? null : prev,
+        );
+        break;
     }
   }, [participantId]);
 
@@ -375,6 +409,36 @@ export function useClassroom(
     );
   }, []);
 
+  const toggleScreenShare = useCallback(
+    async (sharing: boolean) => {
+      if (!participantId) return;
+      try {
+        await orchestrator.setScreenSharing(sessionId, participantId, sharing);
+      } catch (err) {
+        console.error('Screen share toggle failed', err);
+        throw err;
+      }
+    },
+    [sessionId, participantId],
+  );
+
+  const setScreenSharePermission = useCallback(
+    async (targetParticipantId: string, allowed: boolean) => {
+      if (!participantId) return;
+      try {
+        await orchestrator.setScreenSharePermission(
+          sessionId,
+          participantId,
+          targetParticipantId,
+          allowed,
+        );
+      } catch (err) {
+        console.error('Screen share permission update failed', err);
+      }
+    },
+    [sessionId, participantId],
+  );
+
   return {
     room,
     participants,
@@ -399,5 +463,9 @@ export function useClassroom(
     toggleHandRaise,
     changeLanguage,
     refreshWorkspace,
+    screenShareAllowed,
+    activeScreenShare,
+    toggleScreenShare,
+    setScreenSharePermission,
   };
 }

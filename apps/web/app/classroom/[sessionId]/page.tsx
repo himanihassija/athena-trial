@@ -1,8 +1,10 @@
 /**
  * Student view of a live classroom — PS31 §3.1, §3.6, §3.7.
  *
- * Audio-only by design: there are no video tiles anywhere in this app. What a
- * student sees is the transcript, the quiz cards, and who has the floor.
+ * Audio-only by design except for screen sharing: there is no video of
+ * people, only a Meet-style grid of participant avatar tiles (speaking
+ * indicator, mic state, raised-hand badge). Everything else — transcript,
+ * quiz cards, workspace, targeted reading — lives behind a slide-out menu.
  */
 
 'use client';
@@ -19,9 +21,11 @@ import {
   AgentAbsentNotice,
   FloorIndicator,
   QuizCards,
-  RosterPanel,
   TranscriptFeed,
 } from '@/components/classroom/panels';
+import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
+import { ScreenShareStage } from '@/components/classroom/ScreenShareStage';
+import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
 import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
 import { OneOnOneTutorModal } from '@/components/support/OneOnOneTutorModal';
@@ -35,6 +39,22 @@ import {
   orchestrator,
   type StoredIdentity,
 } from '@/lib/orchestrator';
+
+function AppMenuIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 18 18" fill="currentColor" aria-hidden>
+      <circle cx="3" cy="3" r="2" />
+      <circle cx="9" cy="3" r="2" />
+      <circle cx="15" cy="3" r="2" />
+      <circle cx="3" cy="9" r="2" />
+      <circle cx="9" cy="9" r="2" />
+      <circle cx="15" cy="9" r="2" />
+      <circle cx="3" cy="15" r="2" />
+      <circle cx="9" cy="15" r="2" />
+      <circle cx="15" cy="15" r="2" />
+    </svg>
+  );
+}
 
 export default function ClassroomPage() {
   const params = useParams<{ sessionId: string }>();
@@ -51,6 +71,10 @@ export default function ClassroomPage() {
   const [showAbsentPacket, setShowAbsentPacket] = useState(false);
   const [show1on1Tutor, setShow1on1Tutor] = useState(false);
   const [showCatchupBooking, setShowCatchupBooking] = useState(false);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('workspace');
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -84,6 +108,22 @@ export default function ClassroomPage() {
     router.push('/join');
   }, [identity, sessionId, router]);
 
+  const toggleScreenShare = useCallback(async () => {
+    if (!identity) return;
+    const next = !isScreenSharing;
+    try {
+      await view.toggleScreenShare(next);
+      setIsScreenSharing(next);
+    } catch {
+      // The orchestrator already logged the reason (e.g. someone else is sharing).
+    }
+  }, [identity, isScreenSharing, view]);
+
+  const stopScreenShareFromBrowser = useCallback(() => {
+    setIsScreenSharing(false);
+    if (identity) void view.toggleScreenShare(false).catch(() => undefined);
+  }, [identity, view]);
+
   if (!identity) {
     return (
       <main className="eco-room flex min-h-screen items-center justify-center p-6 text-sm text-[var(--eco-cream-dim)]">
@@ -93,16 +133,62 @@ export default function ClassroomPage() {
   }
 
   const isHandRaised = view.raisedHands.includes(identity.participantId);
+  const canShareScreen = view.screenShareAllowed.includes(identity.participantId);
+  const someoneElseIsSharing =
+    view.activeScreenShare !== null &&
+    view.activeScreenShare.participantId !== identity.participantId;
+
+  const tabs: DrawerTab[] = [
+    {
+      id: 'workspace',
+      label: 'Workspace',
+      content: (
+        <MiroWorkspacePane
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          role="student"
+          workspace={view.workspace}
+          onRefresh={view.refreshWorkspace}
+        />
+      ),
+    },
+    {
+      id: 'transcript',
+      label: 'Transcript',
+      content: (
+        <TranscriptFeed
+          transcript={view.transcript}
+          participants={view.participants}
+          agentPresent={Boolean(view.room?.agentId)}
+        />
+      ),
+    },
+    {
+      id: 'reading',
+      label: 'Reading',
+      content: (
+        <TargetedReadingPanel
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          role="student"
+          readings={view.targetedReadings}
+        />
+      ),
+    },
+    {
+      id: 'quizzes',
+      label: 'Quizzes',
+      content: (
+        <QuizCards
+          quizzes={view.quizzes}
+          canAnswer={!view.ended}
+          onAnswer={answer}
+        />
+      ),
+    },
+  ];
 
   return (
-    // Below `md` the row below stacks into a column and the sidebar keeps its
-    // natural (tall) height, so a fixed `h-screen`/`overflow-hidden` shell
-    // clipped the quiz cards with nothing left to scroll. Small screens get
-    // normal document scrolling; the app-shell layout is kept from `md` up,
-    // where the sidebar is a bounded column that scrolls on its own.
-    //
-    // `max-w-6xl` rather than 5xl: the sidebar gained the targeted-reading
-    // panel in the support-features merge and needs the extra width.
     <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div>
@@ -113,7 +199,7 @@ export default function ClassroomPage() {
             Joined as {identity.displayName} ·{' '}
             {view.connected ? 'connected' : 'reconnecting…'}
             {view.policy?.studentsMayInvoke ? (
-              <>{' '}· say{' '}
+              <>{' '}·{' '}say{' '}
                 <strong
                   className="font-semibold"
                   style={{ color: 'var(--eco-glow)' }}
@@ -145,35 +231,18 @@ export default function ClassroomPage() {
             <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setShowAbsentPacket(true)}
-            className="eco-action-chip"
-            style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
-            title="Open the catch-up packet for this lesson"
-          >
-            Absent Packet
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShow1on1Tutor(true)}
-            className="eco-action-chip"
-            style={{ '--chip-accent': 'var(--eco-athena)' } as CSSProperties}
-            title="Start a private 1:1 session with Athena"
-          >
-            1:1 Tutor
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowCatchupBooking(true)}
-            className="eco-action-chip"
-            style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
-            title="Book a live catch-up with your teacher"
-          >
-            Catch-up
-          </button>
+          {canShareScreen && (
+            <button
+              type="button"
+              onClick={() => void toggleScreenShare()}
+              disabled={!isScreenSharing && someoneElseIsSharing}
+              className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
+              title="Share your screen"
+            >
+              {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+            </button>
+          )}
 
           <FloorIndicator floor={view.floor} policy={view.policy} />
 
@@ -190,6 +259,22 @@ export default function ClassroomPage() {
             title={micEnabled ? 'Mic on' : 'Mic off'}
           >
             {micEnabled ? '●' : '○'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="flex h-11 items-center gap-2 rounded-full border-2 px-4 py-2 text-sm font-semibold transition-colors"
+            style={
+              menuOpen
+                ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow)', color: 'var(--eco-ink)' }
+                : { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
+            }
+            aria-label="Open menu"
+            title="Workspace, transcript, reading, quizzes"
+          >
+            <AppMenuIcon />
+            <span>Menu</span>
           </button>
 
           <button
@@ -237,67 +322,54 @@ export default function ClassroomPage() {
         </p>
       )}
 
-      {/* Main Classroom Layout */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <ClassroomShell identity={identity}>
-            {(rtm) => (
-              <ClassroomAudio
-                sessionId={sessionId}
-                channel={identity.channel}
-                appId={identity.appId}
-                uid={identity.uid}
-                rtcToken={identity.rtcToken}
-                rtmClient={rtm}
-                agentUid={identity.agentUid}
-                isRelay={false}
-                micEnabled={micEnabled}
-                onToolkitReady={setTranscriptionLive}
-                onToolkitError={setTranscriptionError}
-                onMicError={setMicError}
-                onSpeakingChange={setSpeakingUid}
-              />
-            )}
-          </ClassroomShell>
-
-          {/* Shared Live Miro Workspace & Held-Back Doubts */}
-          <MiroWorkspacePane
+      <ClassroomShell identity={identity}>
+        {(rtm) => (
+          <ClassroomAudio
             sessionId={sessionId}
-            participantId={identity.participantId}
-            role="student"
-            workspace={view.workspace}
-            onRefresh={view.refreshWorkspace}
+            channel={identity.channel}
+            appId={identity.appId}
+            uid={identity.uid}
+            rtcToken={identity.rtcToken}
+            rtmClient={rtm}
+            agentUid={identity.agentUid}
+            isRelay={false}
+            micEnabled={micEnabled}
+            onToolkitReady={setTranscriptionLive}
+            onToolkitError={setTranscriptionError}
+            onMicError={setMicError}
+            onSpeakingChange={setSpeakingUid}
           />
+        )}
+      </ClassroomShell>
 
-          <TranscriptFeed
-            transcript={view.transcript}
-            participants={view.participants}
-            agentPresent={Boolean(view.room?.agentId)}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {view.activeScreenShare ? (
+          <ScreenShareStage
+            isSharing={isScreenSharing}
+            onSharingEnded={stopScreenShareFromBrowser}
+            activeScreenShare={view.activeScreenShare}
+            selfUid={identity.uid}
           />
-        </div>
-
-        {/* The internal scroll only makes sense once this is a bounded column
-            (`md` and up). On mobile it is part of the page's own scroll. */}
-        <aside className="flex w-full shrink-0 flex-col gap-5 md:w-72 md:overflow-y-auto lg:w-80">
-          <TargetedReadingPanel
-            sessionId={sessionId}
-            participantId={identity.participantId}
-            role="student"
-            readings={view.targetedReadings}
-          />
-          <RosterPanel
+        ) : (
+          <ParticipantGrid
             participants={view.participants}
             agentPresent={Boolean(view.room?.agentId)}
             agentUid={identity.agentUid}
             speakingUid={speakingUid}
+            selfUid={identity.uid}
+            selfMicEnabled={micEnabled}
+            raisedHands={view.raisedHands}
           />
-          <QuizCards
-            quizzes={view.quizzes}
-            canAnswer={!view.ended}
-            onAnswer={answer}
-          />
-        </aside>
+        )}
       </div>
+
+      <ClassroomDrawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
 
       {!view.ended && (
         <QuizOverlay quizzes={view.quizzes} onAnswer={answer} />
@@ -312,7 +384,6 @@ export default function ClassroomPage() {
         />
       )}
 
-      {/* Modals */}
       <AbsentStudentPacketModal
         sessionId={sessionId}
         isOpen={showAbsentPacket}

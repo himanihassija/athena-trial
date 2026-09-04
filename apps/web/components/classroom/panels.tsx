@@ -20,7 +20,7 @@ import { seatColorVar } from '@/lib/seatColor';
 /** Below this, a spoken-attribution guess is a close call, not a fact. */
 const UNCERTAIN_ATTRIBUTION_THRESHOLD = 0.62;
 
-// ─── Floor indicator (§3.3) — the on-air lamp ────────────────────────────────
+// ─── Floor indicator (§3.3) — the on-air lamp ─────────────────────────────
 
 const FLOOR_LABEL: Record<FloorSnapshot['state'], string> = {
   TEACHER_HOLDS_FLOOR: 'Teacher is speaking',
@@ -79,10 +79,10 @@ export function FloorIndicator({
   );
 }
 
-// ─── Roster (§3.2, §3.5) ─────────────────────────────────────────────────────
+// ─── Roster (§3.2, §3.5) ────────────────────────────────────────────────
 
 /** First + last initial, e.g. "Ms Rao" -> "MR", "ana" -> "A". */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return (parts[0]?.[0] ?? '?').toUpperCase();
@@ -286,7 +286,7 @@ export function AgentAbsentNotice({
   );
 }
 
-// ─── Transcript (§3.4) ───────────────────────────────────────────────────────
+// ─── Transcript (§3.4) ─────────────────────────────────────────────────
 
 export function TranscriptFeed({
   transcript,
@@ -407,7 +407,7 @@ export function TranscriptFeed({
   );
 }
 
-// ─── Quiz cards (§3.6) ───────────────────────────────────────────────────────
+// ─── Quiz cards (§3.6) ─────────────────────────────────────────────────
 
 const QUIZ_LETTERS = ['A', 'B', 'C', 'D'];
 
@@ -525,7 +525,7 @@ export function QuizCards({
   );
 }
 
-// ─── Gap dashboard, teacher-only (§3.9) ──────────────────────────────────────
+// ─── Gap dashboard, teacher-only (§3.9) ─────────────────────────────────
 
 export function GapPanel({
   gaps,
@@ -602,7 +602,7 @@ export function GapPanel({
   );
 }
 
-// ─── Blocked-attempt audit trail (§3.10) ─────────────────────────────────────
+// ─── Blocked-attempt audit trail (§3.10) ─────────────────────────────────
 
 const DENIAL_LABEL: Record<string, string> = {
   AGENT_MUTED: 'blocked — you muted the AI',

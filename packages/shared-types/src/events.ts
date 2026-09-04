@@ -46,6 +46,17 @@ export type ClassroomEvent =
   /** Teacher-only: a new or updated learning gap. */
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }
   | { kind: 'echosphere:proficiency-changed'; participantId: string; proficiency: ProficiencyTag }
+    | {
+      kind: 'echosphere:screen-share-permission-changed';
+      participantId: string;
+      allowed: boolean;
+    }
+  | {
+      kind: 'echosphere:screen-share-started';
+      participantId: string;
+      displayName: string;
+    }
+  | { kind: 'echosphere:screen-share-stopped'; participantId: string }
   | { kind: 'echosphere:session-ended'; sessionId: string }
   | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
   | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }

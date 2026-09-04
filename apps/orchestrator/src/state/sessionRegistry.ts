@@ -142,6 +142,11 @@ export interface ClassroomSession {
   catchupSlots?: import('@echosphere/shared-types').CatchupAvailabilitySlot[];
   raisedHands: Set<string>;
 
+  /** participantIds the teacher has granted screen-share permission to. */
+  screenShareAllowed: Set<string>;
+  /** Who is currently sharing, if anyone — only one screen at a time. */
+  activeScreenShare: { participantId: string; displayName: string } | null;
+
   /** Private catch-up threads, keyed by student participantId. */
   catchupByParticipant: Map<string, CatchupMessage[]>;
 }
@@ -176,6 +181,8 @@ export function createSession(title: string): ClassroomSession {
     restraintMeterState: 'listening',
     interventionHistory: [],
     raisedHands: new Set(),
+    screenShareAllowed: new Set(),
+    activeScreenShare: null,
     catchupByParticipant: new Map(),
   };
   sessions.set(sessionId, session);
@@ -196,7 +203,7 @@ export function endSession(sessionId: string): ClassroomSession | undefined {
   return session;
 }
 
-// ─── Participants (§3.2, §3.8) ───────────────────────────────────────────────
+// ─── Participants (§3.2, §3.8) ─────────────────────────────────────────────
 
 /**
  * RTC uids must be positive 32-bit ints and unique within the channel. The
@@ -306,7 +313,7 @@ export function setProficiency(
   return student;
 }
 
-// ─── Transcript (§3.4 rolling context, §3.9 full log) ────────────────────────
+// ─── Transcript (§3.4 rolling context, §3.9 full log) ──────────────────────
 
 export function appendTranscript(
   session: ClassroomSession,

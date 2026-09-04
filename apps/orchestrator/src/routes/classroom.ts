@@ -711,6 +711,92 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ ok: true, raisedHands: Array.from(session.raisedHands) });
   });
+    // ─── Screen Share Permission (teacher grants/revokes per student) ────────
+
+  app.post('/api/sessions/:sessionId/screen-share-permission', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, targetParticipantId, allowed } = z
+      .object({
+        participantId: z.string(),
+        targetParticipantId: z.string(),
+        allowed: z.boolean(),
+      })
+      .parse(request.body);
+
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only the teacher can grant screen-share permission' });
+    }
+
+    const target = session.participants.get(targetParticipantId);
+    if (!target) return reply.code(404).send({ error: 'Participant not found' });
+
+    if (allowed) {
+      session.screenShareAllowed.add(targetParticipantId);
+    } else {
+      session.screenShareAllowed.delete(targetParticipantId);
+      // Revoking permission mid-share stops it, the same way muting the AI
+      // cuts off its current turn rather than waiting for it to finish.
+      if (session.activeScreenShare?.participantId === targetParticipantId) {
+        session.activeScreenShare = null;
+        publish(session.sessionId, {
+          kind: 'echosphere:screen-share-stopped',
+          participantId: targetParticipantId,
+        });
+      }
+    }
+
+    publish(session.sessionId, {
+      kind: 'echosphere:screen-share-permission-changed',
+      participantId: targetParticipantId,
+      allowed,
+    });
+
+    return reply.send({ ok: true, screenShareAllowed: Array.from(session.screenShareAllowed) });
+  });
+
+  // ─── Screen Share Start/Stop (self-reported, permission-checked) ─────────
+
+  app.post('/api/sessions/:sessionId/screen-share', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, sharing } = z
+      .object({ participantId: z.string(), sharing: z.boolean() })
+      .parse(request.body);
+
+    const participant = session.participants.get(participantId);
+    if (!participant) return reply.code(404).send({ error: 'Participant not found' });
+
+    const permitted =
+      participant.role === 'teacher' || session.screenShareAllowed.has(participantId);
+    if (!permitted) {
+      return reply.code(403).send({ error: 'You do not have permission to share your screen' });
+    }
+
+    if (sharing) {
+      if (session.activeScreenShare && session.activeScreenShare.participantId !== participantId) {
+        return reply.code(409).send({
+          error: `${session.activeScreenShare.participantId === participantId ? 'You are' : 'Someone else is'} already sharing`,
+        });
+      }
+      session.activeScreenShare = { participantId, displayName: participant.displayName };
+      publish(session.sessionId, {
+        kind: 'echosphere:screen-share-started',
+        participantId,
+        displayName: participant.displayName,
+      });
+    } else {
+      if (session.activeScreenShare?.participantId === participantId) {
+        session.activeScreenShare = null;
+      }
+      publish(session.sessionId, {
+        kind: 'echosphere:screen-share-stopped',
+        participantId,
+      });
+    }
+
+    return reply.send({ ok: true, activeScreenShare: session.activeScreenShare });
+  });
 
   // ─── Multilingual Real-Time Translation ────────────────────────────────────
 

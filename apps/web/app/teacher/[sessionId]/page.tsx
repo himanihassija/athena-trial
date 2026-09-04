@@ -2,24 +2,26 @@
  * Teacher dashboard — PS31 §3.4 (lesson upload), §3.5 (per-student level),
  * §3.9 (live gap dashboard and post-class report), §3.10 (control panel).
  *
- * The teacher's browser is also the transcript relay for the room: Agora's RTM
- * is browser-only, and the teacher is by definition present for the whole
- * lesson, so this is the one client guaranteed to see every utterance.
+ * Same Meet-style tile stage / screen-share stage as the student view, with
+ * the control panel, lesson material, transcript, workspace, targeted
+ * reading, restraint meter, suppressed interventions, gap dashboard, roster,
+ * and quiz results moved into a slide-out drawer so the room itself isn't
+ * buried under panels.
  */
 
-"use client";
+'use client';
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import type {
   SessionReport,
   TeacherCommand,
   VerbosityLevel,
   InterventionRecord,
-} from "@echosphere/shared-types";
-import { ClassroomShell } from "@/components/classroom/ClassroomShell";
-import { ClassroomAudio } from "@/components/classroom/ClassroomAudioLazy";
-import { TeacherControlPanel } from "@/components/classroom/TeacherControlPanel";
+} from '@echosphere/shared-types';
+import { ClassroomShell } from '@/components/classroom/ClassroomShell';
+import { ClassroomAudio } from '@/components/classroom/ClassroomAudioLazy';
+import { TeacherControlPanel } from '@/components/classroom/TeacherControlPanel';
 import {
   AgentAbsentNotice,
   BlockedAttempts,
@@ -28,21 +30,41 @@ import {
   QuizCards,
   RosterPanel,
   TranscriptFeed,
-} from "@/components/classroom/panels";
-import { useClassroom } from "@/hooks/useClassroom";
+} from '@/components/classroom/panels';
+import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
+import { ScreenShareStage } from '@/components/classroom/ScreenShareStage';
+import { ScreenShareControls } from '@/components/classroom/ScreenShareControls';
+import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
+import { useClassroom } from '@/hooks/useClassroom';
 import {
   clearIdentity,
   loadIdentity,
   orchestrator,
   type StoredIdentity,
-} from "@/lib/orchestrator";
-import { RestraintMeter } from "@/components/meraki/RestraintMeter";
-import { SuppressedInterventionsPanel } from "@/components/meraki/SuppressedInterventionsPanel";
-import { MiroWorkspacePane } from "@/components/workspace/MiroWorkspacePane";
-import { AbsentStudentPacketModal } from "@/components/support/AbsentStudentPacketModal";
-import { TargetedReadingPanel } from "@/components/support/TargetedReadingPanel";
-import { CatchupBookingModal } from "@/components/support/CatchupBookingModal";
-import { LanguageSelector } from "@/components/support/LanguageSelector";
+} from '@/lib/orchestrator';
+import { RestraintMeter } from '@/components/meraki/RestraintMeter';
+import { SuppressedInterventionsPanel } from '@/components/meraki/SuppressedInterventionsPanel';
+import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
+import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
+import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel';
+import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
+import { LanguageSelector } from '@/components/support/LanguageSelector';
+
+function AppMenuIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 18 18" fill="currentColor" aria-hidden>
+      <circle cx="3" cy="3" r="2" />
+      <circle cx="9" cy="3" r="2" />
+      <circle cx="15" cy="3" r="2" />
+      <circle cx="3" cy="9" r="2" />
+      <circle cx="9" cy="9" r="2" />
+      <circle cx="15" cy="9" r="2" />
+      <circle cx="3" cy="15" r="2" />
+      <circle cx="9" cy="15" r="2" />
+      <circle cx="15" cy="15" r="2" />
+    </svg>
+  );
+}
 
 export default function TeacherDashboardPage() {
   const params = useParams<{ sessionId: string }>();
@@ -55,28 +77,28 @@ export default function TeacherDashboardPage() {
   const [identity, setIdentity] = useState<StoredIdentity | null>(null);
   const [micEnabled, setMicEnabled] = useState(true);
   const [speakingUid, setSpeakingUid] = useState<string | null>(null);
-  // Whether the transcript pipeline is actually alive. Distinguishing this from
-  // "nobody has spoken" is the difference between a quiet room and a broken one.
   const [transcriptionLive, setTranscriptionLive] = useState(false);
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(
-    null,
-  );
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [report, setReport] = useState<SessionReport | null>(null);
-  const [lessonText, setLessonText] = useState("");
-  const [lessonName, setLessonName] = useState("");
+  const [lessonText, setLessonText] = useState('');
+  const [lessonName, setLessonName] = useState('');
   const [lessonInfo, setLessonInfo] = useState<{
     chunks: number;
     topics: string[];
     sources: string[];
   } | null>(null);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('controls');
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+
   useEffect(() => {
     const stored = loadIdentity(sessionId);
-    if (!stored || stored.role !== "teacher") {
-      router.replace("/join");
+    if (!stored || stored.role !== 'teacher') {
+      router.replace('/join');
       return;
     }
     setIdentity(stored);
@@ -109,7 +131,7 @@ export default function TeacherDashboardPage() {
         );
         if (!result.ok && result.detail) setNotice(result.detail);
       } catch (error) {
-        setNotice(error instanceof Error ? error.message : "Command failed");
+        setNotice(error instanceof Error ? error.message : 'Command failed');
       } finally {
         setBusy(false);
       }
@@ -125,7 +147,7 @@ export default function TeacherDashboardPage() {
       await orchestrator.startAgent(sessionId, identity.participantId);
     } catch (error) {
       setNotice(
-        error instanceof Error ? error.message : "Could not start Athena",
+        error instanceof Error ? error.message : 'Could not start Athena',
       );
     } finally {
       setBusy(false);
@@ -146,14 +168,14 @@ export default function TeacherDashboardPage() {
     setBusy(true);
     try {
       await orchestrator.sendCommand(sessionId, identity.participantId, {
-        type: "END_SESSION",
+        type: 'END_SESSION',
       });
       setReport(
         await orchestrator.getReport(sessionId, identity.participantId),
       );
     } catch (error) {
       setNotice(
-        error instanceof Error ? error.message : "Could not end lesson",
+        error instanceof Error ? error.message : 'Could not end lesson',
       );
     } finally {
       setBusy(false);
@@ -168,19 +190,19 @@ export default function TeacherDashboardPage() {
       const result = await orchestrator.uploadLesson(
         sessionId,
         identity.participantId,
-        lessonName.trim() || "lesson-notes",
+        lessonName.trim() || 'lesson-notes',
         lessonText,
       );
       setNotice(
         `Indexed ${result.chunks} chunk(s). ` +
           (result.appliedToAgent
-            ? "Athena is now grounded in this material."
-            : "It will reach Athena when you bring her in."),
+            ? 'Athena is now grounded in this material.'
+            : 'It will reach Athena when you bring her in.'),
       );
-      setLessonText("");
+      setLessonText('');
       await refreshLesson();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Upload failed");
+      setNotice(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setBusy(false);
     }
@@ -193,8 +215,24 @@ export default function TeacherDashboardPage() {
         .catch(() => undefined);
     }
     clearIdentity();
-    router.push("/join");
+    router.push('/join');
   }, [identity, sessionId, router]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (!identity) return;
+    const next = !isScreenSharing;
+    try {
+      await view.toggleScreenShare(next);
+      setIsScreenSharing(next);
+    } catch {
+      // The orchestrator already logged the reason (e.g. someone else is sharing).
+    }
+  }, [identity, isScreenSharing, view]);
+
+  const stopScreenShareFromBrowser = useCallback(() => {
+    setIsScreenSharing(false);
+    if (identity) void view.toggleScreenShare(false).catch(() => undefined);
+  }, [identity, view]);
 
   if (!identity) {
     return (
@@ -204,17 +242,186 @@ export default function TeacherDashboardPage() {
     );
   }
 
+  const someoneElseIsSharing =
+    view.activeScreenShare !== null &&
+    view.activeScreenShare.participantId !== identity.participantId;
+
+  const tabs: DrawerTab[] = [
+    {
+      id: 'controls',
+      label: 'Controls',
+      content: (
+        <div className="flex flex-col gap-4">
+          <TeacherControlPanel
+            policy={view.policy}
+            agentRunning={Boolean(view.room?.agentId)}
+            busy={busy}
+            onMute={() => void send({ type: 'MUTE_AGENT' })}
+            onResume={() => void send({ type: 'RESUME_AGENT' })}
+            onEndTurn={() => void send({ type: 'END_AGENT_TURN' })}
+            onForceSpeak={(topic) =>
+              void send({ type: 'FORCE_AGENT_SPEAK', topic })
+            }
+            onVerbosity={(level: VerbosityLevel) =>
+              void send({ type: 'ADJUST_VERBOSITY', level })
+            }
+            onSetStudentInvocation={(enabled) =>
+              void send({ type: 'SET_STUDENT_INVOCATION', enabled })
+            }
+            onDisableTopic={(topic) =>
+              void send({ type: 'DISABLE_TOPIC', topic })
+            }
+            onEnableTopic={(topic) =>
+              void send({ type: 'ENABLE_TOPIC', topic })
+            }
+            onStartQuiz={(topic) => void send({ type: 'START_QUIZ', topic })}
+            onStartAgent={() => void startAgent()}
+            onStopAgent={() => void stopAgent()}
+            onEndSession={() => void endSession()}
+          />
+
+          <section className="eco-panel flex flex-col gap-2 p-4">
+            <h2 className="eco-label">Lesson material</h2>
+            <p className="text-xs text-[var(--eco-cream-faint)]">
+              Paste slides or notes. Athena grounds her answers in this and uses
+              your terminology.
+              {lessonInfo && lessonInfo.chunks > 0 && (
+                <>
+                  {' '}
+                  Currently indexed: {lessonInfo.chunks} chunk(s) from{' '}
+                  {lessonInfo.sources.join(', ')}.
+                </>
+              )}
+            </p>
+            <input
+              className="rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+              style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+              value={lessonName}
+              onChange={(e) => setLessonName(e.target.value)}
+              placeholder="Source name, e.g. week-4-slides"
+            />
+            <textarea
+              className="min-h-28 rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+              style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+              value={lessonText}
+              onChange={(e) => setLessonText(e.target.value)}
+              placeholder="Paste the lesson text here…"
+            />
+            <button
+              type="button"
+              disabled={busy || lessonText.trim().length === 0}
+              onClick={() => void uploadLesson()}
+              className="self-start rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-40"
+              style={{ background: 'var(--eco-glow)', color: 'var(--eco-ink)' }}
+            >
+              Index material
+            </button>
+          </section>
+
+          <ScreenShareControls
+            participants={view.participants}
+            screenShareAllowed={view.screenShareAllowed}
+            activeScreenShare={view.activeScreenShare}
+            onSetPermission={(pid, allowed) => void view.setScreenSharePermission(pid, allowed)}
+          />
+        </div>
+      ),
+    },
+    {
+      id: 'workspace',
+      label: 'Workspace',
+      content: (
+        <MiroWorkspacePane
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          role="teacher"
+          workspace={view.workspace}
+          onRefresh={view.refreshWorkspace}
+        />
+      ),
+    },
+    {
+      id: 'transcript',
+      label: 'Transcript',
+      content: (
+        <TranscriptFeed
+          transcript={view.transcript}
+          participants={view.participants}
+          agentPresent={Boolean(view.room?.agentId)}
+        />
+      ),
+    },
+    {
+      id: 'reading',
+      label: 'Reading',
+      content: (
+        <TargetedReadingPanel
+          sessionId={sessionId}
+          participantId={identity.participantId}
+          role="teacher"
+          readings={view.targetedReadings}
+          onRefresh={() => void orchestrator.getTargetedReadings(sessionId)}
+        />
+      ),
+    },
+    {
+      id: 'insights',
+      label: 'Insights',
+      content: (
+        <div className="flex flex-col gap-5">
+          <RestraintMeter
+            state={view.restraintMeterState}
+            score={view.restraintScore}
+          />
+          <SuppressedInterventionsPanel
+            interventions={view.suppressedInterventions}
+          />
+          <GapPanel
+            gaps={view.gaps}
+            participants={view.participants}
+            onQuiz={(topic, targetStudentIds) =>
+              void send({ type: 'START_QUIZ', topic, targetStudentIds })
+            }
+          />
+          <BlockedAttempts attempts={view.blockedAttempts} />
+        </div>
+      ),
+    },
+    {
+      id: 'roster',
+      label: 'Roster',
+      content: (
+        <RosterPanel
+          participants={view.participants}
+          agentPresent={Boolean(view.room?.agentId)}
+          agentUid={identity.agentUid}
+          speakingUid={speakingUid}
+          onSetProficiency={(studentId, proficiency) =>
+            void send({ type: 'SET_PROFICIENCY', studentId, proficiency })
+          }
+        />
+      ),
+    },
+    {
+      id: 'quizzes',
+      label: 'Quizzes',
+      content: (
+        <QuizCards quizzes={view.quizzes} canAnswer={false} onAnswer={() => undefined} />
+      ),
+    },
+  ];
+
   return (
-    <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-4 p-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+    <main className="eco-room mx-auto flex min-h-screen max-w-6xl flex-col gap-3 p-4 md:h-screen md:overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div>
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
-            {view.room?.title ?? "Classroom"}
+            {view.room?.title ?? 'Classroom'}
           </h1>
           <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
-            Teacher view · {identity.displayName} ·{" "}
-            {view.connected ? "connected" : "reconnecting…"} · share code{" "}
-            <span style={{ color: "var(--eco-glow)" }}>{sessionId}</span>
+            Teacher view · {identity.displayName} ·{' '}
+            {view.connected ? 'connected' : 'reconnecting…'} · share code{' '}
+            <span style={{ color: 'var(--eco-glow)' }}>{sessionId}</span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -222,15 +429,18 @@ export default function TeacherDashboardPage() {
             currentLanguage={view.myLanguage}
             onLanguageChange={view.changeLanguage}
           />
+
           <button
             type="button"
-            onClick={() => setShowAbsentPacket(true)}
-            className="eco-action-chip"
-            style={{ "--chip-accent": "var(--eco-amber)" } as CSSProperties}
-            title="Generate and view the Absent-Student Lesson Packet"
+            onClick={() => void toggleScreenShare()}
+            disabled={!isScreenSharing && someoneElseIsSharing}
+            className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
+            title="Share your screen"
           >
-            Absent Packet
+            {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
           </button>
+
           <FloorIndicator floor={view.floor} policy={view.policy} />
           <button
             type="button"
@@ -238,33 +448,49 @@ export default function TeacherDashboardPage() {
             className="eco-mic-button flex h-9 w-9 items-center justify-center border text-xs font-medium transition-colors"
             style={
               micEnabled
-                ? { borderColor: "var(--eco-glow)", background: "var(--eco-glow-dim)", color: "var(--eco-glow-bright)" }
-                : { borderColor: "var(--eco-rule)", color: "var(--eco-cream-faint)" }
+                ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
+                : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-faint)' }
             }
-            aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
-            title={micEnabled ? "Mic on" : "Mic off"}
+            aria-label={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+            title={micEnabled ? 'Mic on' : 'Mic off'}
           >
-            {micEnabled ? "●" : "○"}
+            {micEnabled ? '●' : '○'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            className="flex h-11 items-center gap-2 rounded-full border-2 px-4 py-2 text-sm font-semibold transition-colors"
+            style={
+              menuOpen
+                ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow)', color: 'var(--eco-ink)' }
+                : { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
+            }
+            aria-label="Open menu"
+            title="Controls, workspace, transcript, reading, insights, roster, quizzes"
+          >
+            <AppMenuIcon />
+            <span>Menu</span>
           </button>
           <button
             type="button"
             onClick={() => void leave()}
             className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-dim)]"
-            style={{ borderColor: "var(--eco-rule)" }}
+            style={{ borderColor: 'var(--eco-rule)' }}
           >
             Leave
           </button>
         </div>
       </header>
 
-      {/* Hand Raised Notification Banner */}
       {view.raisedHands.length > 0 && (
-        <div className="flex items-center justify-between rounded-xl border px-4 py-2.5 text-xs animate-in fade-in"
+        <div
+          className="flex items-center justify-between rounded-xl border px-4 py-2.5 text-xs animate-in fade-in"
           style={{
-            borderColor: "color-mix(in srgb, var(--eco-amber) 40%, transparent)",
-            background: "color-mix(in srgb, var(--eco-amber) 10%, transparent)",
-            color: "var(--eco-amber)",
-          }}>
+            borderColor: 'color-mix(in srgb, var(--eco-amber) 40%, transparent)',
+            background: 'color-mix(in srgb, var(--eco-amber) 10%, transparent)',
+            color: 'var(--eco-amber)',
+          }}
+        >
           <div className="flex items-center gap-2">
             <span>
               <strong>{view.raisedHands.length} student(s) raised their hand:</strong>{' '}
@@ -280,7 +506,7 @@ export default function TeacherDashboardPage() {
       {notice && (
         <p
           className="rounded-[0.625rem] border px-4 py-3 text-sm"
-          style={{ borderColor: "var(--eco-amber)", background: "var(--eco-amber-dim)", color: "var(--eco-cream)" }}
+          style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)', color: 'var(--eco-cream)' }}
         >
           {notice}
         </p>
@@ -291,7 +517,7 @@ export default function TeacherDashboardPage() {
       {transcriptionError && (
         <p
           className="rounded-[0.625rem] border px-4 py-3 text-sm"
-          style={{ borderColor: "var(--eco-red)", background: "var(--eco-red-dim)", color: "var(--eco-cream)" }}
+          style={{ borderColor: 'var(--eco-red)', background: 'var(--eco-red-dim)', color: 'var(--eco-cream)' }}
         >
           Transcription could not start: {transcriptionError}. Athena cannot hear
           the room. Reload the page; if it persists, check the browser console.
@@ -307,23 +533,22 @@ export default function TeacherDashboardPage() {
       {micError && (
         <p
           className="rounded-[0.625rem] border px-4 py-3 text-sm"
-          style={{ borderColor: "var(--eco-amber)", background: "var(--eco-amber-dim)", color: "var(--eco-cream)" }}
+          style={{ borderColor: 'var(--eco-amber)', background: 'var(--eco-amber-dim)', color: 'var(--eco-cream)' }}
         >
           {micError} You can still see the room, but Athena and the class
           will not hear you until a microphone is available.
         </p>
       )}
 
-      {/* Class-wide Gap Approval Cards */}
       {view.gaps
         .filter((gap) => gap.affectedStudentIds.length >= 2 && !gap.addressedAt)
         .map((gap) => (
           <article
             key={gap.gapId}
-            className="eco-panel p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-l-4"
+            className="eco-panel flex flex-col justify-between gap-3 border-l-4 p-4 sm:flex-row sm:items-center"
             style={{
-              borderColor: "var(--eco-amber)",
-              background: "var(--eco-amber-dim)",
+              borderColor: 'var(--eco-amber)',
+              background: 'var(--eco-amber-dim)',
             }}
           >
             <div className="flex flex-col gap-1">
@@ -333,7 +558,7 @@ export default function TeacherDashboardPage() {
                   Athena has detected a class-wide gap on &quot;{gap.topic}&quot;
                 </h3>
               </div>
-              <p className="text-xs text-[var(--eco-cream-dim)] leading-relaxed">
+              <p className="text-xs leading-relaxed text-[var(--eco-cream-dim)]">
                 {gap.affectedStudentIds.length} students (
                 {gap.affectedStudentIds
                   .map(
@@ -341,7 +566,7 @@ export default function TeacherDashboardPage() {
                       view.participants.find((p) => p.participantId === id)
                         ?.displayName ?? id,
                   )
-                  .join(", ")}
+                  .join(', ')}
                 ) are struggling with this concept. Launch quiz to resolve?
               </p>
             </div>
@@ -349,15 +574,15 @@ export default function TeacherDashboardPage() {
               type="button"
               onClick={() => {
                 void send({
-                  type: "START_QUIZ",
+                  type: 'START_QUIZ',
                   topic: gap.topic,
                   targetStudentIds: gap.affectedStudentIds,
                 });
               }}
-              className="rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-opacity hover:opacity-90 self-start sm:self-center"
+              className="self-start whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-opacity hover:opacity-90 sm:self-center"
               style={{
-                background: "var(--eco-amber)",
-                color: "var(--eco-ink)",
+                background: 'var(--eco-amber)',
+                color: 'var(--eco-ink)',
               }}
             >
               Launch Quiz
@@ -365,80 +590,12 @@ export default function TeacherDashboardPage() {
           </article>
         ))}
 
-      {/* The control panel sits OUTSIDE ClassroomShell deliberately. Starting the
-          agent is a plain HTTP call to the orchestrator and needs no RTM, so
-          gating it behind the messaging connection would hide the one button
-          that fixes a silent room whenever RTM is slow or failing. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <TeacherControlPanel
-            policy={view.policy}
-            agentRunning={Boolean(view.room?.agentId)}
-            busy={busy}
-            onMute={() => void send({ type: "MUTE_AGENT" })}
-            onResume={() => void send({ type: "RESUME_AGENT" })}
-            onEndTurn={() => void send({ type: "END_AGENT_TURN" })}
-            onForceSpeak={(topic) =>
-              void send({ type: "FORCE_AGENT_SPEAK", topic })
-            }
-            onVerbosity={(level: VerbosityLevel) =>
-              void send({ type: "ADJUST_VERBOSITY", level })
-            }
-            onSetStudentInvocation={(enabled) =>
-              void send({ type: "SET_STUDENT_INVOCATION", enabled })
-            }
-            onDisableTopic={(topic) =>
-              void send({ type: "DISABLE_TOPIC", topic })
-            }
-            onEnableTopic={(topic) =>
-              void send({ type: "ENABLE_TOPIC", topic })
-            }
-            onStartQuiz={(topic) => void send({ type: "START_QUIZ", topic })}
-            onStartAgent={() => void startAgent()}
-            onStopAgent={() => void stopAgent()}
-            onEndSession={() => void endSession()}
-          />
-
-          <section className="eco-panel flex flex-col gap-2 p-4">
-            <h2 className="eco-label">Lesson material</h2>
-            <p className="text-xs text-[var(--eco-cream-faint)]">
-              Paste slides or notes. Athena grounds her answers in this and uses
-              your terminology.
-              {lessonInfo && lessonInfo.chunks > 0 && (
-                <>
-                  {" "}
-                  Currently indexed: {lessonInfo.chunks} chunk(s) from{" "}
-                  {lessonInfo.sources.join(", ")}.
-                </>
-              )}
-            </p>
-            <input
-              className="rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
-              style={{ borderColor: "var(--eco-rule)", background: "var(--eco-ink-sunken)" }}
-              value={lessonName}
-              onChange={(e) => setLessonName(e.target.value)}
-              placeholder="Source name, e.g. week-4-slides"
-            />
-            <textarea
-              className="min-h-28 rounded-lg border px-2.5 py-1.5 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
-              style={{ borderColor: "var(--eco-rule)", background: "var(--eco-ink-sunken)" }}
-              value={lessonText}
-              onChange={(e) => setLessonText(e.target.value)}
-              placeholder="Paste the lesson text here…"
-            />
-            <button
-              type="button"
-              disabled={busy || lessonText.trim().length === 0}
-              onClick={() => void uploadLesson()}
-              className="self-start rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-40"
-              style={{ background: "var(--eco-glow)", color: "var(--eco-ink)" }}
-            >
-              Index material
-            </button>
-          </section>
-
-          {/* Audio only. RTM failing degrades the room to a silent classroom
-              rather than an unusable page. */}
+      {report ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ReportView report={report} title={view.room?.title} />
+        </div>
+      ) : (
+        <>
           <ClassroomShell identity={identity}>
             {(rtm) => (
               <ClassroomAudio
@@ -459,62 +616,37 @@ export default function TeacherDashboardPage() {
             )}
           </ClassroomShell>
 
-          <MiroWorkspacePane
-            sessionId={sessionId}
-            participantId={identity.participantId}
-            role="teacher"
-            workspace={view.workspace}
-            onRefresh={view.refreshWorkspace}
-          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            {view.activeScreenShare ? (
+              <ScreenShareStage
+                isSharing={isScreenSharing}
+                onSharingEnded={stopScreenShareFromBrowser}
+                activeScreenShare={view.activeScreenShare}
+                selfUid={identity.uid}
+              />
+            ) : (
+              <ParticipantGrid
+                participants={view.participants}
+                agentPresent={Boolean(view.room?.agentId)}
+                agentUid={identity.agentUid}
+                speakingUid={speakingUid}
+                selfUid={identity.uid}
+                selfMicEnabled={micEnabled}
+                raisedHands={view.raisedHands}
+              />
+            )}
+          </div>
+        </>
+      )}
 
-          <TranscriptFeed
-            transcript={view.transcript}
-            participants={view.participants}
-            agentPresent={Boolean(view.room?.agentId)}
-          />
-        </div>
+      <ClassroomDrawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+      />
 
-        <aside className="flex w-full flex-col gap-5 lg:w-80">
-          <TargetedReadingPanel
-            sessionId={sessionId}
-            participantId={identity.participantId}
-            role="teacher"
-            readings={view.targetedReadings}
-            onRefresh={() => void orchestrator.getTargetedReadings(sessionId)}
-          />
-          <RestraintMeter
-            state={view.restraintMeterState}
-            score={view.restraintScore}
-          />
-          <SuppressedInterventionsPanel
-            interventions={view.suppressedInterventions}
-          />
-          <RosterPanel
-            participants={view.participants}
-            agentPresent={Boolean(view.room?.agentId)}
-            agentUid={identity.agentUid}
-            speakingUid={speakingUid}
-            onSetProficiency={(studentId, proficiency) =>
-              void send({ type: "SET_PROFICIENCY", studentId, proficiency })
-            }
-          />
-          <GapPanel
-            gaps={view.gaps}
-            participants={view.participants}
-            onQuiz={(topic, targetStudentIds) =>
-              void send({ type: "START_QUIZ", topic, targetStudentIds })
-            }
-          />
-          <QuizCards
-            quizzes={view.quizzes}
-            canAnswer={false}
-            onAnswer={() => undefined}
-          />
-          <BlockedAttempts attempts={view.blockedAttempts} />
-        </aside>
-      </div>
-
-      {/* Modals */}
       <AbsentStudentPacketModal
         sessionId={sessionId}
         isOpen={showAbsentPacket}
@@ -529,8 +661,6 @@ export default function TeacherDashboardPage() {
         isOpen={showCatchupBooking}
         onClose={() => setShowCatchupBooking(false)}
       />
-
-      {report && <ReportView report={report} title={view.room?.title} />}
     </main>
   );
 }
@@ -554,7 +684,7 @@ function InterventionTimeline({ history }: { history: InterventionRecord[] }) {
               key={mode}
               type="button"
               onClick={() => setFilter(mode)}
-              className="rounded px-2.5 py-1 text-xs font-semibold border capitalize transition-colors"
+              className="rounded border px-2.5 py-1 text-xs font-semibold capitalize transition-colors"
               style={{
                 borderColor: filter === mode ? 'var(--eco-glow)' : 'var(--eco-rule)',
                 background: filter === mode ? 'var(--eco-glow-dim)' : 'var(--eco-ink-sunken)',
@@ -568,16 +698,15 @@ function InterventionTimeline({ history }: { history: InterventionRecord[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-xs text-[var(--eco-cream-faint)] py-2">
+        <p className="py-2 text-xs text-[var(--eco-cream-faint)]">
           No interventions recorded matching this filter.
         </p>
       ) : (
-        <div className="relative border-l border-[var(--eco-rule)] pl-4 ml-2 flex flex-col gap-4">
+        <div className="relative ml-2 flex flex-col gap-4 border-l border-[var(--eco-rule)] pl-4">
           {filtered.map((item, idx) => {
             const isSpoken = item.status === 'spoken';
             return (
               <div key={idx} className="relative flex flex-col gap-1">
-                {/* Timeline dot */}
                 <span
                   className="absolute -left-[1.375rem] top-1.5 h-3 w-3 rounded-full border-2"
                   style={{
@@ -604,7 +733,7 @@ function InterventionTimeline({ history }: { history: InterventionRecord[] }) {
                     Gate Score: <strong className="font-semibold">{item.score.toFixed(2)}</strong>
                   </span>
                 </div>
-                <p className="text-xs italic text-[var(--eco-cream)] bg-[var(--eco-ink-sunken)] p-2 rounded-lg border border-[var(--eco-rule)]">
+                <p className="rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] p-2 text-xs italic text-[var(--eco-cream)]">
                   &quot;{item.text}&quot;
                 </p>
                 <p className="text-[10px] text-[var(--eco-cream-faint)]">
@@ -746,7 +875,7 @@ function ReportView({ report, title }: { report: SessionReport; title?: string }
             <thead>
               <tr
                 className="border-b text-xs uppercase text-[var(--eco-cream-faint)]"
-                style={{ borderColor: "var(--eco-rule)" }}
+                style={{ borderColor: 'var(--eco-rule)' }}
               >
                 <th className="py-1 pr-3 font-medium">Student</th>
                 <th className="py-1 pr-3 font-medium">Level</th>
@@ -760,9 +889,9 @@ function ReportView({ report, title }: { report: SessionReport; title?: string }
                 <tr
                   key={s.participantId}
                   className="border-b text-[var(--eco-cream-dim)]"
-                  style={{ borderColor: "var(--eco-rule)" }}
+                  style={{ borderColor: 'var(--eco-rule)' }}
                 >
-                  <td className="py-1 pr-3 text-[var(--eco-cream)] font-medium">
+                  <td className="py-1 pr-3 font-medium text-[var(--eco-cream)]">
                     {s.displayName}
                   </td>
                   <td className="py-1 pr-3">{s.proficiency}</td>
@@ -778,13 +907,12 @@ function ReportView({ report, title }: { report: SessionReport; title?: string }
         </div>
       </div>
 
-      {/* Concept Mastery Rankings */}
       <div className="flex flex-col gap-2">
         <h3 className="eco-label-dim mb-1">Concept Mastery Rankings</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {report.perStudent.map((s) => (
-            <article key={s.participantId} className="eco-panel p-3 flex flex-col gap-2 bg-[var(--eco-ink-sunken)]">
-              <div className="flex justify-between items-center border-b pb-1" style={{ borderColor: 'var(--eco-rule)' }}>
+            <article key={s.participantId} className="eco-panel flex flex-col gap-2 bg-[var(--eco-ink-sunken)] p-3">
+              <div className="flex items-center justify-between border-b pb-1" style={{ borderColor: 'var(--eco-rule)' }}>
                 <h4 className="text-sm font-semibold text-[var(--eco-cream)]">{s.displayName}</h4>
                 <span className="text-xs text-[var(--eco-cream-faint)]">Level: {s.proficiency}</span>
               </div>
@@ -793,12 +921,12 @@ function ReportView({ report, title }: { report: SessionReport; title?: string }
                   {s.conceptMastery.map((m) => (
                     <div key={m.topic} className="flex flex-col gap-1">
                       <div className="flex justify-between text-xs">
-                        <span className="text-[var(--eco-cream-dim)] font-medium">{m.topic}</span>
+                        <span className="font-medium text-[var(--eco-cream-dim)]">{m.topic}</span>
                         <span className="eco-numerals font-medium" style={{
                           color: m.status === 'mastered' ? 'var(--eco-glow-bright)' : m.status === 'struggling' ? 'var(--eco-red)' : 'var(--eco-amber)'
                         }}>{m.score}% ({m.status})</span>
                       </div>
-                      <div className="w-full bg-[var(--eco-rule)] h-1.5 rounded-full overflow-hidden">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--eco-rule)]">
                         <div className="h-full rounded-full transition-all" style={{
                           width: `${m.score}%`,
                           background: m.status === 'mastered' ? 'var(--eco-glow-bright)' : m.status === 'struggling' ? 'var(--eco-red)' : 'var(--eco-amber)'
@@ -815,7 +943,6 @@ function ReportView({ report, title }: { report: SessionReport; title?: string }
         </div>
       </div>
 
-      {/* Unified Intervention Timeline */}
       <InterventionTimeline history={report.interventionHistory} />
     </section>
   );

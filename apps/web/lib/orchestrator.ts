@@ -348,6 +348,31 @@ export const orchestrator = {
       method: 'POST',
       body: JSON.stringify({ participantId, raised }),
     }),
+    
+  // ─── Screen Sharing ────────────────────────────────────────────────
+
+  setScreenSharePermission: (
+    sessionId: string,
+    participantId: string,
+    targetParticipantId: string,
+    allowed: boolean,
+  ) =>
+    request<{ ok: boolean; screenShareAllowed: string[] }>(
+      `/api/sessions/${sessionId}/screen-share-permission`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ participantId, targetParticipantId, allowed }),
+      },
+    ),
+
+  setScreenSharing: (sessionId: string, participantId: string, sharing: boolean) =>
+    request<{
+      ok: boolean;
+      activeScreenShare: { participantId: string; displayName: string } | null;
+    }>(`/api/sessions/${sessionId}/screen-share`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, sharing }),
+    }),
 
   // ─── Multilingual Real-Time Translation ────────────────────────────────────
 
