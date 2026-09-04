@@ -338,22 +338,9 @@ export default function JoinPage() {
                       className={`eco-lamp ${session.agentId ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
                     />
                     <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-[var(--eco-cream)]">
-                          {session.title}
-                        </p>
-                        <span
-                          className="rounded px-1.5 py-0.5 font-mono text-[11px] font-bold"
-                          style={{
-                            background: 'color-mix(in srgb, var(--eco-athena) 20%, transparent)',
-                            color: 'var(--eco-athena)',
-                            border: '1px solid color-mix(in srgb, var(--eco-athena) 40%, transparent)',
-                          }}
-                          title="4-digit share code"
-                        >
-                          {session.sessionId}
-                        </span>
-                      </div>
+                      <p className="text-sm font-medium text-[var(--eco-cream)]">
+                        {session.title}
+                      </p>
                       <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
                         {session.participantCount} in room ·{' '}
                         {session.agentId ? 'AI co-teacher present' : 'AI not started'}
