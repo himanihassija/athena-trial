@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   await teacher.goto(`${WEB}/join`, { waitUntil: 'networkidle' });
   check(
     'join page loads',
-    await teacher.getByRole('heading', { name: 'ATHENA' }).first().isVisible(),
+    await teacher.locator('.eco-wordmark').first().isVisible(),
   );
 
   // The empty state must offer a way forward rather than a dead end — but it
@@ -97,14 +97,17 @@ async function main(): Promise<void> {
   if (hasLiveRooms) {
     console.log('  skip live classrooms already exist, empty state not applicable');
   } else {
+    // The page opens on the student role, so the student variant of the empty
+    // state is what renders by default; the teacher variant appears after
+    // switching role. Either satisfies "explains what to do".
     const emptyHint = teacher.getByText(
-      /A teacher needs to start one|Give your lesson a title/,
+      /A teacher needs to start one|Give your lesson a title|Ask your teacher for the 4-digit code/,
     );
     check('empty state explains what to do', (await emptyHint.count()) > 0);
   }
 
   console.log('\n── Create a lesson as teacher');
-  await teacher.getByPlaceholder('Enter your name').fill('Ms Rao');
+  await teacher.getByPlaceholder('e.g. Ana').fill('Ms Rao');
   await teacher.getByRole('button', { name: 'Join as teacher', exact: true }).click();
   await teacher.getByPlaceholder(/Lesson title/).fill('Adding unlike fractions');
   await teacher.getByRole('button', { name: /Create/ }).click();
@@ -151,11 +154,11 @@ async function main(): Promise<void> {
 
   console.log('\n── Student joins the same lesson');
   await student.goto(`${WEB}/join`, { waitUntil: 'networkidle' });
-  await student.getByPlaceholder('Enter your name').fill('Ana');
+  await student.getByPlaceholder('e.g. Ana').fill('Ana');
   await student.getByRole('button', { name: 'Join as student', exact: true }).click();
-  // Joining is by share code since the redesign, and the code is the session id.
-  await student.getByPlaceholder('Enter 4-digit code').fill(sessionId);
-  await student.getByRole('button', { name: /^Join$/ }).first().click();
+  // Joining is by share code, and the code is the session id.
+  await student.getByPlaceholder('4-digit code').fill(sessionId);
+  await student.getByRole('button', { name: 'Join by Code' }).click();
   await student.waitForURL(/\/classroom\//, { timeout: 15_000 });
   check('student landed in the classroom', student.url().includes(`/classroom/${sessionId}`));
 

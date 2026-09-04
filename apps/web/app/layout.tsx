@@ -1,18 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import { Oswald, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari, IBM_Plex_Mono, Caveat, Inter } from 'next/font/google';
+import { Oswald, IBM_Plex_Sans, IBM_Plex_Sans_Devanagari, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
-
-const caveatFont = Caveat({
-  subsets: ['latin'],
-  weight: ['400', '600', '700'],
-  variable: '--font-caveat',
-});
-
-const interFont = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
-  variable: '--font-inter',
-});
 
 // Condensed grotesque for the wordmark and titles — the "broadcast desk" voice.
 const displayFont = Oswald({
@@ -103,7 +91,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`h-full ${interFont.variable} ${caveatFont.variable} ${displayFont.variable} ${bodyFont.variable} ${devanagariFont.variable} ${monoFont.variable}`}
+      className={`h-full ${displayFont.variable} ${bodyFont.variable} ${devanagariFont.variable} ${monoFont.variable}`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
