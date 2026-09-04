@@ -114,20 +114,17 @@ export default function JoinPage() {
   const canCreate = nameValid && newTitle.trim().length > 0 && !busy;
 
   return (
-    <div
-      className="relative min-h-screen w-full font-sans bg-cover bg-center bg-fixed bg-no-repeat text-[#1A1A1A] selection:bg-[#F59E0B]/20"
-      style={{
-        backgroundImage: 'url(/classroom-bg.png)',
-      }}
-    >
-      {/* Dynamic Warm Tint Overlay (Light: #FDF6EE 82%, Dark: #0D1117 88%) */}
+    <div className="relative min-h-screen w-full font-sans text-[#1A1A1A] selection:bg-[#F59E0B]/20 overflow-x-hidden">
+      {/* Background Image with Light Blur */}
       <div
-        className="absolute inset-0 z-0 pointer-events-none transition-colors duration-300"
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none filter blur-[2px] scale-[1.03] transition-all duration-300"
         style={{
-          backgroundColor: 'var(--eco-ink, #FDF6EE)',
-          opacity: 0.85,
+          backgroundImage: 'url(/classroom-bg.png)',
         }}
       />
+
+      {/* Dynamic Tint Overlay: Light theme has low transparency overlay (~35%) so classroom photo is vivid; Dark theme has deep slate overlay */}
+      <div className="fixed inset-0 z-0 pointer-events-none bg-[#FDF6EE]/35 dark:bg-[#0B0F17]/85 transition-colors duration-300 backdrop-blur-[1px]" />
 
       {/* Main Container */}
       <div className="relative z-10 mx-auto flex min-h-screen max-w-[1440px] flex-col justify-between px-6 py-6 sm:px-10 lg:px-12">

@@ -83,6 +83,7 @@ const THEME_INIT_SCRIPT = `
     var stored = localStorage.getItem('echosphere.theme');
     if (stored === 'dark') {
       document.documentElement.dataset.ecoTheme = 'dark';
+      document.documentElement.classList.add('dark');
     }
   } catch (e) {}
 })();
