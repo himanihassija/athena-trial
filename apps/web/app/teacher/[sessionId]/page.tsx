@@ -31,9 +31,14 @@ import {
   RosterPanel,
   TranscriptFeed,
 } from '@/components/classroom/panels';
+import dynamic from 'next/dynamic';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
-import { ScreenShareStage } from '@/components/classroom/ScreenShareStage';
 import { ScreenShareControls } from '@/components/classroom/ScreenShareControls';
+
+const ScreenShareStage = dynamic(
+  () => import('@/components/classroom/ScreenShareStage').then((m) => m.ScreenShareStage),
+  { ssr: false },
+);
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { useClassroom } from '@/hooks/useClassroom';
 import {
