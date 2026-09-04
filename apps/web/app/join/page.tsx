@@ -225,64 +225,79 @@ export default function JoinPage() {
             </div>
           </div>
 
-          {/* Right Hero Art (Chalkboard + Speech Bubble + Robot Mascot) */}
-          <div className="relative hidden shrink-0 items-end justify-end lg:flex lg:w-[36%]">
-            {/* Background Chalkboard Slate Hint */}
-            <div
-              className="absolute -right-4 -top-8 h-48 w-80 rounded-2xl border-4 border-[#854d0e]/40 p-4 shadow-inner"
-              style={{ backgroundColor: '#1e3a34' }}
-            >
-              <div className="font-serif italic text-[#a7f3d0]/80">
-                <p className="text-[17px]">Curious minds</p>
-                <p className="text-[17px]">Brighter tomorrows</p>
-                <p className="mt-1 text-xl font-bold">☺</p>
+          {/* Right Hero Art (Chalkboard text + Speech Bubble + Robot Mascot) */}
+          <div className="relative hidden shrink-0 items-end justify-end lg:flex lg:w-[42%]">
+            {/* Cursive Chalk Writing on the Classroom Blackboard */}
+            <div className="absolute right-6 top-0 z-0 select-none text-right font-serif opacity-85">
+              <p
+                className="text-[26px] font-normal leading-snug tracking-wide text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
+                style={{ fontFamily: 'var(--font-caveat), cursive' }}
+              >
+                Curious minds
+              </p>
+              <p
+                className="text-[26px] font-normal leading-snug tracking-wide text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
+                style={{ fontFamily: 'var(--font-caveat), cursive' }}
+              >
+                Brighter tomorrows
+              </p>
+              <div className="mt-1 flex justify-end pr-3">
+                <span
+                  className="text-[24px] text-white/80"
+                  style={{ fontFamily: 'var(--font-caveat), cursive' }}
+                >
+                  ☺
+                </span>
               </div>
             </div>
 
             {/* Speech Bubble pointing to the robot */}
-            <div className="relative z-20 -mb-6 mr-3 -rotate-6">
+            <div className="relative z-20 -mb-4 mr-2 -rotate-3 transition-transform hover:-rotate-1">
               <div
-                className="relative rounded-[20px] border border-[#F3ECE0] px-4 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:border-white/10 dark:bg-[#1E293B]"
-                style={{ backgroundColor: 'var(--bubble-bg, #FFFDF9)' }}
+                className="relative rounded-[22px] border border-[#F3ECE0] px-4 py-3 shadow-[0_6px_20px_rgba(0,0,0,0.08)] backdrop-blur-sm dark:border-white/10 dark:bg-[#1E293B]"
+                style={{ backgroundColor: '#FFFDF9' }}
               >
-                <p
-                  className="text-[22px] font-semibold leading-tight text-[#1F2937] dark:text-[#F8FAFC]"
+                <div
+                  className="text-[23px] font-bold leading-[1.2] text-[#1F2937] dark:text-[#F8FAFC]"
                   style={{ fontFamily: 'var(--font-caveat), cursive' }}
                 >
-                  Better Learning Together
-                </p>
-                {/* Hand-drawn Orange Underline Swash */}
-                <svg
-                  className="mt-0.5 h-2 w-full"
-                  viewBox="0 0 160 8"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M 5 4 Q 80 8 155 3"
-                    stroke="#F59E0B"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                  <p>Better Learning</p>
+                  <p className="relative inline-block">
+                    Together
+                    {/* Hand-drawn Orange Underline Swash directly under 'Together' */}
+                    <svg
+                      className="absolute -bottom-1 left-0 h-2.5 w-full"
+                      viewBox="0 0 100 10"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M 2 5 Q 50 9 98 4"
+                        stroke="#F59E0B"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </p>
+                </div>
 
-                {/* Speech Tail pointing right */}
+                {/* Speech Tail pointing right toward the robot */}
                 <div
-                  className="absolute -right-2.5 bottom-4 h-4 w-4 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
-                  style={{ backgroundColor: 'var(--bubble-bg, #FFFDF9)' }}
+                  className="absolute -right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
+                  style={{ backgroundColor: '#FFFDF9' }}
                 />
               </div>
             </div>
 
-            {/* 3D Robot Mascot */}
-            <div className="relative z-10 w-[340px]">
+            {/* 3D Transparent Robot Mascot */}
+            <div className="relative z-10 w-[330px]">
               <Image
                 src="/robot.png"
                 alt="Athena Robot Co-teacher"
                 width={360}
                 height={360}
                 priority
-                className="h-auto w-full object-contain drop-shadow-[0_12px_24px_rgba(0,0,0,0.12)]"
+                className="h-auto w-full object-contain drop-shadow-[0_16px_32px_rgba(0,0,0,0.18)]"
               />
             </div>
           </div>
