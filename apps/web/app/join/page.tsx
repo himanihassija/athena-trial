@@ -225,40 +225,16 @@ export default function JoinPage() {
             </div>
           </div>
 
-          {/* Right Hero Art (Chalkboard text + Speech Bubble + Robot Mascot) */}
+          {/* Right Hero Art (Speech Bubble + Robot Mascot sitting on the edge of the Live Classrooms card) */}
           <div className="relative hidden shrink-0 items-end justify-end lg:flex lg:w-[42%]">
-            {/* Cursive Chalk Writing on the Classroom Blackboard */}
-            <div className="absolute right-6 top-0 z-0 select-none text-right font-serif opacity-85">
-              <p
-                className="text-[26px] font-normal leading-snug tracking-wide text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
-                style={{ fontFamily: 'var(--font-caveat), cursive' }}
-              >
-                Curious minds
-              </p>
-              <p
-                className="text-[26px] font-normal leading-snug tracking-wide text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"
-                style={{ fontFamily: 'var(--font-caveat), cursive' }}
-              >
-                Brighter tomorrows
-              </p>
-              <div className="mt-1 flex justify-end pr-3">
-                <span
-                  className="text-[24px] text-white/80"
-                  style={{ fontFamily: 'var(--font-caveat), cursive' }}
-                >
-                  ☺
-                </span>
-              </div>
-            </div>
-
-            {/* Speech Bubble pointing to the robot */}
-            <div className="relative z-20 -mb-4 mr-2 -rotate-3 transition-transform hover:-rotate-1">
+            {/* Speech Bubble floating near the Brain/Head of the Robot Mascot */}
+            <div className="relative z-20 mb-32 -mr-3 -rotate-6 transition-transform hover:-rotate-3">
               <div
                 className="relative rounded-[22px] border border-[#F3ECE0] px-4 py-3 shadow-[0_6px_20px_rgba(0,0,0,0.08)] backdrop-blur-sm dark:border-white/10 dark:bg-[#1E293B]"
                 style={{ backgroundColor: '#FFFDF9' }}
               >
                 <div
-                  className="text-[23px] font-bold leading-[1.2] text-[#1F2937] dark:text-[#F8FAFC]"
+                  className="text-[22px] font-bold leading-[1.2] text-[#1F2937] dark:text-[#F8FAFC]"
                   style={{ fontFamily: 'var(--font-caveat), cursive' }}
                 >
                   <p>Better Learning</p>
@@ -281,16 +257,16 @@ export default function JoinPage() {
                   </p>
                 </div>
 
-                {/* Speech Tail pointing right toward the robot */}
+                {/* Speech Tail pointing right toward robot head / brain */}
                 <div
-                  className="absolute -right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
+                  className="absolute -right-2.5 top-2/3 h-4 w-4 -translate-y-1/2 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
                   style={{ backgroundColor: '#FFFDF9' }}
                 />
               </div>
             </div>
 
-            {/* 3D Transparent Robot Mascot */}
-            <div className="relative z-10 w-[330px]">
+            {/* 3D Transparent Robot Mascot sitting on the bottom boundary (top edge of Live Classrooms card) */}
+            <div className="relative z-10 w-[300px] -mb-7">
               <Image
                 src="/robot.png"
                 alt="Athena Robot Co-teacher"
