@@ -496,10 +496,10 @@ const QUIZ_REDELIVERY_WINDOW_MS = 90_000;
  * two paths carry different identity: the history poll has no turn id at all,
  * and the relay's is the browser's. The text is the only thing they share.
  */
-function isDuplicateQuizPayload(
+export function findRecentQuizByPayload(
   session: ClassroomSession,
   incoming: { question: string; options?: string[] },
-): boolean {
+): QuizQuestion | undefined {
   const key = (q: string, o: string[] | undefined) =>
     `${q.trim().toLowerCase()}::${(o ?? []).map((x) => x.trim().toLowerCase()).join('|')}`;
   const incomingKey = key(incoming.question, incoming.options);
@@ -507,16 +507,16 @@ function isDuplicateQuizPayload(
 
   for (const quiz of session.quizzes.values()) {
     if (quiz.createdAt < cutoff) continue;
-    if (key(quiz.question, quiz.options) === incomingKey) return true;
+    if (key(quiz.question, quiz.options) === incomingKey) return quiz;
   }
-  return false;
+  return undefined;
 }
 
 /**
  * Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap).
  * Returns the quiz it created, if any, so a multi-question set can track it.
  */
-function applyControl(
+export function applyControl(
   session: ClassroomSession,
   control: CoTeacherControl,
 ): { quiz?: QuizQuestion } {
@@ -549,8 +549,14 @@ function applyControl(
     // the same "Question N of M". Neither path can be dropped: the history poll
     // is the reliable one for a Start Quiz set, but a quiz Athena poses on her
     // own is only ever seen via the relay. So the payload itself is the key.
-    if (isDuplicateQuizPayload(session, control.quiz)) {
-      return {};
+    // Already on screen from the other delivery path. Hand the existing quiz
+    // back rather than nothing: `issueSetQuestion` records the returned id in
+    // `set.quizIds`, and `maybeAdvanceQuizSet` refuses to advance a set whose
+    // closing quiz it cannot find there. Returning `{}` here silently capped
+    // every quiz set at its first question.
+    const alreadyIssued = findRecentQuizByPayload(session, control.quiz);
+    if (alreadyIssued) {
+      return { quiz: alreadyIssued };
     }
     const pending = takePendingQuiz(session);
     const set = session.activeQuizSet;
