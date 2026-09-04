@@ -23,10 +23,24 @@ export function AbsentStudentPacketModal({
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [quizSubmitted, setQuizSubmitted] = useState(false);
 
+  // Dispatch States
+  const [studentName, setStudentName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [parentNote, setParentNote] = useState('');
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchStatus, setDispatchStatus] = useState<{
+    success: boolean;
+    channel: string;
+    msg: string;
+    whatsappLink?: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
     setError(null);
+    setDispatchStatus(null);
     orchestratorClient
       .getAbsentPacket(sessionId)
       .then((data: AbsentStudentPacket) => {
@@ -49,6 +63,64 @@ export function AbsentStudentPacketModal({
   const handlePrint = () => {
     window.print();
   };
+
+  const handleDispatch = async (channel: 'whatsapp' | 'email' | 'both') => {
+    if (!recipientPhone && channel === 'whatsapp') {
+      setDispatchStatus({
+        success: false,
+        channel,
+        msg: 'Please enter a WhatsApp phone number (with country code).',
+      });
+      return;
+    }
+    if (!recipientEmail && channel === 'email') {
+      setDispatchStatus({
+        success: false,
+        channel,
+        msg: 'Please enter a recipient email address.',
+      });
+      return;
+    }
+
+    setIsDispatching(true);
+    setDispatchStatus(null);
+
+    try {
+      const res = await orchestratorClient.dispatchAbsentPacket(sessionId, {
+        sessionId,
+        studentName: studentName.trim() || 'Student',
+        recipientPhone: recipientPhone.trim(),
+        recipientEmail: recipientEmail.trim(),
+        channel,
+        includeQuiz: true,
+        includeTranscript: true,
+        parentNote: parentNote.trim(),
+      });
+
+      setDispatchStatus({
+        success: true,
+        channel,
+        msg: `Successfully prepared ${channel.toUpperCase()} digest! (Receipt: ${res.deliveryReceiptId})`,
+        whatsappLink: res.whatsappDeepLink,
+      });
+
+      if (channel === 'whatsapp' || channel === 'both') {
+        window.open(res.whatsappDeepLink, '_blank');
+      } else if (channel === 'email') {
+        const mailto = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(res.emailSubject)}&body=${encodeURIComponent(res.whatsappMessageText)}`;
+        window.location.href = mailto;
+      }
+    } catch (err) {
+      setDispatchStatus({
+        success: false,
+        channel,
+        msg: err instanceof Error ? err.message : 'Failed to dispatch packet',
+      });
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--eco-ink)_80%,transparent)] p-4 backdrop-blur-md animate-in fade-in duration-200">
@@ -103,6 +175,133 @@ export function AbsentStudentPacketModal({
             </div>
           ) : packet ? (
             <>
+              {/* Dispatch Action Panel */}
+              <section className="rounded-xl border border-[color-mix(in_srgb,var(--eco-athena)_40%,transparent)] bg-gradient-to-br from-[var(--eco-ink-sunken)] to-[var(--eco-panel)] p-5 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--eco-rule)]/40 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--eco-athena)] text-xs font-bold text-[var(--eco-ink)]">
+                      📨
+                    </span>
+                    <div>
+                      <h3 className="eco-display text-sm font-semibold text-[var(--eco-cream)]">
+                        Dispatch Packet to Absent Student & Parents
+                      </h3>
+                      <p className="text-[11px] text-[var(--eco-cream-faint)]">
+                        Instantly deliver the full transcript, takeaways, and quiz via WhatsApp and Email
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-emerald-950/60 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/30">
+                      ⚡ AI Auto-Formatted
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--eco-cream-dim)] mb-1">
+                      Student Name
+                    </label>
+                    <input
+                      type="text"
+                      value={studentName}
+                      onChange={(e) => setStudentName(e.target.value)}
+                      placeholder="e.g. Alex Rivera"
+                      className="w-full rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink)] px-3 py-1.5 text-xs text-[var(--eco-cream)] placeholder-[var(--eco-cream-faint)]/50 focus:border-[var(--eco-athena)] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--eco-cream-dim)] mb-1">
+                      WhatsApp Phone (with country code)
+                    </label>
+                    <input
+                      type="tel"
+                      value={recipientPhone}
+                      onChange={(e) => setRecipientPhone(e.target.value)}
+                      placeholder="+1234567890"
+                      className="w-full rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink)] px-3 py-1.5 text-xs text-[var(--eco-cream)] placeholder-[var(--eco-cream-faint)]/50 focus:border-[var(--eco-athena)] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--eco-cream-dim)] mb-1">
+                      Parent / Student Email
+                    </label>
+                    <input
+                      type="email"
+                      value={recipientEmail}
+                      onChange={(e) => setRecipientEmail(e.target.value)}
+                      placeholder="parent@example.com"
+                      className="w-full rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink)] px-3 py-1.5 text-xs text-[var(--eco-cream)] placeholder-[var(--eco-cream-faint)]/50 focus:border-[var(--eco-athena)] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <label className="block text-[11px] font-medium text-[var(--eco-cream-dim)] mb-1">
+                    Custom Teacher / AI Note (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={parentNote}
+                    onChange={(e) => setParentNote(e.target.value)}
+                    placeholder="e.g. Please review the 3 diagnostic quiz questions before tomorrow's class!"
+                    className="w-full rounded-lg border border-[var(--eco-rule)] bg-[var(--eco-ink)] px-3 py-1.5 text-xs text-[var(--eco-cream)] placeholder-[var(--eco-cream-faint)]/50 focus:border-[var(--eco-athena)] focus:outline-none"
+                  />
+                </div>
+
+                {dispatchStatus && (
+                  <div
+                    className={`mt-3 rounded-lg p-2.5 text-xs flex items-center justify-between gap-2 ${
+                      dispatchStatus.success
+                        ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
+                    }`}
+                  >
+                    <span>{dispatchStatus.msg}</span>
+                    {dispatchStatus.whatsappLink && (
+                      <a
+                        href={dispatchStatus.whatsappLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-slate-950 hover:bg-emerald-400"
+                      >
+                        Open WhatsApp ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isDispatching}
+                    onClick={() => void handleDispatch('whatsapp')}
+                    className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50 transition"
+                  >
+                    <span>💬 Share via WhatsApp</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isDispatching}
+                    onClick={() => void handleDispatch('email')}
+                    className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50 transition"
+                  >
+                    <span>✉️ Send via Email</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isDispatching}
+                    onClick={() => void handleDispatch('both')}
+                    className="flex items-center gap-1.5 rounded-lg bg-[var(--eco-athena)] px-3.5 py-1.5 text-xs font-semibold text-[var(--eco-ink)] shadow-sm hover:brightness-110 disabled:opacity-50 transition"
+                  >
+                    <span>🚀 Dispatch Both (Omni-channel)</span>
+                  </button>
+                </div>
+              </section>
+
               {/* Section 1: Executive Summary */}
               <section className="rounded-xl border border-[var(--eco-rule)] bg-[var(--eco-panel)] p-5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--eco-amber)]">

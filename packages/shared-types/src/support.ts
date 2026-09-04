@@ -92,3 +92,58 @@ export interface CatchupBookingRequest {
   notes?: string;
   language: LanguageCode;
 }
+
+export type DispatchChannel = 'email' | 'whatsapp' | 'both';
+
+export interface AbsentDispatchPayload {
+  sessionId: string;
+  studentName?: string;
+  recipientEmail?: string;
+  recipientPhone?: string;
+  channel: DispatchChannel;
+  includeQuiz: boolean;
+  includeTranscript: boolean;
+  parentNote?: string;
+}
+
+export interface AbsentDispatchResult {
+  ok: boolean;
+  sessionId: string;
+  dispatchedAt: number;
+  channels: DispatchChannel[];
+  recipientEmail?: string;
+  recipientPhone?: string;
+  whatsappDeepLink: string;
+  whatsappMessageText: string;
+  emailSubject: string;
+  emailBodyHtml: string;
+  deliveryReceiptId: string;
+}
+
+export type TeachingAssistantMode = 'step_by_step' | 'socratic_hint' | 'concept_simplify' | 'practice_problem';
+
+export interface TeachingAssistantRequest {
+  sessionId: string;
+  studentId: string;
+  studentName: string;
+  question: string;
+  mode?: TeachingAssistantMode;
+  struggleTopic?: string;
+  hintLevel?: number; // 1 = light hint, 2 = guiding question, 3 = detailed breakdown
+}
+
+export interface TeachingAssistantResponse {
+  reply: string;
+  mode: TeachingAssistantMode;
+  analogyOrExample?: string;
+  stepByStepSteps?: string[];
+  suggestedFollowUpQuestion?: string;
+  interactivePractice?: {
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    explanation: string;
+  };
+  sources: Array<{ kind: string; snippet: string }>;
+}
+

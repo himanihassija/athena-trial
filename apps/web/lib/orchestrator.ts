@@ -306,6 +306,26 @@ export const orchestrator = {
       `/api/sessions/${sessionId}/absent-packet`,
     ),
 
+  dispatchAbsentPacket: (
+    sessionId: string,
+    payload: import('@echosphere/shared-types').AbsentDispatchPayload,
+  ) =>
+    request<import('@echosphere/shared-types').AbsentDispatchResult>(
+      `/api/sessions/${sessionId}/absent-packet/dispatch`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
+  // ─── Nobody Left Behind: Socratic AI Teaching Assistant for Weaker Students ──
+
+  askTeachingAssistant: (
+    sessionId: string,
+    payload: import('@echosphere/shared-types').TeachingAssistantRequest,
+  ) =>
+    request<import('@echosphere/shared-types').TeachingAssistantResponse>(
+      `/api/sessions/${sessionId}/teaching-assistant/help`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
   // ─── Nobody Left Behind: Targeted Reading (Teacher-Approved) ───────────────
 
   getTargetedReadings: (sessionId: string) =>
@@ -339,6 +359,21 @@ export const orchestrator = {
     request<import('@echosphere/shared-types').CatchupAvailabilitySlot>(
       `/api/sessions/${sessionId}/catchup-slots/book`,
       { method: 'POST', body: JSON.stringify(booking) },
+    ),
+
+  createCatchupSlot: (
+    sessionId: string,
+    slotData: { date: string; startTime: string; endTime: string; teacherName?: string },
+  ) =>
+    request<import('@echosphere/shared-types').CatchupAvailabilitySlot>(
+      `/api/sessions/${sessionId}/catchup-slots/create`,
+      { method: 'POST', body: JSON.stringify(slotData) },
+    ),
+
+  cancelCatchupSlot: (sessionId: string, slotId: string) =>
+    request<import('@echosphere/shared-types').CatchupAvailabilitySlot>(
+      `/api/sessions/${sessionId}/catchup-slots/${slotId}/cancel`,
+      { method: 'POST', body: JSON.stringify({}) },
     ),
 
   // ─── Hand-Raise Control Plane Signal ───────────────────────────────────────

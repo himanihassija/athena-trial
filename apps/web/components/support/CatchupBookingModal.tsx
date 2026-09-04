@@ -166,42 +166,55 @@ END:VCALENDAR`;
 
               {/* Slot Picker */}
               <div>
-                <label className="block text-xs font-semibold text-[var(--eco-cream)]">
-                  Select Available Time Slot
-                </label>
-                {loading ? (
-                  <p className="mt-2 text-xs text-[var(--eco-cream-faint)]">Loading real availability...</p>
-                ) : (
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-40 overflow-y-auto pr-1">
-                    {slots.map((slot) => {
-                      const isSelected = selectedSlotId === slot.slotId;
-                      const isBooked = slot.isBooked;
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-[var(--eco-cream)]">
+                    Select Available Date & Time Slot
+                  </label>
+                  {slots.length > 0 && (
+                    <span className="text-[10px] text-emerald-400 font-medium">
+                      {slots.filter((s) => !s.isBooked).length} slots available
+                    </span>
+                  )}
+                </div>
 
-                      return (
-                        <button
-                          key={slot.slotId}
-                          type="button"
-                          disabled={isBooked}
-                          onClick={() => setSelectedSlotId(slot.slotId)}
-                          className={`rounded-lg border p-2.5 text-left text-xs transition ${
-                            isBooked
-                              ? 'border-[var(--eco-rule)] bg-[var(--eco-ink)]/40 opacity-40 cursor-not-allowed'
-                              : isSelected
-                              ? 'border-[var(--eco-amber)] bg-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)] text-[var(--eco-amber)] ring-1 ring-amber-400 font-semibold'
-                              : 'border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] text-[var(--eco-cream)]/90 hover:border-[var(--eco-rule)]/80'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between text-[11px]">
-                            <span>{slot.date}</span>
-                            <span className="font-semibold">{slot.startTime}</span>
-                          </div>
-                          <div className="mt-1 text-[10px] text-[var(--eco-cream-faint)]">
-                            {isBooked ? 'Booked' : slot.teacherName}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                {loading ? (
+                  <p className="mt-2 text-xs text-[var(--eco-cream-faint)]">Loading teacher availability...</p>
+                ) : (
+                  <>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-48 overflow-y-auto pr-1">
+                      {slots.map((slot) => {
+                        const isSelected = selectedSlotId === slot.slotId;
+                        const isBooked = slot.isBooked;
+
+                        return (
+                          <button
+                            key={slot.slotId}
+                            type="button"
+                            disabled={isBooked}
+                            onClick={() => setSelectedSlotId(slot.slotId)}
+                            className={`rounded-xl border p-3 text-left text-xs transition ${
+                              isBooked
+                                ? 'border-[var(--eco-rule)] bg-[var(--eco-ink)]/40 opacity-40 cursor-not-allowed'
+                                : isSelected
+                                ? 'border-[var(--eco-amber)] bg-amber-950/30 text-amber-300 ring-1 ring-amber-400 font-semibold shadow-sm'
+                                : 'border-[var(--eco-rule)] bg-[var(--eco-ink-sunken)] text-[var(--eco-cream)]/90 hover:border-amber-400/50 hover:bg-[var(--eco-ink-raised)]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-[var(--eco-cream)]">📅 {slot.date}</span>
+                              <span className="rounded bg-[var(--eco-panel)] px-1.5 py-0.5 text-[10px] font-bold text-amber-400">
+                                🕒 {slot.startTime} - {slot.endTime}
+                              </span>
+                            </div>
+                            <div className="mt-1.5 flex items-center justify-between text-[10px] text-[var(--eco-cream-faint)]">
+                              <span>{slot.teacherName}</span>
+                              <span>{isBooked ? '❌ Booked' : '✅ Available'}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
 

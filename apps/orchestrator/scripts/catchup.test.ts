@@ -20,13 +20,13 @@ const t = async (name: string, fn: () => Promise<void>) => {
   }
 };
 
-await t('rejects teachers', async () => {
+await t('supports teachers as pedagogical copilot', async () => {
   const session = createSession('Catch-up test');
   const teacher = addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
-  await assert.rejects(
-    () => answerCatchup(session, teacher.participantId, 'What did I miss?'),
-    /students/,
-  );
+  const result = await answerCatchup(session, teacher.participantId, 'Suggest a check-in question for fractions');
+  assert.ok(result.reply.length > 10, result.reply);
+  assert.equal(result.history[0]?.role, 'teacher');
+  assert.equal(result.history[1]?.role, 'athena');
 });
 
 await t('recaps a missed lesson from notes and transcript', async () => {
