@@ -153,8 +153,19 @@ export interface ClassroomSession {
 
 const sessions = new Map<string, ClassroomSession>();
 
+function generate4DigitShareCode(): string {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const candidate = String(Math.floor(1000 + Math.random() * 9000));
+    const existing = sessions.get(candidate);
+    if (!existing || existing.endedAt !== null) {
+      return candidate;
+    }
+  }
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
 export function createSession(title: string): ClassroomSession {
-  const sessionId = randomUUID().slice(0, 8);
+  const sessionId = generate4DigitShareCode();
   const now = Date.now();
   const session: ClassroomSession = {
     sessionId,

@@ -21,6 +21,7 @@ export default function JoinPage() {
   const [role, setRole] = useState<Role>('student');
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [newTitle, setNewTitle] = useState('');
+  const [shareCodeInput, setShareCodeInput] = useState('');
   const [language, setLanguage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,7 +240,7 @@ export default function JoinPage() {
             )}
           </section>
 
-          {/* Right: language (students) + live sessions list */}
+          {/* Right: language (students) + 4-digit code entry + live sessions list */}
           <section className="eco-glass flex min-h-0 flex-col gap-4 overflow-y-auto p-6 animate-fade-up animate-fade-up-d2">
             {role === 'student' && (
               <label className="flex flex-col gap-1.5 border-b pb-4" style={{ borderColor: 'var(--eco-rule)' }}>
@@ -259,9 +260,45 @@ export default function JoinPage() {
               </label>
             )}
 
-            <h2 className="eco-label">
-              {sessions.length > 0 ? 'Live classrooms' : 'No live classrooms yet'}
-            </h2>
+            {/* Quick 4-Digit Share Code Entry */}
+            <div
+              className="flex flex-col gap-2 rounded-xl border p-4 shadow-sm"
+              style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="eco-label-dim">Enter 4-Digit Share Code</span>
+                <span className="text-[10px] text-[var(--eco-cream-faint)]">e.g. 4829</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={shareCodeInput}
+                  onChange={(e) => setShareCodeInput(e.target.value.trim())}
+                  placeholder="4-digit code"
+                  className="flex-1 rounded-lg border px-3 py-2 text-center font-mono text-base font-bold tracking-widest text-[var(--eco-cream)] outline-none focus:border-[var(--eco-glow)]"
+                  style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink)' }}
+                />
+                <button
+                  type="button"
+                  disabled={!nameValid || busy || shareCodeInput.length === 0}
+                  onClick={() => void join(shareCodeInput)}
+                  className="rounded-lg px-4 py-2 text-sm font-semibold transition-opacity disabled:opacity-40"
+                  style={{ background: 'var(--eco-athena)', color: 'var(--eco-ink)' }}
+                >
+                  {busy && selectedSessionId === shareCodeInput ? 'Joining…' : 'Join by Code'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <h2 className="eco-label">
+                {sessions.length > 0 ? 'Active Classrooms' : 'No active classrooms'}
+              </h2>
+              <span className="text-xs text-[var(--eco-cream-faint)]">
+                {sessions.length} live
+              </span>
+            </div>
 
             {sessions.length === 0 && reachable !== false && (
               <div className="flex flex-col items-start gap-2">
@@ -274,7 +311,7 @@ export default function JoinPage() {
                 ) : (
                   <>
                     <p className="text-sm text-[var(--eco-cream-dim)]">
-                      A teacher needs to start one before you can join.
+                      Ask your teacher for the 4-digit code, or wait for a lesson to start.
                     </p>
                     <button
                       type="button"
@@ -301,9 +338,22 @@ export default function JoinPage() {
                       className={`eco-lamp ${session.agentId ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
                     />
                     <div>
-                      <p className="text-sm font-medium text-[var(--eco-cream)]">
-                        {session.title}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-[var(--eco-cream)]">
+                          {session.title}
+                        </p>
+                        <span
+                          className="rounded px-1.5 py-0.5 font-mono text-[11px] font-bold"
+                          style={{
+                            background: 'color-mix(in srgb, var(--eco-athena) 20%, transparent)',
+                            color: 'var(--eco-athena)',
+                            border: '1px solid color-mix(in srgb, var(--eco-athena) 40%, transparent)',
+                          }}
+                          title="4-digit share code"
+                        >
+                          {session.sessionId}
+                        </span>
+                      </div>
                       <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
                         {session.participantCount} in room ·{' '}
                         {session.agentId ? 'AI co-teacher present' : 'AI not started'}
@@ -317,7 +367,7 @@ export default function JoinPage() {
                       setSelectedSessionId(session.sessionId);
                       void join(session.sessionId);
                     }}
-                    className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
+                    className="rounded-lg border px-3 py-1.5 text-sm font-medium text-[var(--eco-cream)] disabled:opacity-40 transition-colors hover:bg-white/5"
                     style={{ borderColor: 'var(--eco-athena)' }}
                   >
                     {busy && selectedSessionId === session.sessionId
