@@ -137,6 +137,8 @@ export interface RoomState {
   targetedReadings?: TargetedReadingItem[];
   catchupSlots?: CatchupAvailabilitySlot[];
   raisedHands?: string[];
+  screenShareAllowed?: string[];
+  activeScreenShare?: { participantId: string; displayName: string } | null;
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

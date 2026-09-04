@@ -234,11 +234,11 @@ export function MiroWorkspacePane({
                       )}
                     </div>
 
-                    <h3 className="mt-2 text-sm font-semibold text-[var(--eco-cream)] line-clamp-1">
+                    <h3 className="mt-2 text-sm font-semibold text-[var(--eco-cream)] break-words">
                       {note.topic}
                     </h3>
 
-                    <p className="mt-1.5 text-xs text-[var(--eco-cream)]/90 leading-relaxed">
+                    <p className="mt-1.5 break-words text-xs leading-relaxed text-[var(--eco-cream)]/90">
                       {note.content}
                     </p>
 

@@ -887,6 +887,8 @@ function roomState(session: ClassroomSession): RoomState {
     targetedReadings: getTargetedReadings(session),
     catchupSlots: getCatchupSlots(session),
     raisedHands: Array.from(session.raisedHands),
+    screenShareAllowed: Array.from(session.screenShareAllowed),
+    activeScreenShare: session.activeScreenShare,
   };
 }
 

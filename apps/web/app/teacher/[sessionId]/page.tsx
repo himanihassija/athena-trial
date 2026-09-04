@@ -595,9 +595,9 @@ export default function TeacherDashboardPage() {
           <ReportView report={report} title={view.room?.title} />
         </div>
       ) : (
-        <>
-          <ClassroomShell identity={identity}>
-            {(rtm) => (
+        <ClassroomShell identity={identity}>
+          {(rtm) => (
+            <>
               <ClassroomAudio
                 sessionId={sessionId}
                 channel={identity.channel}
@@ -613,30 +613,30 @@ export default function TeacherDashboardPage() {
                 onMicError={setMicError}
                 onSpeakingChange={setSpeakingUid}
               />
-            )}
-          </ClassroomShell>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            {view.activeScreenShare ? (
-              <ScreenShareStage
-                isSharing={isScreenSharing}
-                onSharingEnded={stopScreenShareFromBrowser}
-                activeScreenShare={view.activeScreenShare}
-                selfUid={identity.uid}
-              />
-            ) : (
-              <ParticipantGrid
-                participants={view.participants}
-                agentPresent={Boolean(view.room?.agentId)}
-                agentUid={identity.agentUid}
-                speakingUid={speakingUid}
-                selfUid={identity.uid}
-                selfMicEnabled={micEnabled}
-                raisedHands={view.raisedHands}
-              />
-            )}
-          </div>
-        </>
+              <div className="flex min-h-0 flex-1 flex-col">
+                {view.activeScreenShare ? (
+                  <ScreenShareStage
+                    isSharing={isScreenSharing}
+                    onSharingEnded={stopScreenShareFromBrowser}
+                    activeScreenShare={view.activeScreenShare}
+                    selfUid={identity.uid}
+                  />
+                ) : (
+                  <ParticipantGrid
+                    participants={view.participants}
+                    agentPresent={Boolean(view.room?.agentId)}
+                    agentUid={identity.agentUid}
+                    speakingUid={speakingUid}
+                    selfUid={identity.uid}
+                    selfMicEnabled={micEnabled}
+                    raisedHands={view.raisedHands}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </ClassroomShell>
       )}
 
       <ClassroomDrawer
