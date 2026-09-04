@@ -1,6 +1,6 @@
 /**
  * ATHENA — Your AI Co-teacher
- * Exact reproduction of the landing & join screen.
+ * Exact reproduction of landing screen with dynamic Light/Dark theme support.
  */
 
 'use client';
@@ -29,6 +29,7 @@ import {
   X,
   ArrowRight,
 } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   orchestrator,
   storeIdentity,
@@ -119,12 +120,12 @@ export default function JoinPage() {
         backgroundImage: 'url(/classroom-bg.png)',
       }}
     >
-      {/* 82% Warm Tint Overlay */}
+      {/* Dynamic Warm Tint Overlay (Light: #FDF6EE 82%, Dark: #0D1117 88%) */}
       <div
-        className="absolute inset-0 z-0 pointer-events-none"
+        className="absolute inset-0 z-0 pointer-events-none transition-colors duration-300"
         style={{
-          backgroundColor: '#FDF6EE',
-          opacity: 0.82,
+          backgroundColor: 'var(--eco-ink, #FDF6EE)',
+          opacity: 0.85,
         }}
       />
 
@@ -133,42 +134,48 @@ export default function JoinPage() {
         {/* ── 1. HEADER ROW ────────────────────────────────────────────── */}
         <header className="flex w-full items-center justify-between">
           <div className="flex items-start gap-2.5">
-            <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[#14B8A6]" />
+            <div className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[#14B8A6] shadow-[0_0_8px_#14B8A6]" />
             <div>
-              <h1 className="text-[26px] font-extrabold uppercase leading-none tracking-[0.12em] text-[#111111]">
+              <h1 className="text-[26px] font-extrabold uppercase leading-none tracking-[0.12em] text-[#111111] dark:text-white">
                 ATHENA
               </h1>
-              <p className="mt-0.5 text-[13px] font-medium text-[#6B7280]">
+              <p className="mt-0.5 text-[13px] font-medium text-[#6B7280] dark:text-[#94A3B8]">
                 Your AI Co-teacher
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-4 py-2 text-[14px] font-medium text-[#374151] shadow-sm transition hover:bg-gray-50 hover:shadow"
-          >
-            <HelpCircle className="h-4 w-4 text-[#6B7280]" />
-            <span>Help</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Theme Toggle (Light / Dark) */}
+            <ThemeToggle />
+
+            {/* Help Button */}
+            <button
+              type="button"
+              onClick={() => setShowHelp(true)}
+              className="flex items-center gap-1.5 rounded-full border border-[#E5E7EB] bg-white px-4 py-2 text-[14px] font-medium text-[#374151] shadow-sm transition hover:bg-gray-50 hover:shadow dark:border-white/10 dark:bg-[#1E293B] dark:text-[#E2E8F0] dark:hover:bg-[#334155]"
+            >
+              <HelpCircle className="h-4 w-4 text-[#6B7280] dark:text-[#94A3B8]" />
+              <span>Help</span>
+            </button>
+          </div>
         </header>
 
         {/* ── 2. HERO + HERO ART ───────────────────────────────────────── */}
         <section className="relative my-6 flex flex-col gap-6 lg:my-8 lg:flex-row lg:items-end lg:justify-between">
           {/* Left Hero Text (~62% width) */}
           <div className="flex flex-col gap-2.5 lg:max-w-[62%]">
-            <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#9CA3AF]">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#9CA3AF] dark:text-[#94A3B8]">
               LEARN • TEACH • GROW TOGETHER
             </div>
             <h2 className="text-[38px] font-extrabold leading-[1.15] sm:text-[46px]">
-              <span className="text-[#111111]">Welcome to the </span>
+              <span className="text-[#111111] dark:text-white">Welcome to the </span>
               <span className="text-[#F59E0B]">classroom</span>
             </h2>
-            <p className="text-[17px] font-medium text-[#374151] sm:text-[19px]">
+            <p className="text-[17px] font-medium text-[#374151] dark:text-[#E2E8F0] sm:text-[19px]">
               Your AI co-teacher is tuned in and listening.
             </p>
-            <p className="text-[15px] text-[#6B7280] sm:text-[17px]">
+            <p className="text-[15px] text-[#6B7280] dark:text-[#94A3B8] sm:text-[17px]">
               Enter your name to join a live lesson or create a new one.
             </p>
 
@@ -176,14 +183,14 @@ export default function JoinPage() {
             <div className="mt-2 flex flex-wrap items-center gap-6 sm:gap-8">
               {/* Feature A: Live AI guidance */}
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#FEF3E2]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#FEF3E2] dark:bg-[#F59E0B]/20">
                   <Zap className="h-5 w-5 text-[#F59E0B]" />
                 </div>
                 <div>
-                  <div className="text-[14px] font-semibold text-[#1F2937]">
+                  <div className="text-[14px] font-semibold text-[#1F2937] dark:text-[#F8FAFC]">
                     Live AI guidance
                   </div>
-                  <div className="text-[12.5px] text-[#6B7280]">
+                  <div className="text-[12.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     Support in real time
                   </div>
                 </div>
@@ -191,14 +198,14 @@ export default function JoinPage() {
 
               {/* Feature B: Real-time insights */}
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#E6F7F5]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#E6F7F5] dark:bg-[#14B8A6]/20">
                   <BarChart3 className="h-5 w-5 text-[#14B8A6]" />
                 </div>
                 <div>
-                  <div className="text-[14px] font-semibold text-[#1F2937]">
+                  <div className="text-[14px] font-semibold text-[#1F2937] dark:text-[#F8FAFC]">
                     Real-time insights
                   </div>
-                  <div className="text-[12.5px] text-[#6B7280]">
+                  <div className="text-[12.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     Understand student progress
                   </div>
                 </div>
@@ -206,14 +213,14 @@ export default function JoinPage() {
 
               {/* Feature C: Post-class report */}
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#EEF2FF]">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#EEF2FF] dark:bg-[#6366F1]/20">
                   <FileText className="h-5 w-5 text-[#6366F1]" />
                 </div>
                 <div>
-                  <div className="text-[14px] font-semibold text-[#1F2937]">
+                  <div className="text-[14px] font-semibold text-[#1F2937] dark:text-[#F8FAFC]">
                     Post-class report
                   </div>
-                  <div className="text-[12.5px] text-[#6B7280]">
+                  <div className="text-[12.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     Get a detailed summary
                   </div>
                 </div>
@@ -238,11 +245,11 @@ export default function JoinPage() {
             {/* Speech Bubble pointing to the robot */}
             <div className="relative z-20 -mb-6 mr-3 -rotate-6">
               <div
-                className="relative rounded-[20px] border border-[#F3ECE0] px-4 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.06)]"
-                style={{ backgroundColor: '#FFFDF9' }}
+                className="relative rounded-[20px] border border-[#F3ECE0] px-4 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:border-white/10 dark:bg-[#1E293B]"
+                style={{ backgroundColor: 'var(--bubble-bg, #FFFDF9)' }}
               >
                 <p
-                  className="text-[22px] font-semibold leading-tight text-[#1F2937]"
+                  className="text-[22px] font-semibold leading-tight text-[#1F2937] dark:text-[#F8FAFC]"
                   style={{ fontFamily: 'var(--font-caveat), cursive' }}
                 >
                   Better Learning Together
@@ -264,8 +271,8 @@ export default function JoinPage() {
 
                 {/* Speech Tail pointing right */}
                 <div
-                  className="absolute -right-2.5 bottom-4 h-4 w-4 rotate-45 border-r border-t border-[#F3ECE0]"
-                  style={{ backgroundColor: '#FFFDF9' }}
+                  className="absolute -right-2.5 bottom-4 h-4 w-4 rotate-45 border-r border-t border-[#F3ECE0] dark:border-white/10 dark:bg-[#1E293B]"
+                  style={{ backgroundColor: 'var(--bubble-bg, #FFFDF9)' }}
                 />
               </div>
             </div>
@@ -286,12 +293,12 @@ export default function JoinPage() {
 
         {/* ── ERROR & STATUS NOTICES ──────────────────────────────────── */}
         {reachable === false && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
             Cannot reach backend orchestrator at {orchestrator.baseUrl}.
           </div>
         )}
         {error && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
             {error}
           </div>
         )}
@@ -302,19 +309,19 @@ export default function JoinPage() {
           <div className="flex flex-col gap-6 lg:col-span-7">
             {/* CARD A — "Join a classroom" */}
             <div
-              className="flex flex-col rounded-[20px] border border-[#F0EAE2] bg-white p-7"
+              className="flex flex-col rounded-[20px] border border-[#F0EAE2] bg-white p-7 transition-colors dark:border-white/10 dark:bg-[#1E293B]/95"
               style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}
             >
               {/* Header */}
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#E6F7F5]">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#E6F7F5] dark:bg-[#14B8A6]/20">
                   <Users className="h-7 w-7 text-[#14B8A6]" />
                 </div>
                 <div>
-                  <h3 className="text-[22px] font-bold text-[#1A1A1A]">
+                  <h3 className="text-[22px] font-bold text-[#1A1A1A] dark:text-white">
                     Join a classroom
                   </h3>
-                  <p className="text-[14.5px] text-[#6B7280]">
+                  <p className="text-[14.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     Enter your name and choose how you want to join.
                   </p>
                 </div>
@@ -324,7 +331,7 @@ export default function JoinPage() {
               <div className="mt-6 flex flex-col gap-5">
                 {/* YOUR NAME */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF]">
+                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF] dark:text-[#94A3B8]">
                     YOUR NAME
                   </label>
                   <div className="relative flex items-center">
@@ -334,14 +341,14 @@ export default function JoinPage() {
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="Enter your name"
-                      className="h-[54px] w-full rounded-[12px] border border-[#E5E7EB] bg-[#FAFAFA] pl-12 pr-4 text-[15px] font-medium text-[#1A1A1A] placeholder-[#9CA3AF] outline-none transition-all focus:border-[#F5A623] focus:bg-white focus:ring-2 focus:ring-[#F5A623]/35"
+                      className="h-[54px] w-full rounded-[12px] border border-[#E5E7EB] bg-[#FAFAFA] pl-12 pr-4 text-[15px] font-medium text-[#1A1A1A] placeholder-[#9CA3AF] outline-none transition-all focus:border-[#F5A623] focus:bg-white focus:ring-2 focus:ring-[#F5A623]/35 dark:border-white/10 dark:bg-[#0F172A] dark:text-white dark:focus:bg-[#0F172A]"
                     />
                   </div>
                 </div>
 
                 {/* JOIN AS */}
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF]">
+                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF] dark:text-[#94A3B8]">
                     JOIN AS
                   </label>
                   <div className="grid grid-cols-2 gap-3">
@@ -351,14 +358,16 @@ export default function JoinPage() {
                       onClick={() => setRole('student')}
                       className={`flex h-[56px] items-center justify-between rounded-[12px] px-4 text-left transition-all ${
                         role === 'student'
-                          ? 'border-[1.5px] border-[#F5A623] bg-[#FEF6E7] text-[#B45309]'
-                          : 'border border-[#E5E7EB] bg-white text-[#4B5563] hover:bg-gray-50'
+                          ? 'border-[1.5px] border-[#F5A623] bg-[#FEF6E7] text-[#B45309] dark:bg-[#F59E0B]/15 dark:text-[#FBBF24]'
+                          : 'border border-[#E5E7EB] bg-white text-[#4B5563] hover:bg-gray-50 dark:border-white/10 dark:bg-[#0F172A] dark:text-[#94A3B8] dark:hover:bg-[#334155]'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
                         <GraduationCap
                           className={`h-5 w-5 ${
-                            role === 'student' ? 'text-[#B45309]' : 'text-[#6B7280]'
+                            role === 'student'
+                              ? 'text-[#B45309] dark:text-[#FBBF24]'
+                              : 'text-[#6B7280] dark:text-[#94A3B8]'
                           }`}
                         />
                         <span className="text-[14.5px] font-medium">
@@ -366,7 +375,7 @@ export default function JoinPage() {
                         </span>
                       </div>
                       {role === 'student' && (
-                        <CheckCircle2 className="h-5 w-5 fill-[#F5A623] text-white" />
+                        <CheckCircle2 className="h-5 w-5 fill-[#F5A623] text-white dark:text-[#0F172A]" />
                       )}
                     </button>
 
@@ -376,14 +385,16 @@ export default function JoinPage() {
                       onClick={() => setRole('teacher')}
                       className={`flex h-[56px] items-center justify-between rounded-[12px] px-4 text-left transition-all ${
                         role === 'teacher'
-                          ? 'border-[1.5px] border-[#F5A623] bg-[#FEF6E7] text-[#B45309]'
-                          : 'border border-[#E5E7EB] bg-white text-[#4B5563] hover:bg-gray-50'
+                          ? 'border-[1.5px] border-[#F5A623] bg-[#FEF6E7] text-[#B45309] dark:bg-[#F59E0B]/15 dark:text-[#FBBF24]'
+                          : 'border border-[#E5E7EB] bg-white text-[#4B5563] hover:bg-gray-50 dark:border-white/10 dark:bg-[#0F172A] dark:text-[#94A3B8] dark:hover:bg-[#334155]'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
                         <UserSquare2
                           className={`h-5 w-5 ${
-                            role === 'teacher' ? 'text-[#B45309]' : 'text-[#6B7280]'
+                            role === 'teacher'
+                              ? 'text-[#B45309] dark:text-[#FBBF24]'
+                              : 'text-[#6B7280] dark:text-[#94A3B8]'
                           }`}
                         />
                         <span className="text-[14.5px] font-medium">
@@ -391,12 +402,12 @@ export default function JoinPage() {
                         </span>
                       </div>
                       {role === 'teacher' && (
-                        <CheckCircle2 className="h-5 w-5 fill-[#F5A623] text-white" />
+                        <CheckCircle2 className="h-5 w-5 fill-[#F5A623] text-white dark:text-[#0F172A]" />
                       )}
                     </button>
                   </div>
 
-                  <p className="mt-1 text-[12.5px] text-[#6B7280]">
+                  <p className="mt-1 text-[12.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     {role === 'teacher'
                       ? 'Teachers get the control panel, gap dashboard, and post-class report. One teacher per classroom.'
                       : 'Students get the transcript, live whiteboard, quiz cards, and can ask Athena by voice.'}
@@ -405,12 +416,14 @@ export default function JoinPage() {
 
                 {/* 4-Digit Share Code (Quick join for students) */}
                 {role === 'student' && (
-                  <div className="flex flex-col gap-1.5 rounded-xl border border-[#F0EAE2] bg-[#FAFAFA] p-3.5">
+                  <div className="flex flex-col gap-1.5 rounded-xl border border-[#F0EAE2] bg-[#FAFAFA] p-3.5 dark:border-white/10 dark:bg-[#0F172A]">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF]">
+                      <span className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF] dark:text-[#94A3B8]">
                         HAVE A 4-DIGIT CLASS CODE?
                       </span>
-                      <span className="text-[11px] text-[#9CA3AF]">e.g. 4829</span>
+                      <span className="text-[11px] text-[#9CA3AF] dark:text-[#64748B]">
+                        e.g. 4829
+                      </span>
                     </div>
                     <div className="flex gap-2">
                       <input
@@ -419,7 +432,7 @@ export default function JoinPage() {
                         value={shareCodeInput}
                         onChange={(e) => setShareCodeInput(e.target.value.trim())}
                         placeholder="Enter 4-digit code"
-                        className="h-[46px] flex-1 rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-center font-mono text-[16px] font-bold tracking-widest text-[#1A1A1A] outline-none focus:border-[#F5A623] focus:ring-2 focus:ring-[#F5A623]/35"
+                        className="h-[46px] flex-1 rounded-[10px] border border-[#E5E7EB] bg-white px-3 text-center font-mono text-[16px] font-bold tracking-widest text-[#1A1A1A] outline-none focus:border-[#F5A623] focus:ring-2 focus:ring-[#F5A623]/35 dark:border-white/10 dark:bg-[#1E293B] dark:text-white"
                       />
                       <button
                         type="button"
@@ -438,19 +451,19 @@ export default function JoinPage() {
 
             {/* CARD B — "Create a new lesson" */}
             <div
-              className="flex flex-col rounded-[20px] border border-[#F0EAE2] bg-white p-7"
+              className="flex flex-col rounded-[20px] border border-[#F0EAE2] bg-white p-7 transition-colors dark:border-white/10 dark:bg-[#1E293B]/95"
               style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}
             >
               {/* Header */}
               <div className="flex items-center gap-4">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#FEF3E2]">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#FEF3E2] dark:bg-[#F59E0B]/20">
                   <FilePlus className="h-7 w-7 text-[#F59E0B]" />
                 </div>
                 <div>
-                  <h3 className="text-[22px] font-bold text-[#1A1A1A]">
+                  <h3 className="text-[22px] font-bold text-[#1A1A1A] dark:text-white">
                     Create a new lesson
                   </h3>
-                  <p className="text-[14.5px] text-[#6B7280]">
+                  <p className="text-[14.5px] text-[#6B7280] dark:text-[#94A3B8]">
                     Set a topic and start teaching with your AI co-teacher.
                   </p>
                 </div>
@@ -459,7 +472,7 @@ export default function JoinPage() {
               {/* Form Content */}
               <div className="mt-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF]">
+                  <label className="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#9CA3AF] dark:text-[#94A3B8]">
                     LESSON TITLE
                   </label>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -470,7 +483,7 @@ export default function JoinPage() {
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
                         placeholder="Lesson title, e.g. Adding unlike fractions"
-                        className="h-[54px] w-full rounded-[12px] border border-[#E5E7EB] bg-[#FAFAFA] pl-12 pr-4 text-[15px] font-medium text-[#1A1A1A] placeholder-[#9CA3AF] outline-none transition-all focus:border-[#F5A623] focus:bg-white focus:ring-2 focus:ring-[#F5A623]/35"
+                        className="h-[54px] w-full rounded-[12px] border border-[#E5E7EB] bg-[#FAFAFA] pl-12 pr-4 text-[15px] font-medium text-[#1A1A1A] placeholder-[#9CA3AF] outline-none transition-all focus:border-[#F5A623] focus:bg-white focus:ring-2 focus:ring-[#F5A623]/35 dark:border-white/10 dark:bg-[#0F172A] dark:text-white dark:focus:bg-[#0F172A]"
                       />
                     </div>
 
@@ -492,7 +505,7 @@ export default function JoinPage() {
                     type="button"
                     disabled={!nameValid || busy}
                     onClick={() => void createAndJoin('unlike-fractions')}
-                    className="flex h-[44px] items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-5 text-[14px] font-medium text-[#374151] shadow-sm transition-all hover:-translate-y-0.5 hover:bg-gray-50 hover:shadow disabled:opacity-40"
+                    className="flex h-[44px] items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-5 text-[14px] font-medium text-[#374151] shadow-sm transition-all hover:-translate-y-0.5 hover:bg-gray-50 hover:shadow disabled:opacity-40 dark:border-white/10 dark:bg-[#0F172A] dark:text-[#E2E8F0] dark:hover:bg-[#334155]"
                   >
                     <Play className="h-4 w-4 fill-[#0D9488] text-[#0D9488]" />
                     <span>Start fractions demo (LCD)</span>
@@ -506,20 +519,20 @@ export default function JoinPage() {
           <div className="flex flex-col lg:col-span-5">
             {/* CARD C — "Live classrooms" (Full Height) */}
             <div
-              className="flex h-full flex-col justify-between rounded-[20px] border border-[#F0EAE2] bg-white p-7"
+              className="flex h-full flex-col justify-between rounded-[20px] border border-[#F0EAE2] bg-white p-7 transition-colors dark:border-white/10 dark:bg-[#1E293B]/95"
               style={{ boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}
             >
               <div>
                 {/* Header */}
                 <div className="flex items-center gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#E6F7F5]">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[#E6F7F5] dark:bg-[#14B8A6]/20">
                     <Radio className="h-7 w-7 text-[#14B8A6]" />
                   </div>
                   <div>
-                    <h3 className="text-[22px] font-bold text-[#1A1A1A]">
+                    <h3 className="text-[22px] font-bold text-[#1A1A1A] dark:text-white">
                       Live classrooms
                     </h3>
-                    <p className="text-[14.5px] text-[#6B7280]">
+                    <p className="text-[14.5px] text-[#6B7280] dark:text-[#94A3B8]">
                       Your active classrooms will appear here.
                     </p>
                   </div>
@@ -539,12 +552,14 @@ export default function JoinPage() {
                       />
                     </div>
 
-                    <h4 className="text-[17px] font-bold text-[#1A1A1A]">
+                    <h4 className="text-[17px] font-bold text-[#1A1A1A] dark:text-white">
                       No live classrooms yet
                     </h4>
-                    <p className="mt-1.5 max-w-[290px] text-[14px] text-[#6B7280]">
+                    <p className="mt-1.5 max-w-[290px] text-[14px] text-[#6B7280] dark:text-[#94A3B8]">
                       Give your lesson a title on the left and press{' '}
-                      <strong className="font-bold text-[#1F2937]">Create</strong>{' '}
+                      <strong className="font-bold text-[#1F2937] dark:text-white">
+                        Create
+                      </strong>{' '}
                       to open the first classroom.
                     </p>
                   </div>
@@ -554,7 +569,7 @@ export default function JoinPage() {
                     {sessions.map((session) => (
                       <div
                         key={session.sessionId}
-                        className="flex items-center justify-between rounded-[14px] border border-[#F0EAE2] bg-[#FAFAFA] p-3.5 transition hover:border-[#F5A623]/40"
+                        className="flex items-center justify-between rounded-[14px] border border-[#F0EAE2] bg-[#FAFAFA] p-3.5 transition hover:border-[#F5A623]/40 dark:border-white/10 dark:bg-[#0F172A]"
                       >
                         <div className="flex items-center gap-3">
                           <span
@@ -565,10 +580,10 @@ export default function JoinPage() {
                             }`}
                           />
                           <div>
-                            <p className="text-[14.5px] font-semibold text-[#1A1A1A]">
+                            <p className="text-[14.5px] font-semibold text-[#1A1A1A] dark:text-white">
                               {session.title}
                             </p>
-                            <p className="text-[12px] text-[#6B7280]">
+                            <p className="text-[12px] text-[#6B7280] dark:text-[#94A3B8]">
                               {session.participantCount} in room ·{' '}
                               {session.agentId
                                 ? 'AI co-teacher present'
@@ -584,7 +599,7 @@ export default function JoinPage() {
                             setSelectedSessionId(session.sessionId);
                             void join(session.sessionId);
                           }}
-                          className="rounded-[10px] border border-[#14B8A6] bg-white px-3.5 py-1.5 text-[13.5px] font-semibold text-[#0D9488] shadow-sm transition hover:bg-[#E6F7F5] disabled:opacity-40"
+                          className="rounded-[10px] border border-[#14B8A6] bg-white px-3.5 py-1.5 text-[13.5px] font-semibold text-[#0D9488] shadow-sm transition hover:bg-[#E6F7F5] disabled:opacity-40 dark:border-[#14B8A6] dark:bg-[#1E293B] dark:text-[#2DD4BF] dark:hover:bg-[#14B8A6]/20"
                         >
                           {busy && selectedSessionId === session.sessionId
                             ? 'Joining…'
@@ -597,9 +612,9 @@ export default function JoinPage() {
               </div>
 
               {/* Tip Box at bottom of Card C */}
-              <div className="mt-6 flex items-start gap-3 rounded-[12px] bg-[#E6F7F5] p-4">
-                <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#0D9488]" />
-                <p className="text-[13.5px] leading-relaxed text-[#115E59]">
+              <div className="mt-6 flex items-start gap-3 rounded-[12px] bg-[#E6F7F5] p-4 dark:bg-[#14B8A6]/15">
+                <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-[#0D9488] dark:text-[#2DD4BF]" />
+                <p className="text-[13.5px] leading-relaxed text-[#115E59] dark:text-[#99F6E4]">
                   <strong className="font-bold">Tip:</strong> As a teacher,
                   you&rsquo;ll get live AI support, real-time insights, and a
                   post-class report.
@@ -610,18 +625,18 @@ export default function JoinPage() {
         </div>
 
         {/* ── 5. FOOTER BAR ────────────────────────────────────────────── */}
-        <footer className="mt-7 flex h-16 w-full flex-col items-center justify-between gap-2 rounded-[16px] border border-[#F0EAE2] bg-white/75 px-6 shadow-sm backdrop-blur-md sm:flex-row">
+        <footer className="mt-7 flex h-16 w-full flex-col items-center justify-between gap-2 rounded-[16px] border border-[#F0EAE2] bg-white/75 px-6 shadow-sm backdrop-blur-md sm:flex-row dark:border-white/10 dark:bg-[#1E293B]/80">
           <div className="flex items-center gap-3 text-[14px]">
-            <span className="font-semibold text-[#374151]">
+            <span className="font-semibold text-[#374151] dark:text-[#E2E8F0]">
               Empowering educators with AI
             </span>
-            <span className="text-gray-300">|</span>
-            <span className="text-[#6B7280]">
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span className="text-[#6B7280] dark:text-[#94A3B8]">
               Smarter classrooms. Brighter futures.
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[14px] text-[#6B7280]">
+          <div className="flex items-center gap-1.5 text-[14px] text-[#6B7280] dark:text-[#94A3B8]">
             <span>Powered by Agora, built with love</span>
             <Heart className="h-4 w-4 fill-[#EF4444] text-[#EF4444]" />
           </div>
@@ -630,25 +645,25 @@ export default function JoinPage() {
 
       {/* ── HELP MODAL ─────────────────────────────────────────────────── */}
       {showHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-[20px] border border-[#F0EAE2] bg-white p-6 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#F0EAE2] pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[20px] border border-[#F0EAE2] bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#1E293B]">
+            <div className="flex items-center justify-between border-b border-[#F0EAE2] pb-4 dark:border-white/10">
               <div className="flex items-center gap-2">
                 <div className="h-2.5 w-2.5 rounded-full bg-[#14B8A6]" />
-                <h3 className="text-[18px] font-bold text-[#111111]">
+                <h3 className="text-[18px] font-bold text-[#111111] dark:text-white">
                   About ATHENA AI Co-teacher
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowHelp(false)}
-                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-[#334155] dark:hover:text-white"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3 text-[14px] text-[#4B5563]">
+            <div className="mt-4 flex flex-col gap-3 text-[14px] text-[#4B5563] dark:text-[#CBD5E1]">
               <p>
                 <strong>Athena</strong> is an intelligent AI co-teacher that
                 assists classroom instructors with real-time audio guidance,
