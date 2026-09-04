@@ -24,7 +24,7 @@ import {
   TranscriptFeed,
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
-import { ScreenShareStage } from '@/components/classroom/ScreenShareStage';
+import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
 import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';

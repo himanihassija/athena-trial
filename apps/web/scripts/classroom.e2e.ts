@@ -125,6 +125,14 @@ async function main(): Promise<void> {
   check('teacher shows connected, not reconnecting', teacherText.includes('connected') && !teacherText.includes('reconnecting'));
 
   console.log('\n── Teacher controls are reachable');
+  // Since the Meet-style redesign the controls live behind the app menu rather
+  // than on the page, so "reachable" now means "reachable after opening it" —
+  // which is also what a teacher actually does.
+  await teacher.getByRole('button', { name: 'Open menu' }).click();
+  const controlsTab = teacher.getByRole('button', { name: 'Controls', exact: true });
+  if ((await controlsTab.count()) > 0) await controlsTab.first().click();
+  await teacher.waitForTimeout(400);
+
   const bringIn = teacher.getByRole('button', { name: /Bring Athena in/ });
   await bringIn.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
   check('"Bring Athena in" is visible', await bringIn.count() > 0);

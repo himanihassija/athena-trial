@@ -10,31 +10,43 @@ import {
   LocalVideoTrack,
 } from 'agora-rtc-react';
 
-export function ScreenShareStage({
-  isSharing,
-  onSharingEnded,
-  activeScreenShare,
-  selfUid,
-}: {
+export interface ScreenShareStageProps {
   /** Whether THIS client is the one currently sharing. */
   isSharing: boolean;
   /** Fires when the browser's own "Stop sharing" UI ends the capture. */
   onSharingEnded: () => void;
   activeScreenShare: { participantId: string; displayName: string } | null;
   selfUid: string;
-}) {
+}
+
+export function ScreenShareStage({
+  isSharing,
+  onSharingEnded,
+  activeScreenShare,
+  selfUid,
+}: ScreenShareStageProps) {
+  // `withAudio: 'auto'` means the hook hands back either a lone video track or
+  // a [video, audio] pair depending on what the browser's picker granted, so it
+  // has to be narrowed before use rather than treated as one track.
   const { screenTrack, error } = useLocalScreenTrack(isSharing, {}, 'auto');
-  usePublish(screenTrack ? [screenTrack] : []);
+  const screenVideoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
+  const screenAudioTrack = Array.isArray(screenTrack) ? screenTrack[1] : null;
+
+  // Both are published when the viewer shared system audio too; dropping the
+  // audio half here would silently make 'auto' behave like 'disable'.
+  usePublish(
+    screenVideoTrack ? [screenVideoTrack, ...(screenAudioTrack ? [screenAudioTrack] : [])] : [],
+  );
 
   // The browser's native "Stop sharing" bar ends the capture without going
   // through our own button; without this listener the room would keep
   // believing the share is live until someone notices.
   useEffect(() => {
-    if (!screenTrack) return;
-    const mediaTrack = screenTrack.getMediaStreamTrack();
+    if (!screenVideoTrack) return;
+    const mediaTrack = screenVideoTrack.getMediaStreamTrack();
     mediaTrack.addEventListener('ended', onSharingEnded);
     return () => mediaTrack.removeEventListener('ended', onSharingEnded);
-  }, [screenTrack, onSharingEnded]);
+  }, [screenVideoTrack, onSharingEnded]);
 
   useEffect(() => {
     if (error) onSharingEnded();
@@ -45,7 +57,6 @@ export function ScreenShareStage({
 
   if (!activeScreenShare) return null;
 
-  const isSelf = activeScreenShare.participantId && selfUid;
   const remoteSharerTrack = videoTracks.find(
     (track) => String(track.getUserId()) !== selfUid,
   );
@@ -62,8 +73,8 @@ export function ScreenShareStage({
         </span>
       </div>
       <div className="relative min-h-0 flex-1 bg-black">
-        {isSharing && screenTrack ? (
-          <LocalVideoTrack track={screenTrack} play className="h-full w-full object-contain" />
+        {isSharing && screenVideoTrack ? (
+          <LocalVideoTrack track={screenVideoTrack} play className="h-full w-full object-contain" />
         ) : remoteSharerTrack ? (
           <RemoteVideoTrack
             track={remoteSharerTrack}

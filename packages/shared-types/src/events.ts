@@ -137,6 +137,14 @@ export interface RoomState {
   targetedReadings?: TargetedReadingItem[];
   catchupSlots?: CatchupAvailabilitySlot[];
   raisedHands?: string[];
+  /**
+   * Screen-share state at join time. The live `screen-share-*` events keep an
+   * open client current, but a late joiner or a reload has no event to replay —
+   * without these two the client starts with empty permissions and no idea
+   * anyone is already sharing.
+   */
+  screenShareAllowed?: string[];
+  activeScreenShare?: { participantId: string; displayName: string } | null;
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {
