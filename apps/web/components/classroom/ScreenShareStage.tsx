@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   useLocalScreenTrack,
   usePublish,
@@ -32,11 +32,24 @@ export function ScreenShareStage({
   const screenVideoTrack = Array.isArray(screenTrack) ? screenTrack[0] : screenTrack;
   const screenAudioTrack = Array.isArray(screenTrack) ? screenTrack[1] : null;
 
-  // Both are published when the viewer shared system audio too; dropping the
-  // audio half here would silently make 'auto' behave like 'disable'.
-  usePublish(
-    screenVideoTrack ? [screenVideoTrack, ...(screenAudioTrack ? [screenAudioTrack] : [])] : [],
+  // Memoised deliberately. usePublish diffs the list it is given, so a fresh
+  // array literal every render reads as a new set of tracks and it tries to
+  // publish again — and a second video track on one client is refused with
+  // CAN_NOT_PUBLISH_MULTIPLE_VIDEO_TRACKS. Both halves are published when the
+  // sharer also granted system audio; dropping the audio one would quietly make
+  // `withAudio: 'auto'` behave like 'disable'.
+  const tracksToPublish = useMemo(
+    () =>
+      screenVideoTrack
+        ? [screenVideoTrack, ...(screenAudioTrack ? [screenAudioTrack] : [])]
+        : [],
+    [screenVideoTrack, screenAudioTrack],
   );
+
+  // `readyToPublish` gates on this client actually being the sharer. Everyone in
+  // the room renders this component while a share is live — only one of them
+  // should be publishing.
+  usePublish(tracksToPublish, isSharing && tracksToPublish.length > 0);
 
   // The browser's native "Stop sharing" bar ends the capture without going
   // through our own button; without this listener the room would keep
