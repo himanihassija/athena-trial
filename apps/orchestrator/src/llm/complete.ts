@@ -41,17 +41,17 @@ type Provider = OpenAiCompatibleProvider | AnthropicProvider | GeminiProvider;
 /** Determines active provider based on environment variables. */
 function resolveProvider(): Provider | null {
   // 1. Google Gemini (Native API)
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const geminiKey = config.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (geminiKey && geminiKey.trim().length > 0) {
     return {
       type: 'gemini',
       key: geminiKey.trim(),
-      model: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+      model: config.geminiModel || process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     };
   }
 
   // 2. Anthropic Claude
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  const anthropicKey = config.anthropicApiKey || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
   if (anthropicKey && anthropicKey.trim().length > 0) {
     return {
       type: 'anthropic',
@@ -65,7 +65,7 @@ function resolveProvider(): Provider | null {
   }
 
   // 3. OpenAI
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const openaiKey = config.openaiApiKey || process.env.OPENAI_API_KEY;
   if (openaiKey && openaiKey.trim().length > 0) {
     const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
     return {
@@ -133,14 +133,18 @@ export async function tryComplete(
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: m.content }],
         }));
-
       const contents = chatContents.length > 0 ? chatContents : [{ role: 'user', parts: [{ text: 'Hello' }] }];
+
+      // Gemini 3.x models use internal reasoning/thought tokens that count against maxOutputTokens.
+      // We set maxOutputTokens comfortably (2500+) so thoughts do not starve the visible response.
+      const requested = options.maxTokens ?? 1000;
+      const maxOutputTokens = Math.max(requested + 1500, 2500);
 
       const bodyPayload: Record<string, unknown> = {
         contents,
         generationConfig: {
           temperature: options.temperature ?? 0.4,
-          maxOutputTokens: options.maxTokens ?? 800,
+          maxOutputTokens,
         },
       };
 

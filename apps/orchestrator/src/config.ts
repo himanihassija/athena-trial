@@ -58,6 +58,12 @@ export const config = {
   sarvamSpeaker: process.env.SARVAM_SPEAKER ?? 'anushka',
   sarvamTargetLanguageCode: process.env.SARVAM_TARGET_LANGUAGE_CODE ?? 'hi-IN',
 
+  /* Direct LLM Provider Keys */
+  geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.6-flash',
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY,
+
   /**
    * Postgres connection string for durable session/report storage (see
    * db/schema.ts). Optional: unset means persistence is a no-op, same

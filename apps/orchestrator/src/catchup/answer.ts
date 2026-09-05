@@ -78,7 +78,7 @@ export async function answerCatchup(
       })),
       { role: 'user', content: text },
     ],
-    { temperature: 0.3, maxTokens: 450 },
+    { temperature: 0.4, maxTokens: 1000 },
   );
 
   const replyText = (generated ?? fallbackReply(text, sources, session.title)).trim();
