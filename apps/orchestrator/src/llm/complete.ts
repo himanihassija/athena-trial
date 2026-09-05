@@ -105,6 +105,9 @@ function resolveProvider(): Provider | null {
       type: 'openai-compatible',
       url: 'https://api.sarvam.ai/v1/chat/completions',
       model: 'sarvam-105b',
+      // Sarvam requires both: the bearer token AND this subscription-key
+      // header — a bearer token alone gets a 403, not a 401, which is easy
+      // to misread as a bad key rather than a missing header.
       headers: { Authorization: `Bearer ${sarvamKey}`, 'api-subscription-key': sarvamKey },
     };
   }
