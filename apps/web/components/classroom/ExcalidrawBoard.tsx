@@ -20,7 +20,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BoardElement } from '@echosphere/shared-types';
 
 // Excalidraw ships its stylesheet separately and renders unstyled without it —
@@ -43,6 +43,20 @@ export interface ExcalidrawBoardProps {
 export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoardProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Excalidraw's API type is not exported in a usable form.
   const apiRef = useRef<any>(null);
+
+  /**
+   * Whether Excalidraw has handed us its API yet.
+   *
+   * Held as state, not only in the ref, because the effect that applies a
+   * remote scene has to run again once the API exists. Excalidraw is loaded
+   * lazily and hands the API over after mount, so a board that already had
+   * content when the component first rendered — anyone joining a lesson in
+   * progress — ran that effect against a null API, bailed, and then never had
+   * cause to run again, because the scene it was waiting for had already
+   * arrived. Students saw a permanently blank board while the teacher, who
+   * held the elements locally, saw the drawing.
+   */
+  const [apiReady, setApiReady] = useState(false);
   const applyingRemote = useRef(false);
   /**
    * True between pointer-down and pointer-up. Applying a remote scene mid-drag
@@ -119,6 +133,8 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   }, [canDraw]);
 
   // Remote scene in. Guarded so the resulting onChange is not echoed back.
+  // Re-runs when the API arrives, so a scene that predates the canvas is not
+  // stranded.
   useEffect(() => {
     const api = apiRef.current;
     if (!api) return;
@@ -136,12 +152,13 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
         applyingRemote.current = false;
       });
     }
-  }, [scene]);
+  }, [scene, apiReady]);
 
   return (
     <div className="absolute inset-0">
       <ExcalidrawCanvas
         apiRef={apiRef}
+        onReady={setApiReady}
         canDraw={canDraw}
         onChange={handleChange}
         onPointerDown={handlePointerDown}
@@ -163,6 +180,7 @@ const Excalidraw = dynamic(
 
 function ExcalidrawCanvas({
   apiRef,
+  onReady,
   canDraw,
   onChange,
   onPointerDown,
@@ -170,6 +188,7 @@ function ExcalidrawCanvas({
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above.
   apiRef: React.MutableRefObject<any>;
+  onReady: (ready: boolean) => void;
   canDraw: boolean;
   onChange: (elements: readonly unknown[]) => void;
   onPointerDown: () => void;
@@ -179,6 +198,7 @@ function ExcalidrawCanvas({
     <Excalidraw
       excalidrawAPI={(api: unknown) => {
         apiRef.current = api;
+        onReady(Boolean(api));
       }}
       onChange={onChange}
       onPointerDown={onPointerDown}

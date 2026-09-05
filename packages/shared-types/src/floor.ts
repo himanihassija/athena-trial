@@ -36,6 +36,12 @@ export type SpeakDenialReason =
   /** Students cannot summon the agent until the teacher opens the floor. */
   | 'STUDENT_INVOCATION_DISABLED'
   | 'TEACHER_HOLDS_FLOOR'
+  /**
+   * The engine began a turn that nothing invited — no wake phrase, no teacher
+   * command. This is the restraint mechanism working, not a policy refusal, and
+   * it is by far the most common interrupt.
+   */
+  | 'AGENT_UNINVITED'
   | 'AGENT_ALREADY_SPEAKING'
   | 'TOPIC_DISABLED'
   | 'SILENCE_GAP_TOO_SHORT'

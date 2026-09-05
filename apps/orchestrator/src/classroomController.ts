@@ -13,6 +13,7 @@
 import type {
   ProficiencyTag,
   QuizQuestion,
+  SpeakDenialReason,
   SpeakTrigger,
   TeacherCommand,
   TranscriptSegment,
@@ -200,7 +201,7 @@ export function clearSpeakPermit(session: ClassroomSession): void {
 export async function handleAgentState(
   session: ClassroomSession,
   state: string,
-): Promise<{ interrupted: boolean }> {
+): Promise<{ interrupted: boolean; reason?: SpeakDenialReason }> {
   const starting = state === 'thinking' || state === 'speaking';
 
   if (!starting) {
@@ -235,14 +236,19 @@ export async function handleAgentState(
     await interruptAgent(session.sessionId).catch(() => undefined);
     releaseFloor(session);
     clearSpeakPermit(session);
-    // The engine started an un-permitted turn — most often a student addressed
-    // her while the floor was closed to students. Report the reason that
-    // actually applies so the teacher panel is not misleading.
-    const reason = session.policy.muted
+    // Report why the interrupt actually fired.
+    //
+    // This used to infer a reason from whichever policy happened to be false,
+    // so a turn the TEACHER had requested was logged and shown as
+    // STUDENT_INVOCATION_DISABLED — "a student called her" — when no student
+    // had spoken. That sent real debugging down the wrong path twice.
+    //
+    // Only two things reach here: the agent is muted, or she began a turn
+    // without a permit. Which policy is set is not the cause and is no longer
+    // consulted.
+    const reason: SpeakDenialReason = session.policy.muted
       ? 'AGENT_MUTED'
-      : !session.policy.studentsMayInvoke
-        ? 'STUDENT_INVOCATION_DISABLED'
-        : 'TEACHER_HOLDS_FLOOR';
+      : 'AGENT_UNINVITED';
     console.info(
       `[floor] interrupted an un-permitted turn in session ${session.sessionId}: ${reason}`,
     );
@@ -252,7 +258,7 @@ export async function handleAgentState(
       at: Date.now(),
     });
     setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
-    return { interrupted: true };
+    return { interrupted: true, reason };
   }
 
   // First valid check for this turn: authorize it for its full duration and
@@ -285,6 +291,44 @@ export interface IngestOptions {
   attributionConfidence?: number;
 }
 
+/**
+ * How long one spoken turn is allowed to keep growing before we act on it.
+ *
+ * The recogniser does not deliver a sentence once. It finalises a guess, then
+ * re-sends the same turn as more words arrive, and every browser in the room
+ * may relay each version. Acting on each arrival makes Athena answer the same
+ * question once per relay; acting only on the first makes her answer a
+ * truncated version of it. So actions that must happen exactly once per
+ * sentence wait for the turn to stop changing, then run against the last text
+ * seen.
+ */
+const TURN_SETTLE_MS = 700;
+
+const settlingTurns = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Run `action` once for a spoken turn, using the most complete version of it.
+ * Each new relay of the same turn replaces the pending action, so only the
+ * final one runs. A turn with no id cannot be tracked across relays and runs
+ * immediately.
+ */
+export function onTurnSettled(key: string | null, action: () => void): void {
+  if (key === null) {
+    action();
+    return;
+  }
+  const pending = settlingTurns.get(key);
+  if (pending) clearTimeout(pending);
+
+  const timer = setTimeout(() => {
+    settlingTurns.delete(key);
+    action();
+  }, TURN_SETTLE_MS);
+  // Never hold the process open just to finish a turn.
+  timer.unref?.();
+  settlingTurns.set(key, timer);
+}
+
 export async function ingestTranscript(
   session: ClassroomSession,
   { uid, text, isFinal, turnId, language, attributionConfidence }: IngestOptions,
@@ -297,6 +341,10 @@ export async function ingestTranscript(
   // A repeat is not always noise: the toolkit re-emits a turn as more of it
   // arrives, so the same turnId legitimately comes back longer. Identical text
   // is dropped; a grown version replaces what is stored.
+  // True once the transcript store already holds this turn, so the append
+  // below is skipped. Intent still runs: see the `updated` branch.
+  let alreadyStored = false;
+
   if (isFinal && turnId !== undefined) {
     const outcome = upsertByTurn(session, uid, text, turnId);
     if (outcome === 'unchanged') return;
@@ -304,7 +352,14 @@ export async function ingestTranscript(
       // The stored segment was rewritten in place; re-publish so clients that
       // already rendered the fragment replace it rather than showing both.
       republishTurn(session, uid, turnId);
-      return;
+      // ...and then keep going. This used to return here, which meant the
+      // COMPLETED form of a sentence never reached the wake-phrase check or
+      // the board parser below — only the first fragment did. "Athena, write
+      // two plus two equals four on the whiteboard" arrived first as
+      // "...on the", which parses as no command at all, and the finished
+      // sentence that did parse was discarded as a duplicate. The board write
+      // is de-duplicated by turn id instead, further down.
+      alreadyStored = true;
     }
   } else if (isFinal && isDuplicateSegment(session, uid, text, turnId)) {
     return;
@@ -335,10 +390,20 @@ export async function ingestTranscript(
       now,
     );
     session.floor = floor;
-    // The teacher taking the floor revokes any outstanding permission, so a
-    // reply that was about to start is stopped rather than merely queued.
-    clearSpeakPermit(session);
+    // Cutting the agent off revokes her permission too, so a reply that was
+    // about to start is stopped rather than merely queued.
+    //
+    // Only when she was actually speaking. This used to run on every teacher
+    // segment, including the interim ones the recogniser emits while the
+    // teacher is still mid-sentence — so "Athena, could you write..." granted
+    // a permit on the finalised text and the very next interim fragment of
+    // the same breath revoked it. She was then cut off for having no permit,
+    // which is what put a row of "held back" entries in the teacher panel
+    // seconds after a grant. A teacher talking into an open floor is not
+    // barging in on anyone and must not cancel the invitation they are in the
+    // middle of issuing.
     if (mustInterruptAgent) {
+      clearSpeakPermit(session);
       await interruptAgent(session.sessionId).catch(() => undefined);
       session.activeQuestionerId = null;
     }
@@ -367,17 +432,19 @@ export async function ingestTranscript(
     return;
   }
 
-  const segment = appendTranscript(session, {
-    participantId: participant.participantId,
-    uid,
-    speaker: participant.role,
-    text: spokenText,
-    at: now,
-    language,
-    turnId,
-    attributionConfidence,
-  });
-  publish(session.sessionId, { kind: 'echosphere:transcript', segment });
+  if (!alreadyStored) {
+    const segment = appendTranscript(session, {
+      participantId: participant.participantId,
+      uid,
+      speaker: participant.role,
+      text: spokenText,
+      at: now,
+      language,
+      turnId,
+      attributionConfidence,
+    });
+    publish(session.sessionId, { kind: 'echosphere:transcript', segment });
+  }
 
   session.floor = onHumanSpeechEnd(session.floor, now);
 
@@ -389,6 +456,10 @@ export async function ingestTranscript(
   // saying "Athena, can you hear me?" with the floor open still got no
   // response, because this whole check used to live inside a
   // role==='student'-only branch below.
+  // Identifies one spoken turn across every relay of it, so actions that must
+  // happen once per sentence can be collapsed onto the settled version.
+  const turnKey = turnId === undefined ? null : `${session.sessionId}:${uid}:${turnId}`;
+
   const addressed = isAddressedToAgent(spokenText, session.policy.wakePhrase);
   const studentInvocationBlocked =
     addressed && participant.role === 'student' && !session.policy.studentsMayInvoke;
@@ -439,16 +510,30 @@ export async function ingestTranscript(
     // reply works and a think() would only step on it.
     if (participant.role === 'teacher' && !session.policy.studentsMayInvoke) {
       const question = stripWakePhrase(spokenText, session.policy.wakePhrase);
-      void think(session.sessionId, addressedByTeacherDirective(question));
+      // Deferred until the sentence stops growing. Driving this on arrival
+      // made her answer once per relay — the teacher asked one question and
+      // heard the same reply five times.
+      onTurnSettled(turnKey === null ? null : `${turnKey}:think`, () => {
+        void think(session.sessionId, addressedByTeacherDirective(question)).catch(
+          () => undefined,
+        );
+      });
     }
   }
 
+  // Re-parsed on every relay, because an early fragment often ends mid-phrase
+  // ("...on the") and parses as nothing, while the finished sentence carries
+  // the real command. Applied once the turn settles, so the board gets the
+  // completed instruction and gets it a single time.
   const boardSpeech = parseVoiceBoardCommand(spokenText);
   if (boardSpeech && (participant.role === 'teacher' || addressed)) {
-    applyBoardCommand(session, {
-      action: boardSpeech.action,
-      text: boardSpeech.text,
-      source: participant.role === 'teacher' ? 'teacher' : 'athena',
+    const source = participant.role === 'teacher' ? 'teacher' : 'athena';
+    onTurnSettled(turnKey === null ? null : `${turnKey}:board`, () => {
+      applyBoardCommand(session, {
+        action: boardSpeech.action,
+        text: boardSpeech.text,
+        source,
+      });
     });
   }
 

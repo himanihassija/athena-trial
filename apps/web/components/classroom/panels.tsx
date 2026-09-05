@@ -609,6 +609,7 @@ const DENIAL_LABEL: Record<string, string> = {
   STUDENT_INVOCATION_DISABLED:
     'a student called her — floor is closed to students',
   TEACHER_HOLDS_FLOOR: 'blocked — you had the floor',
+  AGENT_UNINVITED: 'held back — she started speaking uninvited',
   AGENT_ALREADY_SPEAKING: 'blocked — already speaking',
   TOPIC_DISABLED: 'blocked — topic disabled',
   SILENCE_GAP_TOO_SHORT: 'blocked — no natural pause yet',

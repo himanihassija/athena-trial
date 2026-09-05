@@ -287,11 +287,37 @@ export async function stopAgent(sessionId: string): Promise<void> {
  * speaking — the engine treats it as a no-op, so callers need not race-check
  * the floor state first.
  */
+/**
+ * Interrupts already in flight, keyed by session.
+ *
+ * `interrupt()` is a remote Agora call that has been measured at over three
+ * seconds. Enforcement can fire several times for one turn (the engine emits
+ * `thinking` and `speaking` separately, and transcripts arrive alongside), and
+ * without this each one opened its own request. They piled up, every one of
+ * them logged a separate "held back" entry, and the teacher saw the same
+ * interrupt reported five times for a single utterance.
+ */
+const interruptsInFlight = new Map<string, Promise<boolean>>();
+
+/**
+ * Interrupt the agent's current turn. Concurrent callers for the same session
+ * share one remote call rather than issuing several.
+ */
 export async function interruptAgent(sessionId: string): Promise<boolean> {
+  const inFlight = interruptsInFlight.get(sessionId);
+  if (inFlight) return inFlight;
+
   const agentSession = liveAgents.get(sessionId);
   if (!agentSession || agentSession.status !== 'running') return false;
-  await agentSession.interrupt();
-  return true;
+
+  const call = agentSession
+    .interrupt()
+    .then(() => true)
+    .finally(() => {
+      interruptsInFlight.delete(sessionId);
+    });
+  interruptsInFlight.set(sessionId, call);
+  return call;
 }
 
 export interface SpeakOptions {
