@@ -31,7 +31,9 @@ import {
   type StudentProfile,
   type TranscriptSegment,
   type InterventionRecord,
+  type WhiteboardPublicState,
 } from '@echosphere/shared-types';
+import { config } from '../config.js';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
 import { createLessonStore } from '../lesson/lessonStore.js';
@@ -137,6 +139,18 @@ export interface ClassroomSession {
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   interventionHistory: InterventionRecord[];
 
+  /**
+   * Shared board. `uuid` is the Netless room; it stays null when Whiteboard
+   * credentials are absent, in which case the overlay still opens and the
+   * spoken `cards` render without the collaborative canvas behind them.
+   */
+  whiteboard: {
+    open: boolean;
+    region: string;
+    uuid: string | null;
+    cards: WhiteboardPublicState['cards'];
+  };
+
   workspace?: import('@echosphere/shared-types').MiroWorkspaceState;
   targetedReadings?: import('@echosphere/shared-types').TargetedReadingItem[];
   catchupSlots?: import('@echosphere/shared-types').CatchupAvailabilitySlot[];
@@ -191,6 +205,12 @@ export function createSession(title: string): ClassroomSession {
     suppressedInterventions: [],
     restraintMeterState: 'listening',
     interventionHistory: [],
+    whiteboard: {
+      open: false,
+      region: config.whiteboardRegion,
+      uuid: null,
+      cards: [],
+    },
     raisedHands: new Set(),
     screenShareAllowed: new Set(),
     activeScreenShare: null,

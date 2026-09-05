@@ -66,4 +66,15 @@ export const config = {
    * it ends.
    */
   databaseUrl: process.env.DATABASE_URL,
+
+  /**
+   * Agora Interactive Whiteboard (a separate product from RTC/RTM/ConvoAI, and
+   * one the `agora` CLI cannot enable — it is switched on in Console). The App
+   * Identifier is "<teamUUID>/<appUUID>"; the SDK token signs the room
+   * management REST calls. Optional: `whiteboardConfigured()` gates the feature
+   * so a deployment without these still runs, just without a board.
+   */
+  whiteboardAppIdentifier: process.env.WHITEBOARD_APP_IDENTIFIER ?? '',
+  whiteboardSdkToken: process.env.WHITEBOARD_SDK_TOKEN ?? '',
+  whiteboardRegion: process.env.WHITEBOARD_REGION ?? 'in-mum',
 } as const;

@@ -18,6 +18,7 @@ import type {
   SpeakDenialReason,
 } from './floor.js';
 import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
+import type { WhiteboardCommand, WhiteboardPublicState } from './whiteboard.js';
 import type { MiroWorkspaceState, MiroStickyNote, MiroCommand } from './workspace.js';
 import type { TargetedReadingItem, CatchupAvailabilitySlot, LanguageCode } from './support.js';
 
@@ -63,6 +64,8 @@ export type ClassroomEvent =
   | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
   /** A student answered every question in a quiz set correctly. Sent only to that student. */
   | { kind: 'echosphere:quiz-set-perfect'; topic: string }
+  | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
+  | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand }
   | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
   | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }
   | { kind: 'echosphere:sticky-note-updated'; note: MiroStickyNote }
@@ -143,6 +146,7 @@ export interface RoomState {
    * without these two the client starts with empty permissions and no idea
    * anyone is already sharing.
    */
+  whiteboard?: WhiteboardPublicState;
   screenShareAllowed?: string[];
   activeScreenShare?: { participantId: string; displayName: string } | null;
 }
