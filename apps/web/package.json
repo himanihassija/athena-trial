@@ -17,6 +17,7 @@
     "verify": "pnpm run doctor && pnpm run lint && pnpm run typecheck && pnpm run verify:api && pnpm run build",
     "test:e2e": "node --import tsx scripts/classroom.e2e.ts",
     "test:e2e:agent": "node --import tsx scripts/classroom.e2e.ts --start-agent",
+    "test:board": "node --import tsx scripts/board.e2e.ts",
     "test:roundtrip": "node --import tsx scripts/roundtrip.e2e.ts",
     "test:speech": "node --import tsx scripts/speech.e2e.ts",
     "gen:speech-fixture": "node scripts/generate-speech-fixture.mjs"

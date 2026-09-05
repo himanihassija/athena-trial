@@ -45,18 +45,32 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   const apiRef = useRef<any>(null);
 
   /**
-   * Whether Excalidraw has handed us its API yet.
+   * The canvas API itself, held as state rather than only in the ref.
    *
-   * Held as state, not only in the ref, because the effect that applies a
-   * remote scene has to run again once the API exists. Excalidraw is loaded
-   * lazily and hands the API over after mount, so a board that already had
-   * content when the component first rendered — anyone joining a lesson in
-   * progress — ran that effect against a null API, bailed, and then never had
-   * cause to run again, because the scene it was waiting for had already
-   * arrived. Students saw a permanently blank board while the teacher, who
-   * held the elements locally, saw the drawing.
+   * The effect that paints a remote scene has to run again whenever the canvas
+   * changes, and there are two ways it can. Excalidraw is loaded lazily and
+   * hands its API over after mount, so a board that already had content when
+   * this first rendered ran that effect against a null API and bailed. And the
+   * component can mount more than once — StrictMode does it in development,
+   * and the lazy chunk resolving does it in any build — each time producing a
+   * brand new, empty canvas.
+   *
+   * Tracking a boolean "ready" flag covered only the first case: on a remount
+   * the flag was already true, so nothing re-ran and the fresh canvas was
+   * never given the scene. Anyone joining a lesson in progress sat looking at
+   * a blank board while the teacher, holding the elements locally, saw the
+   * drawing. Keying on the API object means a new canvas is a new value, and
+   * the scene is painted onto it.
    */
-  const [apiReady, setApiReady] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see apiRef.
+  const [api, setApi] = useState<any>(null);
+
+  /**
+   * Whatever the board already held when this mounted, captured once. Read
+   * through a state initialiser rather than a ref, because reading a ref
+   * during render is impure.
+   */
+  const [initialElements] = useState(() => scene);
   const applyingRemote = useRef(false);
   /**
    * True between pointer-down and pointer-up. Applying a remote scene mid-drag
@@ -136,7 +150,6 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   // Re-runs when the API arrives, so a scene that predates the canvas is not
   // stranded.
   useEffect(() => {
-    const api = apiRef.current;
     if (!api) return;
     if (drawing.current) {
       missedRemote.current = true;
@@ -146,19 +159,38 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
     try {
       api.updateScene({ elements: scene });
       for (const el of scene) lastSentVersions.current.set(el.id, el.version);
+
+      // A scene that lands while Excalidraw is still initialising is applied
+      // and then overwritten by the empty default it finishes loading. Content
+      // present at mount is handed over as `initialData`; this covers the
+      // remaining sliver where it arrives just after. Only for viewers, whose
+      // canvas should always be exactly the shared scene — re-asserting it for
+      // someone who can draw would undo their own deletions.
+      if (!canDraw && scene.length > 0) {
+        requestAnimationFrame(() => {
+          const live = api.getSceneElements?.() ?? [];
+          if (live.length >= scene.length) return;
+          applyingRemote.current = true;
+          api.updateScene({ elements: sceneRef.current });
+          requestAnimationFrame(() => {
+            applyingRemote.current = false;
+          });
+        });
+      }
     } finally {
       // Cleared after paint, since updateScene's onChange is not synchronous.
       requestAnimationFrame(() => {
         applyingRemote.current = false;
       });
     }
-  }, [scene, apiReady]);
+  }, [scene, api, canDraw]);
 
   return (
     <div className="absolute inset-0">
       <ExcalidrawCanvas
         apiRef={apiRef}
-        onReady={setApiReady}
+        onReady={setApi}
+        initialElements={initialElements}
         canDraw={canDraw}
         onChange={handleChange}
         onPointerDown={handlePointerDown}
@@ -181,6 +213,7 @@ const Excalidraw = dynamic(
 function ExcalidrawCanvas({
   apiRef,
   onReady,
+  initialElements,
   canDraw,
   onChange,
   onPointerDown,
@@ -188,7 +221,9 @@ function ExcalidrawCanvas({
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above.
   apiRef: React.MutableRefObject<any>;
-  onReady: (ready: boolean) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see apiRef.
+  onReady: (api: any) => void;
+  initialElements: BoardElement[];
   canDraw: boolean;
   onChange: (elements: readonly unknown[]) => void;
   onPointerDown: () => void;
@@ -196,9 +231,26 @@ function ExcalidrawCanvas({
 }) {
   return (
     <Excalidraw
+      /**
+       * The scene the board already had, handed over at construction.
+       *
+       * Excalidraw gives out its API before it has finished loading its own
+       * initial scene, so a scene pushed in through `updateScene` during that
+       * window was applied and then overwritten by the empty default it
+       * finishes initialising with — the element was accepted, the canvas
+       * ended up blank, and nothing re-ran because neither the scene nor the
+       * API had changed. Anything arriving later still goes through
+       * `updateScene`; this covers content that was already there.
+       */
+      initialData={{
+        elements: initialElements as never,
+        // A late joiner's viewport is wherever Excalidraw starts, which need
+        // not be where the writing is.
+        scrollToContent: true,
+      }}
       excalidrawAPI={(api: unknown) => {
         apiRef.current = api;
-        onReady(Boolean(api));
+        onReady(api);
       }}
       onChange={onChange}
       onPointerDown={onPointerDown}
