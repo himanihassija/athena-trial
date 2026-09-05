@@ -171,8 +171,17 @@ function fallbackReply(question: string, sources: CatchupSource[], sessionTitle:
   const notes = sources.find((s) => s.kind === 'lesson')?.snippet;
   const workspaceNote = sources.find((s) => s.kind === 'workspace')?.snippet;
 
+  // 0. Greetings & Friendly Check-ins
+  if (/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|howdy)\b/i.test(lower)) {
+    return `Hello! 👋 I am Athena, your AI Educational Assistant for **"${sessionTitle}"**.\n\nI can help you:\n• Understand tricky concepts with real-world analogies\n• Walk through problems step-by-step\n• Test your knowledge with practice questions\n• Catch up on anything you missed in class\n\nWhat would you like to explore or solve together?`;
+  }
+
+  if (/\b(who are you|what can you do|help me|capabilities)\b/i.test(lower)) {
+    return `I am **Athena**, your pedagogical co-teacher and universal learning assistant! 🎓\n\nHere is how I can assist:\n1. 📐 **Math & Science**: Step-by-step equations, proofs, and physical principles.\n2. 💡 **Socratic Guidance**: Hints and analogies without spoiling answers directly.\n3. 📝 **Classroom Recaps**: Summaries of what was spoken or written on the board.\n4. 🧪 **Practice Exercises**: Quick check-ins to build mastery.\n\nAsk me any question to get started!`;
+  }
+
   // 1. Current Classroom Missed / Recap queries
-  if (/\b(miss|missed|catch up|recap|what happened|so far|what did teacher say|class)\b/.test(lower)) {
+  if (/\b(miss|missed|catch up|recap|what happened|so far|what did teacher say|class summary)\b/.test(lower)) {
     const parts = [
       recap ? `**From live classroom audio:**\n${recap}` : null,
       notes ? `**From lesson notes (${sessionTitle}):**\n${notes}` : null,
@@ -215,10 +224,10 @@ function fallbackReply(question: string, sources: CatchupSource[], sessionTitle:
   }
 
   // 4. Grounded in this lesson or general explanation
-  if (notes) {
+  if (notes && lower.length > 5) {
     return `**Key Educational Insight (${sessionTitle}):**\n${notes}\n\n*Would you like me to walk you through a step-by-step example or practice question?*`;
   }
-  if (recap) {
+  if (recap && lower.length > 5) {
     return `**From class discussions:**\n${recap}\n\n*Let me know what subject or formula you would like help with next!*`;
   }
 
