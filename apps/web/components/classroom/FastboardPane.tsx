@@ -27,6 +27,21 @@ export interface FastboardPaneProps {
 export function FastboardPane({ join, onUnavailable }: FastboardPaneProps) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Held in a ref rather than listed as a dependency. Callers naturally pass an
+  // inline arrow, which is a new function every render; as a dependency that
+  // re-ran this effect constantly and built a second board each time, which
+  // WindowManager rejects with "mount duplicate check failed: isCreated=true".
+  const onUnavailableRef = useRef(onUnavailable);
+  // Written in an effect, not during render: assigning to a ref while
+  // rendering is impure and the compiler rejects it.
+  useEffect(() => {
+    onUnavailableRef.current = onUnavailable;
+  }, [onUnavailable]);
+
+  // Primitive fields rather than the `join` object: a re-render that rebuilds
+  // that object would otherwise tear down a working board and remount it.
+  const { appIdentifier, region, uid, uuid, roomToken } = join;
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -40,13 +55,13 @@ export function FastboardPane({ join, onUnavailable }: FastboardPaneProps) {
 
         const created = await core.createFastboard({
           sdkConfig: {
-            appIdentifier: join.appIdentifier as string,
-            region: join.region as never,
+            appIdentifier: appIdentifier as string,
+            region: region as never,
           },
           joinRoom: {
-            uid: join.uid,
-            uuid: join.uuid as string,
-            roomToken: join.roomToken as string,
+            uid,
+            uuid: uuid as string,
+            roomToken: roomToken as string,
           },
         });
         if (disposed) {
@@ -59,7 +74,7 @@ export function FastboardPane({ join, onUnavailable }: FastboardPaneProps) {
         if (disposed) return;
         const reason = error instanceof Error ? error.message : 'Canvas unavailable';
         console.warn('[board] canvas unavailable, falling back:', reason);
-        onUnavailable?.(reason);
+        onUnavailableRef.current?.(reason);
       }
     })();
 
@@ -67,7 +82,7 @@ export function FastboardPane({ join, onUnavailable }: FastboardPaneProps) {
       disposed = true;
       app?.destroy?.();
     };
-  }, [join, onUnavailable]);
+  }, [appIdentifier, region, uid, uuid, roomToken]);
 
   return <div ref={ref} className="absolute inset-0" />;
 }
