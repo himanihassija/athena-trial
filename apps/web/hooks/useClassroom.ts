@@ -44,6 +44,12 @@ export interface QuizCardState {
 }
 
 export interface BlockedAttempt {
+  /**
+   * Unique per entry, for React's list key. The timestamp and reason are not
+   * enough on their own: one turn can be held back several times inside the
+   * same millisecond, which produced two children with the same key.
+   */
+  id: string;
   reason: SpeakDenialReason;
   at: number;
 }
@@ -121,6 +127,8 @@ export function useClassroom(
   const [quizzes, setQuizzes] = useState<QuizCardState[]>([]);
   const [gaps, setGaps] = useState<LearningGap[]>([]);
   const [blockedAttempts, setBlockedAttempts] = useState<BlockedAttempt[]>([]);
+  // Distinguishes entries that share a timestamp and a reason.
+  const blockedSeq = useRef(0);
   const [ended, setEnded] = useState(false);
   const [connected, setConnected] = useState(false);
   const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
@@ -195,11 +203,15 @@ export function useClassroom(
         setPolicy(event.policy);
         break;
 
-      case 'echosphere:agent-blocked':
+      case 'echosphere:agent-blocked': {
+        // Numbered outside the updater, which must stay pure.
+        blockedSeq.current += 1;
+        const id = `${event.at}-${event.reason}-${blockedSeq.current}`;
         setBlockedAttempts((prev) =>
-          [...prev, { reason: event.reason, at: event.at }].slice(-12),
+          [...prev, { id, reason: event.reason, at: event.at }].slice(-12),
         );
         break;
+      }
 
       case 'echosphere:transcript':
         setTranscript((prev) => {

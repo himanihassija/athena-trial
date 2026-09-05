@@ -626,7 +626,7 @@ export function BlockedAttempts({ attempts }: { attempts: BlockedAttempt[] }) {
           .slice(-5)
           .reverse()
           .map((attempt) => (
-            <li key={`${attempt.at}-${attempt.reason}`}>
+            <li key={attempt.id}>
               {new Date(attempt.at).toLocaleTimeString()} ·{' '}
               {DENIAL_LABEL[attempt.reason] ?? attempt.reason}
             </li>
