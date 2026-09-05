@@ -16,6 +16,8 @@ import type {
   TranscriptSegment,
   CatchupReply,
   CatchupMessage,
+  ActiveWhiteboard,
+  BoardElement,
   WhiteboardJoin,
 } from '@echosphere/shared-types';
 
@@ -155,6 +157,18 @@ export const orchestrator = {
   getWhiteboard: (sessionId: string, participantId: string) =>
     request<WhiteboardJoin>(
       `/api/sessions/${sessionId}/whiteboard?participantId=${encodeURIComponent(participantId)}`,
+    ),
+
+  presentWhiteboard: (sessionId: string, participantId: string, presenting: boolean) =>
+    request<{ ok: true; presenting: ActiveWhiteboard | null }>(
+      `/api/sessions/${sessionId}/whiteboard/present`,
+      { method: 'POST', body: JSON.stringify({ participantId, presenting }) },
+    ),
+
+  pushBoardScene: (sessionId: string, participantId: string, elements: BoardElement[]) =>
+    request<{ ok: true; count: number }>(
+      `/api/sessions/${sessionId}/whiteboard/scene`,
+      { method: 'POST', body: JSON.stringify({ participantId, elements }) },
     ),
 
   setAnnotating: (sessionId: string, participantId: string, annotating: boolean) =>

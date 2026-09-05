@@ -26,6 +26,8 @@ import type {
   TargetedReadingItem,
   CatchupAvailabilitySlot,
   LanguageCode,
+  ActiveWhiteboard,
+  BoardElement,
   WhiteboardJoin,
   WhiteboardPublicState,
 } from '@echosphere/shared-types';
@@ -84,6 +86,11 @@ export interface ClassroomView {
   whiteboardJoin: WhiteboardJoin | null;
   whiteboardJoinError: string | null;
   setAnnotating: (on: boolean) => Promise<void>;
+  /** Non-null while someone is presenting the board, mirroring activeScreenShare. */
+  activeWhiteboard: ActiveWhiteboard | null;
+  boardScene: BoardElement[];
+  presentWhiteboard: (on: boolean) => Promise<void>;
+  pushBoardScene: (elements: BoardElement[]) => void;
   workspace: MiroWorkspaceState | null;
   targetedReadings: TargetedReadingItem[];
   catchupSlots: CatchupAvailabilitySlot[];
@@ -121,6 +128,8 @@ export function useClassroom(
   const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
   const [celebration, setCelebration] = useState<CelebrationTrigger | null>(null);
   const [whiteboard, setWhiteboard] = useState<WhiteboardPublicState | null>(null);
+  const [activeWhiteboard, setActiveWhiteboard] = useState<ActiveWhiteboard | null>(null);
+  const [boardScene, setBoardScene] = useState<BoardElement[]>([]);
   const [whiteboardJoin, setWhiteboardJoin] = useState<WhiteboardJoin | null>(null);
   const [whiteboardJoinError, setWhiteboardJoinError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<MiroWorkspaceState | null>(null);
@@ -143,7 +152,11 @@ export function useClassroom(
         setEnded(event.state.endedAt !== null);
         setSuppressedInterventions(event.state.suppressedInterventions ?? []);
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
-        if (event.state.whiteboard) setWhiteboard(event.state.whiteboard);
+        if (event.state.whiteboard) {
+          setWhiteboard(event.state.whiteboard);
+          setActiveWhiteboard(event.state.whiteboard.presenting ?? null);
+          setBoardScene(event.state.whiteboard.scene ?? []);
+        }
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
         // Restored: the screen-share merge dropped these two, which is what
@@ -292,6 +305,27 @@ export function useClassroom(
 
       case 'echosphere:whiteboard':
         setWhiteboard(event.board);
+        break;
+
+      case 'echosphere:whiteboard-started':
+        setActiveWhiteboard(event.presenter);
+        break;
+
+      case 'echosphere:whiteboard-stopped':
+        setActiveWhiteboard(null);
+        break;
+
+      case 'echosphere:whiteboard-scene':
+        // Merged the same way the orchestrator does, by element version, so a
+        // client that missed a message cannot drop strokes it never saw.
+        setBoardScene((prev) => {
+          const byId = new Map(prev.map((el) => [el.id, el]));
+          for (const el of event.elements) {
+            const existing = byId.get(el.id);
+            if (!existing || el.version >= existing.version) byId.set(el.id, el);
+          }
+          return [...byId.values()];
+        });
         break;
 
       case 'echosphere:whiteboard-command':
@@ -450,6 +484,22 @@ export function useClassroom(
     };
   }, [sessionId, participantId, whiteboard?.open, whiteboard?.uuid]);
 
+  const presentWhiteboard = useCallback(
+    async (on: boolean) => {
+      if (!participantId) return;
+      await orchestrator.presentWhiteboard(sessionId, participantId, on).catch(() => undefined);
+    },
+    [sessionId, participantId],
+  );
+
+  const pushBoardScene = useCallback(
+    (elements: BoardElement[]) => {
+      if (!participantId) return;
+      void orchestrator.pushBoardScene(sessionId, participantId, elements).catch(() => undefined);
+    },
+    [sessionId, participantId],
+  );
+
   const refreshWorkspace = useCallback(async () => {
     try {
       const ws = await orchestrator.getWorkspace(sessionId);
@@ -527,6 +577,10 @@ export function useClassroom(
     whiteboardJoin,
     whiteboardJoinError,
     setAnnotating,
+    activeWhiteboard,
+    boardScene,
+    presentWhiteboard,
+    pushBoardScene,
     workspace,
     targetedReadings,
     catchupSlots,

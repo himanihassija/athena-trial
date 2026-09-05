@@ -18,7 +18,12 @@ import type {
   SpeakDenialReason,
 } from './floor.js';
 import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
-import type { WhiteboardCommand, WhiteboardPublicState } from './whiteboard.js';
+import type {
+  ActiveWhiteboard,
+  BoardElement,
+  WhiteboardCommand,
+  WhiteboardPublicState,
+} from './whiteboard.js';
 import type { MiroWorkspaceState, MiroStickyNote, MiroCommand } from './workspace.js';
 import type { TargetedReadingItem, CatchupAvailabilitySlot, LanguageCode } from './support.js';
 
@@ -65,6 +70,15 @@ export type ClassroomEvent =
   /** A student answered every question in a quiz set correctly. Sent only to that student. */
   | { kind: 'echosphere:quiz-set-perfect'; topic: string }
   | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
+  /** Someone began presenting the board, the way a screen share starts. */
+  | { kind: 'echosphere:whiteboard-started'; presenter: ActiveWhiteboard }
+  | { kind: 'echosphere:whiteboard-stopped'; participantId: string }
+  /**
+   * Drawing changed. Carries only the elements that moved rather than the whole
+   * scene — a stroke is a stream of small edits and resending everything would
+   * saturate the bus.
+   */
+  | { kind: 'echosphere:whiteboard-scene'; elements: BoardElement[]; by: string }
   | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand }
   | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
   | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }

@@ -40,6 +40,7 @@ import { closeRoom, publish, subscribe } from '../state/eventBus.js';
 import { answerCatchup, catchupHistory } from '../catchup/answer.js';
 import {
   broadcastWhiteboard,
+  mergeSceneElements,
   joinPayload,
   openWhiteboard,
   publicWhiteboard,
@@ -273,6 +274,68 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     const session = requireSession(request, reply);
     if (!session) return;
     return reply.send((await agentStatus(session.sessionId)) ?? { agentId: null, status: 'idle' });
+  });
+
+  app.post('/api/sessions/:sessionId/whiteboard/present', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, presenting } = z
+      .object({ participantId: z.string(), presenting: z.boolean() })
+      .parse(request.body);
+    // Drawing is teacher-and-Athena only; students watch. Enforced here rather
+    // than by hiding the button, so a crafted request cannot draw either.
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only the teacher can present the whiteboard' });
+    }
+    const participant = session.participants.get(participantId);
+    if (!participant) return reply.code(403).send({ error: 'Unknown participant' });
+
+    if (presenting) {
+      session.whiteboard.presenting = {
+        participantId,
+        displayName: participant.displayName,
+      };
+      session.whiteboard.open = true;
+      publish(session.sessionId, {
+        kind: 'echosphere:whiteboard-started',
+        presenter: session.whiteboard.presenting,
+      });
+    } else {
+      session.whiteboard.presenting = null;
+      publish(session.sessionId, {
+        kind: 'echosphere:whiteboard-stopped',
+        participantId,
+      });
+    }
+    broadcastWhiteboard(session);
+    return reply.send({ ok: true, presenting: session.whiteboard.presenting });
+  });
+
+  app.post('/api/sessions/:sessionId/whiteboard/scene', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, elements } = z
+      .object({
+        participantId: z.string(),
+        // Excalidraw owns the element shape and changes it between versions, so
+        // it is passed through rather than modelled. Only id and version are
+        // read, and the cap keeps one client from posting an unbounded scene.
+        elements: z
+          .array(z.object({ id: z.string(), version: z.number() }).passthrough())
+          .max(5000),
+      })
+      .parse(request.body);
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only the teacher can draw' });
+    }
+
+    mergeSceneElements(session, elements);
+    publish(session.sessionId, {
+      kind: 'echosphere:whiteboard-scene',
+      elements,
+      by: participantId,
+    });
+    return reply.send({ ok: true, count: session.whiteboard.scene.length });
   });
 
   app.post('/api/sessions/:sessionId/whiteboard/annotate', async (request, reply) => {

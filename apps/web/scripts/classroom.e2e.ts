@@ -175,8 +175,13 @@ async function main(): Promise<void> {
   check('teacher sees the student', (await teacher.innerText('body')).includes('Ana'));
 
   console.log('\n── RTC audio actually joined');
-  const rtcJoined = await student.locator('text=Connected to classroom audio').count();
-  check('student RTC connected', rtcJoined > 0);
+  // Waited for rather than sampled once. Join time varies with how much client
+  // JS the route carries and with network conditions; a single count() right
+  // after a fixed pause asserts "connects within N seconds", which is not the
+  // property under test and fails for reasons that are not regressions.
+  const rtcStatus = student.locator('text=Connected to classroom audio');
+  await rtcStatus.waitFor({ state: 'attached', timeout: 20_000 }).catch(() => undefined);
+  check('student RTC connected', (await rtcStatus.count()) > 0);
 
   if (START_AGENT) {
     console.log('\n── Bringing the agent in (uses Agora minutes)');

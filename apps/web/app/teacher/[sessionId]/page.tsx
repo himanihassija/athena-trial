@@ -33,7 +33,7 @@ import {
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
-import { ClassroomBoard } from '@/components/classroom/ClassroomBoard';
+import { ExcalidrawBoard } from '@/components/classroom/ExcalidrawBoardLazy';
 import { AnnotateToggle } from '@/components/classroom/AnnotateToggle';
 import { ScreenShareControls } from '@/components/classroom/ScreenShareControls';
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
@@ -251,16 +251,6 @@ export default function TeacherDashboardPage() {
     view.activeScreenShare.participantId !== identity.participantId;
 
   const tabs: DrawerTab[] = [
-    {
-      id: 'board',
-      label: 'Board',
-      content: (
-        <ClassroomBoard
-          board={view.whiteboard}
-          joinError={view.whiteboardJoinError}
-        />
-      ),
-    },
     {
       id: 'controls',
       label: 'Controls',
@@ -572,6 +562,21 @@ export default function TeacherDashboardPage() {
             {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
           </button>
 
+          <button
+            type="button"
+            onClick={() => void view.presentWhiteboard(!view.activeWhiteboard)}
+            data-active={Boolean(view.activeWhiteboard)}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-green)' } as CSSProperties}
+            title={
+              view.activeWhiteboard
+                ? 'Stop showing the whiteboard to the room'
+                : 'Show the whiteboard to everyone'
+            }
+          >
+            {view.activeWhiteboard ? 'Stop Whiteboard' : 'Whiteboard'}
+          </button>
+
           <AnnotateToggle
             board={view.whiteboard}
             /* This tab can only write once it holds a live board connection. */
@@ -760,6 +765,14 @@ export default function TeacherDashboardPage() {
                     activeScreenShare={view.activeScreenShare}
                     selfUid={identity.uid}
                   />
+                ) : view.activeWhiteboard ? (
+                  <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
+                    <ExcalidrawBoard
+                      scene={view.boardScene}
+                      canDraw
+                      onSceneChange={view.pushBoardScene}
+                    />
+                  </div>
                 ) : (
                   <ParticipantGrid
                     participants={view.participants}

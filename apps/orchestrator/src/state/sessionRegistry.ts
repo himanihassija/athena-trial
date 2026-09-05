@@ -150,6 +150,13 @@ export interface ClassroomSession {
     uuid: string | null;
     cards: WhiteboardPublicState['cards'];
     /**
+     * Presence and scene, mirroring how screen share is modelled: one presenter
+     * at a time, and the orchestrator holds the authoritative drawing so a late
+     * joiner or a reload gets the board as it stands.
+     */
+    presenting: WhiteboardPublicState['presenting'];
+    scene: WhiteboardPublicState['scene'];
+    /**
      * Athena only annotates while the teacher has this on. Without a gate she
      * would write on every turn that happened to contain a definition, which
      * floods a board nobody asked her to touch. Explicit teacher intent is the
@@ -218,6 +225,8 @@ export function createSession(title: string): ClassroomSession {
       uuid: null,
       cards: [],
       annotating: false,
+      presenting: null,
+      scene: [],
     },
     raisedHands: new Set(),
     screenShareAllowed: new Set(),

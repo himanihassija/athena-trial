@@ -25,7 +25,7 @@ import {
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
-import { ClassroomBoard } from '@/components/classroom/ClassroomBoard';
+import { ExcalidrawBoard } from '@/components/classroom/ExcalidrawBoardLazy';
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
 import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
@@ -141,16 +141,6 @@ export default function ClassroomPage() {
     view.activeScreenShare.participantId !== identity.participantId;
 
   const tabs: DrawerTab[] = [
-    {
-      id: 'board',
-      label: 'Board',
-      content: (
-        <ClassroomBoard
-          board={view.whiteboard}
-          joinError={view.whiteboardJoinError}
-        />
-      ),
-    },
     {
       id: 'workspace',
       label: 'Workspace',
@@ -441,6 +431,16 @@ export default function ClassroomPage() {
                   activeScreenShare={view.activeScreenShare}
                   selfUid={identity.uid}
                 />
+              ) : view.activeWhiteboard ? (
+                <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
+                  {/* Students watch: drawing is teacher-and-Athena only, and the
+                      orchestrator rejects a student scene post regardless. */}
+                  <ExcalidrawBoard
+                    scene={view.boardScene}
+                    canDraw={false}
+                    onSceneChange={() => undefined}
+                  />
+                </div>
               ) : (
                 <ParticipantGrid
                   participants={view.participants}
