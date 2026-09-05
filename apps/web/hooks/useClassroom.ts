@@ -316,6 +316,12 @@ export function useClassroom(
         break;
 
       case 'echosphere:whiteboard-scene':
+        // Never apply your own edits coming back. A freehand stroke is one
+        // element whose points grow as you drag, so the copy the server echoes
+        // is always older than what is under the pointer — feeding it back
+        // rewound the stroke to its first point every tick, which is why a drag
+        // rendered as a single dot. The author already has these elements.
+        if (event.by === participantId) break;
         // Merged the same way the orchestrator does, by element version, so a
         // client that missed a message cannot drop strokes it never saw.
         setBoardScene((prev) => {

@@ -44,9 +44,29 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Excalidraw's API type is not exported in a usable form.
   const apiRef = useRef<any>(null);
   const applyingRemote = useRef(false);
+  /**
+   * True between pointer-down and pointer-up. Applying a remote scene mid-drag
+   * replaces the element currently under the pointer with an older copy, which
+   * truncates the stroke. Remote work is not lost: the scene prop is applied on
+   * the next change once the pointer is up.
+   */
+  const drawing = useRef(false);
+  const missedRemote = useRef(false);
   const lastSentVersions = useRef(new Map<string, number>());
-  const pending = useRef<BoardElement[] | null>(null);
+  /**
+   * Keyed by element id so a second change to the same element within one
+   * window replaces it rather than the batch being overwritten wholesale.
+   * Overwriting lost edits silently: the version was already recorded as sent,
+   * so the dropped element was never retried.
+   */
+  const pending = useRef(new Map<string, BoardElement>());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Latest scene, readable from callbacks without making them depend on it.
+  const sceneRef = useRef(scene);
+  useEffect(() => {
+    sceneRef.current = scene;
+  }, [scene]);
 
   const onSceneChangeRef = useRef(onSceneChange);
   useEffect(() => {
@@ -57,13 +77,33 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   // change events, and only the latest state of each element matters.
   useEffect(() => {
     timer.current = setInterval(() => {
-      const batch = pending.current;
-      pending.current = null;
-      if (batch && batch.length > 0) onSceneChangeRef.current(batch);
+      if (pending.current.size === 0) return;
+      const batch = [...pending.current.values()];
+      pending.current = new Map();
+      // Recorded as sent only once it actually goes out.
+      for (const el of batch) lastSentVersions.current.set(el.id, el.version);
+      onSceneChangeRef.current(batch);
     }, SYNC_INTERVAL_MS);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    drawing.current = true;
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    drawing.current = false;
+    // Apply whatever arrived while the pointer was down.
+    if (missedRemote.current && apiRef.current) {
+      missedRemote.current = false;
+      applyingRemote.current = true;
+      apiRef.current.updateScene({ elements: sceneRef.current });
+      requestAnimationFrame(() => {
+        applyingRemote.current = false;
+      });
+    }
   }, []);
 
   const handleChange = useCallback((elements: readonly unknown[]) => {
@@ -71,18 +111,21 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
     const changed: BoardElement[] = [];
     for (const raw of elements) {
       const el = raw as BoardElement;
-      if (lastSentVersions.current.get(el.id) !== el.version) {
-        lastSentVersions.current.set(el.id, el.version);
-        changed.push(el);
-      }
+      const sent = lastSentVersions.current.get(el.id);
+      const queued = pending.current.get(el.id)?.version;
+      if (sent !== el.version && queued !== el.version) changed.push(el);
     }
-    if (changed.length > 0) pending.current = changed;
+    for (const el of changed) pending.current.set(el.id, el);
   }, [canDraw]);
 
   // Remote scene in. Guarded so the resulting onChange is not echoed back.
   useEffect(() => {
     const api = apiRef.current;
     if (!api) return;
+    if (drawing.current) {
+      missedRemote.current = true;
+      return;
+    }
     applyingRemote.current = true;
     try {
       api.updateScene({ elements: scene });
@@ -101,6 +144,8 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
         apiRef={apiRef}
         canDraw={canDraw}
         onChange={handleChange}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
       />
     </div>
   );
@@ -120,11 +165,15 @@ function ExcalidrawCanvas({
   apiRef,
   canDraw,
   onChange,
+  onPointerDown,
+  onPointerUp,
 }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above.
   apiRef: React.MutableRefObject<any>;
   canDraw: boolean;
   onChange: (elements: readonly unknown[]) => void;
+  onPointerDown: () => void;
+  onPointerUp: () => void;
 }) {
   return (
     <Excalidraw
@@ -132,6 +181,8 @@ function ExcalidrawCanvas({
         apiRef.current = api;
       }}
       onChange={onChange}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
       viewModeEnabled={!canDraw}
       UIOptions={{
         canvasActions: {
