@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import dynamic from 'next/dynamic';
 import type { WhiteboardJoin, WhiteboardPublicState } from '@echosphere/shared-types';
 
@@ -15,9 +17,17 @@ export interface ClassroomBoardProps {
 }
 
 export function ClassroomBoard({ board, join, joinError }: ClassroomBoardProps) {
+  // A canvas failure (e.g. an SDK/React incompatibility) must not blank the
+  // board: Athena's lines are rendered by this component, not by the canvas.
+  // Declared before the early return — hooks must run in the same order every
+  // render, and `board.open` flips at runtime.
+  const [canvasFailed, setCanvasFailed] = useState(false);
+
   if (!board?.open) return null;
 
-  const agoraLive = Boolean(join?.agoraReady && join.uuid && join.roomToken && join.appIdentifier);
+  const agoraLive =
+    !canvasFailed &&
+    Boolean(join?.agoraReady && join.uuid && join.roomToken && join.appIdentifier);
 
   return (
     <section
@@ -37,7 +47,11 @@ export function ClassroomBoard({ board, join, joinError }: ClassroomBoardProps) 
       </header>
 
       <div className="relative min-h-[16rem] flex-1 bg-[#f6f1e4]">
-        {agoraLive && join ? <FastboardPane join={join} /> : <PaperGrid />}
+        {agoraLive && join ? (
+          <FastboardPane join={join} onUnavailable={() => setCanvasFailed(true)} />
+        ) : (
+          <PaperGrid />
+        )}
 
         {board.cards.length > 0 && (
           <ul className="pointer-events-none absolute inset-x-3 top-3 z-10 flex max-h-[70%] flex-col gap-2 overflow-y-auto">

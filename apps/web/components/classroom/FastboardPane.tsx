@@ -1,62 +1,73 @@
+/**
+ * The collaborative canvas behind the board.
+ *
+ * Uses `@netless/fastboard-core` rather than `@netless/fastboard`. The latter
+ * bundles the prebuilt toolbar, which pulls `@netless/appliance-plugin` —
+ * that package declares `react-dom: ^16.8.0` and calls `ReactDOM.render`,
+ * removed in React 18. On React 19 it fails with
+ * "(0 , yl.render) is not a function" while binding the container. Core has no
+ * such dependency, and the toolbar is not wanted here anyway: Athena writes
+ * programmatically and the readable lines are rendered by ClassroomBoard.
+ *
+ * Failure is reported upward rather than thrown, so a canvas problem downgrades
+ * the board to its paper fallback instead of taking the panel down.
+ */
+
 'use client';
 
 import { useEffect, useRef } from 'react';
 import type { WhiteboardJoin } from '@echosphere/shared-types';
 
-/**
- * Agora Fastboard (Interactive Whiteboard UIKit). Joins with the room token
- * minted by the orchestrator — never the SDK token.
- */
-export function FastboardPane({ join }: { join: WhiteboardJoin }) {
-  const hostRef = useRef<HTMLDivElement>(null);
+export interface FastboardPaneProps {
+  join: WhiteboardJoin;
+  /** Called when the canvas cannot be shown, so the board can fall back. */
+  onUnavailable?: (reason: string) => void;
+}
+
+export function FastboardPane({ join, onUnavailable }: FastboardPaneProps) {
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = hostRef.current;
-    if (
-      !el ||
-      !join.appIdentifier ||
-      !join.uuid ||
-      !join.roomToken
-    ) {
-      return;
-    }
-
+    const el = ref.current;
+    if (!el) return;
     let disposed = false;
-    let ui: { destroy?: () => void } | undefined;
-    let room: { destroy?: () => void } | undefined;
+    let app: { destroy?: () => void } | undefined;
 
     void (async () => {
-      const fastboard = await import('@netless/fastboard');
-      if (disposed) return;
-      const app = await fastboard.createFastboard({
-        sdkConfig: {
-          appIdentifier: join.appIdentifier as string,
-          region: join.region,
-        },
-        joinRoom: {
-          uid: join.uid,
-          uuid: join.uuid as string,
-          roomToken: join.roomToken as string,
-        },
-      });
-      if (disposed) {
-        app.destroy();
-        return;
+      try {
+        const core = await import('@netless/fastboard-core');
+        if (disposed) return;
+
+        const created = await core.createFastboard({
+          sdkConfig: {
+            appIdentifier: join.appIdentifier as string,
+            region: join.region as never,
+          },
+          joinRoom: {
+            uid: join.uid,
+            uuid: join.uuid as string,
+            roomToken: join.roomToken as string,
+          },
+        });
+        if (disposed) {
+          created.destroy();
+          return;
+        }
+        app = created;
+        created.bindContainer(el);
+      } catch (error) {
+        if (disposed) return;
+        const reason = error instanceof Error ? error.message : 'Canvas unavailable';
+        console.warn('[board] canvas unavailable, falling back:', reason);
+        onUnavailable?.(reason);
       }
-      room = app;
-      ui = fastboard.createUI
-        ? fastboard.createUI(app, el)
-        : fastboard.mount(app, el);
-    })().catch((err) => {
-      console.error('Fastboard join failed', err);
-    });
+    })();
 
     return () => {
       disposed = true;
-      ui?.destroy?.();
-      room?.destroy?.();
+      app?.destroy?.();
     };
-  }, [join.appIdentifier, join.region, join.uuid, join.roomToken, join.uid]);
+  }, [join, onUnavailable]);
 
-  return <div ref={hostRef} className="h-full min-h-[16rem] w-full overflow-hidden rounded-lg bg-white" />;
+  return <div ref={ref} className="absolute inset-0" />;
 }
