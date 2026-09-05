@@ -38,12 +38,22 @@ export function broadcastWhiteboard(session: ClassroomSession): void {
  * Whiteboard room when credentials exist; otherwise the voice overlay still
  * works so the classroom is not blocked on Console setup.
  */
+/**
+ * Opens the board for the room.
+ *
+ * No Netless room is created. Nothing joins one: the client canvas was removed
+ * because white-web-sdk requires React 16 and this app is on React 19 (see
+ * ClassroomBoard for the full reasoning). Creating a room per session would be
+ * an API call and a failure surface for a canvas nobody renders, so the call is
+ * left out rather than made and ignored.
+ *
+ * `createWhiteboardRoom` and `joinPayload` are kept intact directly below, so
+ * restoring the canvas is a one-line change here if Netless ships React 18
+ * support.
+ */
 export async function openWhiteboard(session: ClassroomSession): Promise<void> {
   session.whiteboard.open = true;
   session.whiteboard.region = config.whiteboardRegion;
-  if (whiteboardConfigured() && !session.whiteboard.uuid) {
-    session.whiteboard.uuid = await createWhiteboardRoom();
-  }
   broadcastWhiteboard(session);
 }
 

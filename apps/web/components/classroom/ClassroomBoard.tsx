@@ -1,33 +1,33 @@
+/**
+ * The shared board: Athena's written lines over a paper ground.
+ *
+ * **Why there is no collaborative canvas here.** Agora Interactive Whiteboard's
+ * client SDK cannot run on this app. `white-web-sdk` — which every Fastboard
+ * package sits on — declares `react-dom: ^16.8.0` as a direct dependency and
+ * calls `ReactDOM.render` and `unmountComponentAtNode`, both removed in React
+ * 18. This app is on React 19. pnpm does nest a React 16 copy for it, but Next
+ * dedupes react-dom to one version at build time, so the nesting is defeated
+ * and those calls fail at runtime. There is no fixed release: 2.16.58 is the
+ * latest and still asks for React 16.
+ *
+ * Dropping it costs nothing today. Athena's annotation is orchestrator state
+ * broadcast over SSE and rendered below, which is the actual feature; the
+ * canvas would only add human freehand drawing, and that needs the Fastboard
+ * toolbar, which is React 16 as well. The server-side Netless room code is
+ * intact, so this can come back if Netless ships React 18 support.
+ */
+
 'use client';
 
-import { useState } from 'react';
-
-import dynamic from 'next/dynamic';
-import type { WhiteboardJoin, WhiteboardPublicState } from '@echosphere/shared-types';
-
-const FastboardPane = dynamic(
-  () => import('./FastboardPane').then((m) => m.FastboardPane),
-  { ssr: false, loading: () => <BoardSkeleton /> },
-);
+import type { WhiteboardPublicState } from '@echosphere/shared-types';
 
 export interface ClassroomBoardProps {
   board: WhiteboardPublicState | null;
-  join: WhiteboardJoin | null;
   joinError: string | null;
 }
 
-export function ClassroomBoard({ board, join, joinError }: ClassroomBoardProps) {
-  // A canvas failure (e.g. an SDK/React incompatibility) must not blank the
-  // board: Athena's lines are rendered by this component, not by the canvas.
-  // Declared before the early return — hooks must run in the same order every
-  // render, and `board.open` flips at runtime.
-  const [canvasFailed, setCanvasFailed] = useState(false);
-
+export function ClassroomBoard({ board, joinError }: ClassroomBoardProps) {
   if (!board?.open) return null;
-
-  const agoraLive =
-    !canvasFailed &&
-    Boolean(join?.agoraReady && join.uuid && join.roomToken && join.appIdentifier);
 
   return (
     <section
@@ -40,18 +40,12 @@ export function ClassroomBoard({ board, join, joinError }: ClassroomBoardProps) 
           <h2 className="eco-label">Whiteboard</h2>
         </div>
         <p className="text-xs text-[var(--eco-cream-faint)]">
-          {agoraLive
-            ? 'Agora Interactive Whiteboard · say “write … on the board”'
-            : 'Voice board · say “write LCD on the board”'}
+          Athena writes here · or say “write … on the board”
         </p>
       </header>
 
       <div className="relative min-h-[16rem] flex-1 bg-[#f6f1e4]">
-        {agoraLive && join ? (
-          <FastboardPane join={join} onUnavailable={() => setCanvasFailed(true)} />
-        ) : (
-          <PaperGrid />
-        )}
+        <PaperGrid />
 
         {board.cards.length > 0 && (
           <ul className="pointer-events-none absolute inset-x-3 top-3 z-10 flex max-h-[70%] flex-col gap-2 overflow-y-auto">
@@ -74,13 +68,6 @@ export function ClassroomBoard({ board, join, joinError }: ClassroomBoardProps) 
       {joinError && (
         <p className="px-3 py-2 text-xs text-[var(--eco-amber)]">{joinError}</p>
       )}
-      {!agoraLive && !joinError && (
-        <p className="px-3 py-1.5 text-[11px] text-[var(--eco-cream-faint)]">
-          Drawing sync uses Agora Interactive Whiteboard. Add
-          WHITEBOARD_APP_IDENTIFIER and WHITEBOARD_SDK_TOKEN on the orchestrator
-          to enable Fastboard. Voice notes still appear for everyone.
-        </p>
-      )}
     </section>
   );
 }
@@ -98,10 +85,3 @@ function PaperGrid() {
   );
 }
 
-function BoardSkeleton() {
-  return (
-    <div className="flex h-full min-h-[16rem] items-center justify-center text-sm text-stone-400">
-      Connecting board…
-    </div>
-  );
-}

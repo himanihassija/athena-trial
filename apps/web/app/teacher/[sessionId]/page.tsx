@@ -257,7 +257,6 @@ export default function TeacherDashboardPage() {
       content: (
         <ClassroomBoard
           board={view.whiteboard}
-          join={view.whiteboardJoin}
           joinError={view.whiteboardJoinError}
         />
       ),

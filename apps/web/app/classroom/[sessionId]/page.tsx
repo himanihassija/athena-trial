@@ -147,7 +147,6 @@ export default function ClassroomPage() {
       content: (
         <ClassroomBoard
           board={view.whiteboard}
-          join={view.whiteboardJoin}
           joinError={view.whiteboardJoinError}
         />
       ),
