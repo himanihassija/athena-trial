@@ -214,4 +214,49 @@ await t('an un-permitted autonomous turn being cut drives the meter to held-back
   assert.equal(session.restraintMeterState, 'held-back');
 });
 
+/**
+ * The live failure this pins: the teacher addressed Athena by name, the floor
+ * was granted, and she was cut off mid-word — "I can't draw a".
+ *
+ * A turn is authorised on its first state change, which consumes the standing
+ * permit and sets authorizedTurnInProgress. Any non-starting state clears that
+ * flag. So one stray or out-of-order 'listening' between 'thinking' and
+ * 'speaking' left the turn with neither flag nor permit, and the next
+ * 'speaking' was interrupted as un-permitted. Agent state arrives over RTM and
+ * is not guaranteed ordered or complete, so this is reachable in normal use.
+ */
+await t('a stray state mid-turn does not cut off an authorised turn', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  const started = await handleAgentState(session, 'thinking');
+  assert.equal(started.interrupted, false, 'a granted turn must be allowed to start');
+
+  // The engine reports a momentary non-speaking state mid-turn.
+  await handleAgentState(session, 'listening');
+
+  const resumed = await handleAgentState(session, 'speaking');
+  assert.equal(
+    resumed.interrupted,
+    false,
+    'she must not be cut off partway through a turn she was granted',
+  );
+});
+
+await t('a genuinely new turn after one ends still needs its own permit', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'silent');
+
+  // Well past any continuation window: an unrelated later turn must not ride
+  // on the invitation meant for the finished one.
+  session.lastAuthorisedTurnAt = Date.now() - 60_000;
+  const next = await handleAgentState(session, 'speaking');
+  assert.equal(next.interrupted, true, 'an unrelated later turn must be interrupted');
+});
+
 console.log(`\n${pass} passing`);

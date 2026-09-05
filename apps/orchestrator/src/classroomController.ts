@@ -145,6 +145,22 @@ export function requestFloor(
  */
 const SPEAK_PERMIT_TTL_MS = 15_000;
 
+/**
+ * How long after a turn was authorised a further starting state still counts as
+ * that same turn.
+ *
+ * Agent state arrives over RTM, which is neither ordered nor guaranteed. A
+ * momentary 'listening' between 'thinking' and 'speaking' clears
+ * `authorizedTurnInProgress`, and because the standing permit is consumed when
+ * the turn is authorised, the next 'speaking' had neither — so a turn the
+ * teacher had explicitly asked for was cut off mid-word.
+ *
+ * Deliberately short. It has to cover a gap in state delivery, not license a
+ * later unrelated turn; the mute and barge-in paths call `interruptAgent`
+ * directly and clear the timestamp, so neither can be ridden out by this.
+ */
+const TURN_CONTINUATION_MS = 8_000;
+
 export function grantSpeakPermit(
   session: ClassroomSession,
   reason: SpeakTrigger,
@@ -167,6 +183,9 @@ export function hasSpeakPermit(session: ClassroomSession): boolean {
 export function clearSpeakPermit(session: ClassroomSession): void {
   session.speakPermit = null;
   session.authorizedTurnInProgress = false;
+  // Closed too: otherwise a mute or barge-in would be undone by the
+  // continuation window it is meant to override.
+  session.lastAuthorisedTurnAt = null;
 }
 
 /**
@@ -199,7 +218,20 @@ export async function handleAgentState(
   // than waiting for this function to notice on its next poll.
   if (session.authorizedTurnInProgress) return { interrupted: false };
 
-  if (session.policy.muted || !hasSpeakPermit(session)) {
+  // Still the turn authorised a moment ago, resurfacing after a gap in state
+  // delivery rather than starting a new one.
+  //
+  // Only 'speaking' qualifies, and that distinction is the whole point:
+  // 'thinking' means the model is generating, which is genuinely how a NEW turn
+  // begins, so it must always present its own permit. 'speaking' is the engine
+  // continuing to voice a turn it already started. Allowing both would let an
+  // unrelated later turn inherit clearance meant for the finished one.
+  const continuingAuthorisedTurn =
+    state === 'speaking' &&
+    session.lastAuthorisedTurnAt !== null &&
+    Date.now() - session.lastAuthorisedTurnAt <= TURN_CONTINUATION_MS;
+
+  if (session.policy.muted || (!hasSpeakPermit(session) && !continuingAuthorisedTurn)) {
     await interruptAgent(session.sessionId).catch(() => undefined);
     releaseFloor(session);
     clearSpeakPermit(session);
@@ -227,6 +259,7 @@ export async function handleAgentState(
   // consume the standing permit, so a later, unrelated turn cannot ride on an
   // invitation meant for this one.
   session.authorizedTurnInProgress = true;
+  session.lastAuthorisedTurnAt = Date.now();
   session.speakPermit = null;
   setRestraintMeter(session, 'speaking');
   return { interrupted: false };

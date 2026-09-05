@@ -95,6 +95,14 @@ export interface ClassroomSession {
    * revocation can stop it early.
    */
   authorizedTurnInProgress: boolean;
+  /**
+   * When the last turn was authorised. Agent state arrives over RTM and is
+   * neither ordered nor guaranteed, so a momentary non-speaking state can clear
+   * `authorizedTurnInProgress` while she is still mid-sentence. This lets a
+   * state change arriving just after that be recognised as the same turn
+   * continuing rather than a new, un-permitted one.
+   */
+  lastAuthorisedTurnAt: number | null;
 
   /**
    * A quiz the agent has been asked to pose but has not reported yet.
@@ -209,6 +217,7 @@ export function createSession(title: string): ClassroomSession {
     activeQuestionerId: null,
     speakPermit: null,
     authorizedTurnInProgress: false,
+    lastAuthorisedTurnAt: null,
     pendingQuiz: null,
     activeQuizSet: null,
     transcript: [],
