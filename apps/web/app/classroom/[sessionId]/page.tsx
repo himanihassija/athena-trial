@@ -411,46 +411,52 @@ export default function ClassroomPage() {
         </p>
       )}
 
+      {/* The stage lives INSIDE the shell because ScreenShareStage calls
+          agora-rtc-react hooks, which need the AgoraRTCProvider the shell
+          renders. Sitting outside it threw "Agora RTC client not found" the
+          moment a share began. The teacher page already had this shape. */}
       <ClassroomShell identity={identity}>
         {(rtm) => (
-          <ClassroomAudio
-            sessionId={sessionId}
-            channel={identity.channel}
-            appId={identity.appId}
-            uid={identity.uid}
-            rtcToken={identity.rtcToken}
-            rtmClient={rtm}
-            agentUid={identity.agentUid}
-            isRelay={false}
-            micEnabled={micEnabled}
-            onToolkitReady={setTranscriptionLive}
-            onToolkitError={setTranscriptionError}
-            onMicError={setMicError}
-            onSpeakingChange={setSpeakingUid}
-          />
+          <>
+            <ClassroomAudio
+              sessionId={sessionId}
+              channel={identity.channel}
+              appId={identity.appId}
+              uid={identity.uid}
+              rtcToken={identity.rtcToken}
+              rtmClient={rtm}
+              agentUid={identity.agentUid}
+              isRelay={false}
+              micEnabled={micEnabled}
+              onToolkitReady={setTranscriptionLive}
+              onToolkitError={setTranscriptionError}
+              onMicError={setMicError}
+              onSpeakingChange={setSpeakingUid}
+            />
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              {view.activeScreenShare ? (
+                <ScreenShareStage
+                  isSharing={isScreenSharing}
+                  onSharingEnded={stopScreenShareFromBrowser}
+                  activeScreenShare={view.activeScreenShare}
+                  selfUid={identity.uid}
+                />
+              ) : (
+                <ParticipantGrid
+                  participants={view.participants}
+                  agentPresent={Boolean(view.room?.agentId)}
+                  agentUid={identity.agentUid}
+                  speakingUid={speakingUid}
+                  selfUid={identity.uid}
+                  selfMicEnabled={micEnabled}
+                  raisedHands={view.raisedHands}
+                />
+              )}
+            </div>
+          </>
         )}
       </ClassroomShell>
-
-      <div className="flex min-h-0 flex-1 flex-col">
-        {view.activeScreenShare ? (
-          <ScreenShareStage
-            isSharing={isScreenSharing}
-            onSharingEnded={stopScreenShareFromBrowser}
-            activeScreenShare={view.activeScreenShare}
-            selfUid={identity.uid}
-          />
-        ) : (
-          <ParticipantGrid
-            participants={view.participants}
-            agentPresent={Boolean(view.room?.agentId)}
-            agentUid={identity.agentUid}
-            speakingUid={speakingUid}
-            selfUid={identity.uid}
-            selfMicEnabled={micEnabled}
-            raisedHands={view.raisedHands}
-          />
-        )}
-      </div>
 
       <ClassroomDrawer
         open={menuOpen}
