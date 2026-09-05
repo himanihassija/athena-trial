@@ -21,6 +21,8 @@ import { rankedGaps } from '../gaps/gapDetector.js';
 import { tryComplete } from '../llm/complete.js';
 import { getWorkspaceState } from '../workspace/workspaceManager.js';
 import { getTargetedReadings } from './targetedReading.js';
+import { Resend } from 'resend';
+import { config } from '../config.js';
 
 export async function generateAbsentStudentPacket(
   session: ClassroomSession,
@@ -148,6 +150,15 @@ Format response as JSON:
 import type { AbsentDispatchPayload, AbsentDispatchResult, DispatchChannel } from '@echosphere/shared-types';
 import { randomUUID } from 'node:crypto';
 
+/**
+ * Hardcoded parent recipients for the absent-notification email, per current
+ * setup — every dispatched "email" channel goes to both addresses regardless
+ * of what the caller passed in `payload.recipientEmail`.
+ */
+const PARENT_RECIPIENTS = [
+  'himanihassija@gmail.com',
+];
+
 export async function dispatchAbsentPacket(
   session: ClassroomSession,
   payload: AbsentDispatchPayload,
@@ -188,61 +199,44 @@ https://echosphere.classroom/session/${session.sessionId}/catchup`;
     ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`
     : `https://api.whatsapp.com/send?text=${encodedMsg}`;
 
-  // 2. Compose Rich HTML Email Digest
-  const emailSubject = `[Athena Co-Teacher] Catch-up Notes & Diagnostic for ${session.title} (${studentName})`;
+  // 2. Compose the parent notification email — short, hardcoded message per
+  // current requirements, distinct from the richer student-facing digest
+  // above. Sent to PARENT_RECIPIENTS regardless of payload.recipientEmail.
+  const emailSubject = `Your ward missed today's class — ${session.title}`;
   const emailBodyHtml = `
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/><style>
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; margin: 0; padding: 24px; }
-.card { background: #ffffff; max-width: 620px; margin: 0 auto; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; }
-.header { background: #0f172a; color: #ffffff; padding: 20px 24px; }
-.header h1 { margin: 0 0 4px 0; font-size: 20px; }
-.content { padding: 24px; }
-.highlight { background: #f1f5f9; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0; border-radius: 4px; }
-.quiz { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin: 16px 0; }
-.btn { display: inline-block; background: #0f172a; color: #ffffff !important; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; margin-top: 12px; }
-</style></head>
-<body>
-<div class="card">
-  <div class="header">
-    <h1>Athena EchoSphere · Classroom Catch-Up</h1>
-    <p style="margin: 0; opacity: 0.8; font-size: 13px;">Lesson: <strong>${session.title}</strong> · Duration: ${packet.durationMinutes} mins</p>
-  </div>
-  <div class="content">
-    <p>Dear ${studentName} & Family,</p>
-    <p>Here is your personalized AI Co-Teacher packet summarizing today's live lecture so you do not miss a beat.</p>
-    
-    <div class="highlight">
-      <strong>Executive Summary:</strong>
-      <p style="margin: 4px 0 0 0;">${packet.executiveSummary}</p>
-    </div>
-
-    <h3>Key Takeaways & Milestones:</h3>
-    <ul>
-      ${packet.keyTakeaways.map((t) => `<li>${t}</li>`).join('')}
-    </ul>
-
-    ${payload.parentNote ? `<p><strong>Teacher Note:</strong> ${payload.parentNote}</p>` : ''}
-
-    ${
-      payload.includeQuiz && packet.diagnosticQuiz.length > 0 && packet.diagnosticQuiz[0]
-        ? `<div class="quiz">
-            <h4 style="margin: 0 0 8px 0;">🎯 Quick Diagnostic Check:</h4>
-            <p style="margin: 0 0 8px 0;"><strong>Q1: ${packet.diagnosticQuiz[0].question}</strong></p>
-            <ul>${(packet.diagnosticQuiz[0].options ?? []).map((opt) => `<li>${opt}</li>`).join('')}</ul>
-          </div>`
-        : ''
-    }
-
-    <p style="text-align: center;">
-      <a href="https://echosphere.classroom/session/${session.sessionId}/catchup" class="btn">Open Full Interactive Packet & Quizzes</a>
-    </p>
-  </div>
-</div>
+<head><meta charset="utf-8"/></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1e293b;">
+  <p>Dear Parent,</p>
+  <p>I wanted to inform you that your ward had to miss the recent class (<strong>${session.title}</strong>).</p>
+  <p>A full catch-up packet with the lesson summary, key takeaways, and a quick diagnostic quiz has been prepared and can be shared on request.</p>
+  ${payload.parentNote ? `<p><strong>Teacher Note:</strong> ${payload.parentNote}</p>` : ''}
+  <p>Regards,<br/>Athena AI — Co-Teacher</p>
 </body>
 </html>
   `.trim();
+
+  // 3. Actually send the email via Resend when the email channel is requested
+  // and a key is configured. Failures are swallowed so a Resend outage or
+  // missing key does not block the rest of the dispatch (WhatsApp link, etc.)
+  // — same graceful-fallback posture as the rest of this codebase's optional
+  // integrations.
+  if (channels.includes('email') && config.resendApiKey) {
+    try {
+      const resend = new Resend(config.resendApiKey);
+      await resend.emails.send({
+        from: 'Athena AI <onboarding@resend.dev>',
+        to: PARENT_RECIPIENTS,
+        subject: emailSubject,
+        html: emailBodyHtml,
+      });
+    } catch (err) {
+      console.error('[absentPacket] Resend send failed:', err);
+    }
+  } else if (channels.includes('email') && !config.resendApiKey) {
+    console.warn('[absentPacket] RESEND_API_KEY not configured — email not sent.');
+  }
 
   return {
     ok: true,
@@ -258,4 +252,3 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
     deliveryReceiptId: receiptId,
   };
 }
-

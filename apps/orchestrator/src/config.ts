@@ -66,6 +66,7 @@ export const config = {
    * it ends.
    */
   databaseUrl: process.env.DATABASE_URL,
+  resendApiKey: process.env.RESEND_API_KEY,
 
   /**
    * Agora Interactive Whiteboard (a separate product from RTC/RTM/ConvoAI, and

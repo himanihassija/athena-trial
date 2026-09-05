@@ -217,12 +217,12 @@ export function MiroWorkspacePane({
                 <div
                   key={note.id}
                   style={{ '--note-hue': noteHue } as CSSProperties}
-                  className={`eco-sticky group relative flex flex-col justify-between rounded-xl p-4 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl ${
+                  className={`eco-sticky group relative flex min-w-0 flex-col justify-between overflow-hidden rounded-xl p-4 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl ${
                     isResolved ? 'opacity-70 saturate-50' : ''
                   }`}
                 >
                   {/* Category Header */}
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase ${catMeta.bg} ${catMeta.text}`}>
                         {catMeta.label}
@@ -234,23 +234,23 @@ export function MiroWorkspacePane({
                       )}
                     </div>
 
-                    <h3 className="mt-2 text-sm font-semibold text-[var(--eco-cream)] break-words">
+                    <h3 className="mt-2 min-w-0 break-words text-sm font-semibold text-[var(--eco-cream)]">
                       {note.topic}
                     </h3>
 
-                    <p className="mt-1.5 break-words text-xs leading-relaxed text-[var(--eco-cream)]/90">
+                    <p className="mt-1.5 min-w-0 break-words text-xs leading-relaxed text-[var(--eco-cream)]/90">
                       {note.content}
                     </p>
 
                     {note.suggestedAnswer && (
-                      <div className="mt-2 rounded-lg bg-[var(--eco-ink-sunken)] p-2 text-[11px] text-[var(--eco-amber)]/90 border border-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)]">
+                      <div className="mt-2 min-w-0 break-words rounded-lg bg-[var(--eco-ink-sunken)] p-2 text-[11px] text-[var(--eco-amber)]/90 border border-[color-mix(in_srgb,var(--eco-amber)_20%,transparent)]">
                         <span className="font-semibold text-[var(--eco-amber)]">Suggested by Athena: </span>
                         {note.suggestedAnswer}
                       </div>
                     )}
 
                     {note.heldBackReason && (
-                      <p className="mt-2 text-[10px] italic text-[var(--eco-cream-faint)]">
+                      <p className="mt-2 min-w-0 break-words text-[10px] italic text-[var(--eco-cream-faint)]">
                         Reason held back: {note.heldBackReason}
                       </p>
                     )}
