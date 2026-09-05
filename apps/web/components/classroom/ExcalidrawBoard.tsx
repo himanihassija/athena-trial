@@ -23,6 +23,12 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef } from 'react';
 import type { BoardElement } from '@echosphere/shared-types';
 
+// Excalidraw ships its stylesheet separately and renders unstyled without it —
+// icons at natural SVG size, toolbar labels as loose text, no layout. Imported
+// here rather than in globals.css so it loads with the lazy chunk instead of on
+// every page.
+import '@excalidraw/excalidraw/index.css';
+
 /** Roughly ten posts a second: smooth to watch, ~40x less traffic than raw. */
 const SYNC_INTERVAL_MS = 100;
 
