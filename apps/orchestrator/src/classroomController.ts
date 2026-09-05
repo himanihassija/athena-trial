@@ -366,6 +366,13 @@ export async function ingestTranscript(
   }
 
   if (uid === AGENT_UID) {
+    // A re-emission of a turn already held was fully handled by the upsert
+    // above: the stored row was rewritten with the longer text and republished.
+    // Running the turn again here would append a second copy of it — which is
+    // exactly what happened when the early return below was lifted so that
+    // human turns could reach the board and wake-phrase checks. One spoken quiz
+    // question was recorded twenty-four times, all under the same turn id.
+    if (alreadyStored) return;
     if (isFinal) ingestAgentTurn(session, text, now, turnId, language);
     return;
   }

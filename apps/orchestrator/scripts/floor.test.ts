@@ -447,4 +447,23 @@ await t('an untracked turn acts immediately', () => {
   assert.equal(ran, true);
 });
 
+await t('one agent turn relayed repeatedly is stored once', async () => {
+  // The recogniser re-sends Athena's turn as her sentence completes. Each
+  // relay used to append another copy, so a single quiz question filled the
+  // transcript with two dozen identical rows.
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
+
+  const relay = (text: string) =>
+    ingestTranscript(session, { uid: '123456', turnId: 12, text, isFinal: true });
+
+  await relay('Which of the following numbers is odd?');
+  await relay('Which of the following numbers is odd? Option A: Two.');
+  await relay('Which of the following numbers is odd? Option A: Two. Option B: Four.');
+
+  const agentRows = session.transcript.filter((seg) => seg.speaker === 'agent');
+  assert.equal(agentRows.length, 1, 'one spoken turn is one row');
+  assert.match(String(agentRows[0]?.text), /Option B: Four/, 'holding the complete sentence');
+});
+
 console.log(`\n${pass} passing`);
