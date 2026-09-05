@@ -22,6 +22,8 @@ export interface WhiteboardPublicState {
   uuid: string | null;
   /** True when Agora Interactive Whiteboard credentials are configured. */
   agoraReady: boolean;
+  /** Teacher has asked Athena to annotate what she hears. */
+  annotating: boolean;
   cards: WhiteboardCard[];
 }
 

@@ -149,6 +149,13 @@ export interface ClassroomSession {
     region: string;
     uuid: string | null;
     cards: WhiteboardPublicState['cards'];
+    /**
+     * Athena only annotates while the teacher has this on. Without a gate she
+     * would write on every turn that happened to contain a definition, which
+     * floods a board nobody asked her to touch. Explicit teacher intent is the
+     * whole point of the feature.
+     */
+    annotating: boolean;
   };
 
   workspace?: import('@echosphere/shared-types').MiroWorkspaceState;
@@ -210,6 +217,7 @@ export function createSession(title: string): ClassroomSession {
       region: config.whiteboardRegion,
       uuid: null,
       cards: [],
+      annotating: false,
     },
     raisedHands: new Set(),
     screenShareAllowed: new Set(),

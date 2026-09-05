@@ -25,6 +25,7 @@ import {
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
+import { ClassroomBoard } from '@/components/classroom/ClassroomBoard';
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { MiroWorkspacePane } from '@/components/workspace/MiroWorkspacePane';
 import { AbsentStudentPacketModal } from '@/components/support/AbsentStudentPacketModal';
@@ -140,6 +141,17 @@ export default function ClassroomPage() {
     view.activeScreenShare.participantId !== identity.participantId;
 
   const tabs: DrawerTab[] = [
+    {
+      id: 'board',
+      label: 'Board',
+      content: (
+        <ClassroomBoard
+          board={view.whiteboard}
+          join={view.whiteboardJoin}
+          joinError={view.whiteboardJoinError}
+        />
+      ),
+    },
     {
       id: 'workspace',
       label: 'Workspace',

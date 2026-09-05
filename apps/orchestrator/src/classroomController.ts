@@ -65,6 +65,8 @@ import {
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
 import { rememberAgentUtterance, stripSelfEcho } from './agent/echo.js';
+import { applyBoardCommand } from './whiteboard/boardSession.js';
+import { parseVoiceBoardCommand } from './whiteboard/voice.js';
 import { recordHeldBackDoubt } from './workspace/workspaceManager.js';
 import { suggestReadingForGap } from './support/targetedReading.js';
 import { publish, publishTo, publishToTeachers } from './state/eventBus.js';
@@ -408,6 +410,15 @@ export async function ingestTranscript(
     }
   }
 
+  const boardSpeech = parseVoiceBoardCommand(spokenText);
+  if (boardSpeech && (participant.role === 'teacher' || addressed)) {
+    applyBoardCommand(session, {
+      action: boardSpeech.action,
+      text: boardSpeech.text,
+      source: participant.role === 'teacher' ? 'teacher' : 'athena',
+    });
+  }
+
   if (participant.role !== 'student') {
     broadcastFloor(session);
     return;
@@ -537,6 +548,21 @@ export function applyControl(
     if (ids.length > 0) {
       const update = recordReportedGap(session, control.gap.topic, ids);
       if (update?.gap) void suggestReadingForGap(session, update.gap);
+    }
+  }
+
+  if (control.board) {
+    // Gated on annotate mode: Athena may judge something board-worthy at any
+    // time, but she only writes while the teacher has asked her to. `show`,
+    // `hide` and `clear` are board control rather than content, so they are
+    // allowed through either way.
+    const isContent = control.board.action === 'write';
+    if (!isContent || session.whiteboard.annotating) {
+      applyBoardCommand(session, {
+        action: control.board.action,
+        text: control.board.text,
+        source: 'athena',
+      });
     }
   }
 

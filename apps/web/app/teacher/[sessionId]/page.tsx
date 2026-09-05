@@ -33,6 +33,8 @@ import {
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
+import { ClassroomBoard } from '@/components/classroom/ClassroomBoard';
+import { AnnotateToggle } from '@/components/classroom/AnnotateToggle';
 import { ScreenShareControls } from '@/components/classroom/ScreenShareControls';
 import { ClassroomDrawer, type DrawerTab } from '@/components/classroom/ClassroomDrawer';
 import { useClassroom } from '@/hooks/useClassroom';
@@ -249,6 +251,17 @@ export default function TeacherDashboardPage() {
     view.activeScreenShare.participantId !== identity.participantId;
 
   const tabs: DrawerTab[] = [
+    {
+      id: 'board',
+      label: 'Board',
+      content: (
+        <ClassroomBoard
+          board={view.whiteboard}
+          join={view.whiteboardJoin}
+          joinError={view.whiteboardJoinError}
+        />
+      ),
+    },
     {
       id: 'controls',
       label: 'Controls',
@@ -559,6 +572,13 @@ export default function TeacherDashboardPage() {
           >
             {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
           </button>
+
+          <AnnotateToggle
+            board={view.whiteboard}
+            /* This tab can only write once it holds a live board connection. */
+            writerReady={Boolean(view.whiteboardJoin && !view.whiteboardJoinError)}
+            onToggle={(on) => void view.setAnnotating(on)}
+          />
 
           <FloorIndicator floor={view.floor} policy={view.policy} />
           <button

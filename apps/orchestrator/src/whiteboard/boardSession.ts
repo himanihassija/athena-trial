@@ -21,6 +21,7 @@ export function publicWhiteboard(session: ClassroomSession): WhiteboardPublicSta
     region: board.region,
     uuid: board.uuid,
     agoraReady: whiteboardConfigured() && Boolean(board.uuid),
+    annotating: board.annotating,
     cards: board.cards,
   };
 }

@@ -39,6 +39,12 @@ import { persistSessionEnd } from '../report/persist.js';
 import { closeRoom, publish, subscribe } from '../state/eventBus.js';
 import { answerCatchup, catchupHistory } from '../catchup/answer.js';
 import {
+  broadcastWhiteboard,
+  joinPayload,
+  openWhiteboard,
+  publicWhiteboard,
+} from '../whiteboard/boardSession.js';
+import {
   getWorkspaceState,
   addStickyNote,
   updateStickyNote,
@@ -232,6 +238,19 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       // enforcement path treats it as an uninvited turn and cuts it off after
       // the first two words.
       grantSpeakPermit(session, 'TEACHER_INVOKED');
+      // Best-effort: a Netless outage or missing credentials must not stop the
+      // agent joining. The overlay still opens and renders spoken board cards;
+      // only the collaborative canvas behind them is absent.
+      try {
+        await openWhiteboard(session);
+      } catch (boardError) {
+        request.log.warn({ err: boardError }, 'whiteboard room create failed; overlay opens without canvas');
+        session.whiteboard.open = true;
+        publish(session.sessionId, {
+          kind: 'echosphere:whiteboard',
+          board: publicWhiteboard(session),
+        });
+      }
       publish(session.sessionId, { kind: 'echosphere:room-state', state: roomState(session) });
       return reply.send({ agentId, state: 'RUNNING' });
     } catch (error) {
@@ -254,6 +273,58 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     const session = requireSession(request, reply);
     if (!session) return;
     return reply.send((await agentStatus(session.sessionId)) ?? { agentId: null, status: 'idle' });
+  });
+
+  app.post('/api/sessions/:sessionId/whiteboard/annotate', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, annotating } = z
+      .object({ participantId: z.string(), annotating: z.boolean() })
+      .parse(request.body);
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only the teacher can start annotation' });
+    }
+    session.whiteboard.annotating = annotating;
+    if (annotating) {
+      // Opening the board also creates the Netless room if one does not exist
+      // yet. Without this the teacher could switch annotation on and get an
+      // open-but-empty board, because the room was previously only created
+      // when the agent joined — and annotation does not require an agent.
+      try {
+        await openWhiteboard(session);
+      } catch (boardError) {
+        request.log.warn({ err: boardError }, 'whiteboard room create failed; annotating without canvas');
+        session.whiteboard.open = true;
+      }
+    }
+    broadcastWhiteboard(session);
+    return reply.send({
+      ok: true,
+      annotating,
+      agoraReady: publicWhiteboard(session).agoraReady,
+    });
+  });
+
+  app.get('/api/sessions/:sessionId/whiteboard', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId } = z
+      .object({ participantId: z.string() })
+      .parse(request.query);
+    const participant = session.participants.get(participantId);
+    if (!participant || participant.leftAt !== undefined) {
+      return reply.code(403).send({ error: 'Unknown participant' });
+    }
+    try {
+      return reply.send(
+        await joinPayload(session, participant.uid, participant.role === 'teacher'),
+      );
+    } catch (error) {
+      request.log.error({ err: error }, 'whiteboard join failed');
+      return reply.code(502).send({
+        error: error instanceof Error ? error.message : 'Whiteboard join failed',
+      });
+    }
   });
 
   app.post('/api/sessions/:sessionId/catchup', async (request, reply) => {
@@ -957,6 +1028,7 @@ function roomState(session: ClassroomSession): RoomState {
     targetedReadings: getTargetedReadings(session),
     catchupSlots: getCatchupSlots(session),
     raisedHands: Array.from(session.raisedHands),
+    whiteboard: publicWhiteboard(session),
     screenShareAllowed: Array.from(session.screenShareAllowed),
     activeScreenShare: session.activeScreenShare,
   };

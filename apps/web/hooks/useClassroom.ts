@@ -26,6 +26,8 @@ import type {
   TargetedReadingItem,
   CatchupAvailabilitySlot,
   LanguageCode,
+  WhiteboardJoin,
+  WhiteboardPublicState,
 } from '@echosphere/shared-types';
 import { orchestrator } from '@/lib/orchestrator';
 
@@ -78,6 +80,10 @@ export interface ClassroomView {
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   restraintScore?: number;
   celebration: CelebrationTrigger | null;
+  whiteboard: WhiteboardPublicState | null;
+  whiteboardJoin: WhiteboardJoin | null;
+  whiteboardJoinError: string | null;
+  setAnnotating: (on: boolean) => Promise<void>;
   workspace: MiroWorkspaceState | null;
   targetedReadings: TargetedReadingItem[];
   catchupSlots: CatchupAvailabilitySlot[];
@@ -114,6 +120,9 @@ export function useClassroom(
   const [restraintMeterState, setRestraintMeterState] = useState<'listening' | 'ready' | 'held-back' | 'speaking'>('listening');
   const [restraintScore, setRestraintScore] = useState<number | undefined>(undefined);
   const [celebration, setCelebration] = useState<CelebrationTrigger | null>(null);
+  const [whiteboard, setWhiteboard] = useState<WhiteboardPublicState | null>(null);
+  const [whiteboardJoin, setWhiteboardJoin] = useState<WhiteboardJoin | null>(null);
+  const [whiteboardJoinError, setWhiteboardJoinError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<MiroWorkspaceState | null>(null);
   const [targetedReadings, setTargetedReadings] = useState<TargetedReadingItem[]>([]);
   const [catchupSlots, setCatchupSlots] = useState<CatchupAvailabilitySlot[]>([]);
@@ -134,6 +143,7 @@ export function useClassroom(
         setEnded(event.state.endedAt !== null);
         setSuppressedInterventions(event.state.suppressedInterventions ?? []);
         setRestraintMeterState(event.state.restraintMeterState ?? 'listening');
+        if (event.state.whiteboard) setWhiteboard(event.state.whiteboard);
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
         // Restored: the screen-share merge dropped these two, which is what
@@ -280,6 +290,15 @@ export function useClassroom(
         // carry the effect. Nothing to mirror here.
         break;
 
+      case 'echosphere:whiteboard':
+        setWhiteboard(event.board);
+        break;
+
+      case 'echosphere:whiteboard-command':
+        // The board's own state event carries the result; this exists so the
+        // teacher's tab can act as the writer without re-deriving intent.
+        break;
+
       case 'echosphere:workspace-changed':
         setWorkspace(event.workspace);
         break;
@@ -396,6 +415,41 @@ export function useClassroom(
     setMyLanguage(lang);
   }, []);
 
+  const setAnnotating = useCallback(
+    async (on: boolean) => {
+      if (!participantId) return;
+      await orchestrator.setAnnotating(sessionId, participantId, on).catch(() => undefined);
+    },
+    [sessionId, participantId],
+  );
+
+  // The room token is role-scoped, so it is fetched per participant rather than
+  // broadcast with room state. Re-fetched when the board reopens or its room
+  // changes, since a token is bound to one room.
+  useEffect(() => {
+    if (!participantId || !whiteboard?.open) {
+      setWhiteboardJoin(null);
+      return;
+    }
+    let cancelled = false;
+    void orchestrator
+      .getWhiteboard(sessionId, participantId)
+      .then((payload) => {
+        if (cancelled) return;
+        setWhiteboardJoin(payload);
+        setWhiteboardJoinError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setWhiteboardJoinError(
+          err instanceof Error ? err.message : 'Could not join the board',
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, participantId, whiteboard?.open, whiteboard?.uuid]);
+
   const refreshWorkspace = useCallback(async () => {
     try {
       const ws = await orchestrator.getWorkspace(sessionId);
@@ -469,6 +523,10 @@ export function useClassroom(
     restraintMeterState,
     restraintScore,
     celebration,
+    whiteboard,
+    whiteboardJoin,
+    whiteboardJoinError,
+    setAnnotating,
     workspace,
     targetedReadings,
     catchupSlots,

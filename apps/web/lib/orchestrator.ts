@@ -16,6 +16,7 @@ import type {
   TranscriptSegment,
   CatchupReply,
   CatchupMessage,
+  WhiteboardJoin,
 } from '@echosphere/shared-types';
 
 const BASE =
@@ -149,6 +150,18 @@ export const orchestrator = {
       method: 'POST',
       body: JSON.stringify({ state }),
     }),
+
+  /** Role-scoped room token, so it cannot ride along with broadcast room state. */
+  getWhiteboard: (sessionId: string, participantId: string) =>
+    request<WhiteboardJoin>(
+      `/api/sessions/${sessionId}/whiteboard?participantId=${encodeURIComponent(participantId)}`,
+    ),
+
+  setAnnotating: (sessionId: string, participantId: string, annotating: boolean) =>
+    request<{ ok: true; annotating: boolean }>(
+      `/api/sessions/${sessionId}/whiteboard/annotate`,
+      { method: 'POST', body: JSON.stringify({ participantId, annotating }) },
+    ),
 
   askCatchup: (sessionId: string, participantId: string, text: string) =>
     request<CatchupReply>(`/api/sessions/${sessionId}/catchup`, {
