@@ -194,6 +194,9 @@ export interface ClassroomSession {
   /** Who is currently sharing, if anyone — only one screen at a time. */
   activeScreenShare: { participantId: string; displayName: string } | null;
 
+  /** Primary classroom language (e.g. 'en', 'fr', 'es', 'hi', 'de', 'ta', 'te'). */
+  language: import('@echosphere/shared-types').LanguageCode;
+
   /** Private catch-up threads, keyed by student participantId. */
   catchupByParticipant: Map<string, CatchupMessage[]>;
 }
@@ -218,6 +221,7 @@ export function createSession(title: string): ClassroomSession {
     sessionId,
     channel: `echosphere-${sessionId}`,
     title,
+    language: 'en',
     createdAt: now,
     endedAt: null,
     agentId: null,

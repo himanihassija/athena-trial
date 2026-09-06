@@ -163,6 +163,7 @@ export interface RoomState {
   whiteboard?: WhiteboardPublicState;
   screenShareAllowed?: string[];
   activeScreenShare?: { participantId: string; displayName: string } | null;
+  language?: LanguageCode;
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

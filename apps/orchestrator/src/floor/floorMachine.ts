@@ -235,6 +235,32 @@ const AGENT_NAME_VARIANTS = [
   'serena',
   'aetna',
   'anthena',
+  'atena',
+  'atene',
+  'athene',
+];
+
+const MULTILINGUAL_GREETINGS = [
+  'hey',
+  'hi',
+  'hello',
+  'ok',
+  'okay',
+  'bonjour',
+  'salut',
+  'hola',
+  'oye',
+  'hallo',
+  'guten tag',
+  'namaste',
+  'namaskar',
+  'vanakkam',
+  'namaskaram',
+  'dis',
+  'dites',
+  'ecoute',
+  'ecoutez',
+  'ohe',
 ];
 
 function normalise(text: string): string {
@@ -278,12 +304,11 @@ export function stripWakePhrase(text: string, wakePhrase: string): string {
 
   let out = text.replace(new RegExp(`\\b${words}\\b[\\s,!?.]*`, 'ig'), '');
 
-  // Also strip a bare (or mis-heard) name, optionally preceded by a greeting.
-  // Whatever the recogniser called the agent is not what the student is
-  // confused about, and leaving it in makes it the apparent topic.
+  // Also strip a bare (or mis-heard) name, optionally preceded by a greeting in any supported language.
   const names = AGENT_NAME_VARIANTS.join('|');
+  const greetings = MULTILINGUAL_GREETINGS.join('|');
   out = out.replace(
-    new RegExp(`\\b(hey|hi|hello|ok|okay)?[\\s,]*(${names})\\b[\\s,!?.]*`, 'ig'),
+    new RegExp(`\\b(${greetings})?[\\s,]*(${names})\\b[\\s,!?.]*`, 'ig'),
     '',
   );
 

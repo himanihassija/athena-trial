@@ -436,7 +436,17 @@ export const orchestrator = {
       body: JSON.stringify({ participantId, sharing }),
     }),
 
-  // ─── Multilingual Real-Time Translation ────────────────────────────────────
+  // ─── Multilingual Real-Time Translation & Language Mode ───────────────────
+
+  setLanguage: (
+    sessionId: string,
+    participantId: string,
+    language: import('@echosphere/shared-types').LanguageCode,
+  ) =>
+    request<{ ok: boolean; language: import('@echosphere/shared-types').LanguageCode }>(
+      `/api/sessions/${sessionId}/language`,
+      { method: 'POST', body: JSON.stringify({ participantId, language }) },
+    ),
 
   translateText: (
     sessionId: string,

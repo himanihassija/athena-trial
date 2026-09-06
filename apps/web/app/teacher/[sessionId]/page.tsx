@@ -61,6 +61,7 @@ import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel'
 import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
 import { LanguageSelector } from '@/components/support/LanguageSelector';
 import { CatchupChatbot } from '@/components/classroom/CatchupChatbot';
+import { t } from '@/lib/i18n';
 
 function AppMenuIcon() {
   return (
@@ -285,6 +286,8 @@ export default function TeacherDashboardPage() {
     view.activeScreenShare !== null &&
     view.activeScreenShare.participantId !== identity.participantId;
 
+  const lang = view.myLanguage;
+
   const tabs: DrawerTab[] = [
     {
       id: 'absent',
@@ -308,13 +311,14 @@ export default function TeacherDashboardPage() {
     },
     {
       id: 'controls',
-      label: 'Controls',
+      label: t('tabControls', lang),
       content: (
         <div className="flex flex-col gap-4">
           <TeacherControlPanel
             policy={view.policy}
             agentRunning={Boolean(view.room?.agentId)}
             busy={busy}
+            language={lang}
             onMute={() => void send({ type: 'MUTE_AGENT' })}
             onResume={() => void send({ type: 'RESUME_AGENT' })}
             onEndTurn={() => void send({ type: 'END_AGENT_TURN' })}
@@ -340,7 +344,7 @@ export default function TeacherDashboardPage() {
           />
 
           <section className="eco-panel flex flex-col gap-2 p-4">
-            <h2 className="eco-label">Lesson material</h2>
+            <h2 className="eco-label">{t('lessonMaterial', lang)}</h2>
             <p className="text-xs text-[var(--eco-cream-faint)]">
               Paste slides or notes. Athena grounds her answers in this and uses
               your terminology.
@@ -388,7 +392,7 @@ export default function TeacherDashboardPage() {
     },
     {
       id: 'workspace',
-      label: 'Workspace',
+      label: t('tabWorkspace', lang),
       content: (
         <MiroWorkspacePane
           sessionId={sessionId}
@@ -401,18 +405,19 @@ export default function TeacherDashboardPage() {
     },
     {
       id: 'transcript',
-      label: 'Transcript',
+      label: t('tabTranscript', lang),
       content: (
         <TranscriptFeed
           transcript={view.transcript}
           participants={view.participants}
           agentPresent={Boolean(view.room?.agentId)}
+          language={lang}
         />
       ),
     },
     {
       id: 'reading',
-      label: 'Reading',
+      label: t('tabSupport', lang),
       content: (
         <TargetedReadingPanel
           sessionId={sessionId}
@@ -425,7 +430,7 @@ export default function TeacherDashboardPage() {
     },
     {
       id: 'insights',
-      label: 'Insights',
+      label: t('tabGaps', lang),
       content: (
         <div className="flex flex-col gap-5">
           <RestraintMeter
@@ -441,14 +446,15 @@ export default function TeacherDashboardPage() {
             onQuiz={(topic, targetStudentIds) =>
               void send({ type: 'START_QUIZ', topic, targetStudentIds })
             }
+            language={lang}
           />
-          <BlockedAttempts attempts={view.blockedAttempts} />
+          <BlockedAttempts attempts={view.blockedAttempts} language={lang} />
         </div>
       ),
     },
     {
       id: 'roster',
-      label: 'Roster',
+      label: t('inTheRoom', lang),
       content: (
         <RosterPanel
           participants={view.participants}
@@ -458,12 +464,13 @@ export default function TeacherDashboardPage() {
           onSetProficiency={(studentId, proficiency) =>
             void send({ type: 'SET_PROFICIENCY', studentId, proficiency })
           }
+          language={lang}
         />
       ),
     },
     {
-      id: 'bookings',
-      label: '1:1 Bookings',
+      id: 'slots',
+      label: '1:1 Catch-up Slots',
       content: (
         <div className="flex flex-col gap-4">
           <div className="eco-panel p-4 flex flex-col gap-2">
@@ -528,9 +535,9 @@ export default function TeacherDashboardPage() {
     },
     {
       id: 'quizzes',
-      label: 'Quizzes',
+      label: t('tabQuizzes', lang),
       content: (
-        <QuizCards quizzes={view.quizzes} canAnswer={false} onAnswer={() => undefined} />
+        <QuizCards quizzes={view.quizzes} canAnswer={false} onAnswer={() => undefined} language={lang} />
       ),
     },
   ];
@@ -548,8 +555,8 @@ export default function TeacherDashboardPage() {
           onClick={() => void leave()}
           className="flex h-9 w-9 items-center justify-center rounded-full border text-[var(--eco-cream-dim)] transition-colors hover:border-[var(--eco-red)] hover:text-[var(--eco-red)]"
           style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-panel, var(--eco-ink-sunken))' }}
-          aria-label="Leave classroom"
-          title="Leave"
+          aria-label={t('leaveClassroom', lang)}
+          title={t('leave', lang)}
         >
           <LeaveIcon />
         </button>
@@ -558,11 +565,11 @@ export default function TeacherDashboardPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div className="flex flex-col gap-1">
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
-            {view.room?.title ?? 'Classroom'}
+            {view.room?.title ?? t('teacherDashboard', lang)}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="eco-numerals text-[var(--eco-cream-faint)]">
-              Teacher: {identity.displayName} · {view.connected ? 'connected' : 'reconnecting…'}
+              {t('teacher', lang)}: {identity.displayName} · {view.connected ? 'connected' : 'reconnecting…'}
             </span>
             <span className="text-[var(--eco-rule)]">|</span>
             <div className="flex items-center gap-1.5">
@@ -599,9 +606,9 @@ export default function TeacherDashboardPage() {
               onClick={() => void startAgent()}
               className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
               style={{ '--chip-accent': 'var(--eco-glow)' } as CSSProperties}
-              title="Bring Athena into the room"
+              title={t('bringAthenaIn', lang)}
             >
-              Bring Athena in
+              {t('bringAthenaIn', lang)}
             </button>
           )}
           <button
@@ -610,9 +617,9 @@ export default function TeacherDashboardPage() {
             onClick={() => void send({ type: 'MUTE_AGENT' })}
             className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
             style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
-            title="Mute Athena mid-sentence"
+            title={t('muteAi', lang)}
           >
-            Mute Athena
+            {t('muteAi', lang)}
           </button>
           <button
             type="button"
@@ -620,9 +627,9 @@ export default function TeacherDashboardPage() {
             onClick={() => void send({ type: 'RESUME_AGENT' })}
             className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
             style={{ '--chip-accent': 'var(--eco-green)' } as CSSProperties}
-            title="Unmute Athena"
+            title={t('unmuteAi', lang)}
           >
-            Unmute Athena
+            {t('unmuteAi', lang)}
           </button>
           <button
             type="button"
@@ -658,7 +665,7 @@ export default function TeacherDashboardPage() {
             style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
             title="Share your screen"
           >
-            {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+            {isScreenSharing ? t('stopScreenShare', lang) : t('screenShare', lang)}
           </button>
 
           <button
@@ -683,7 +690,7 @@ export default function TeacherDashboardPage() {
             onToggle={(on) => void view.setAnnotating(on)}
           />
 
-          <FloorIndicator floor={view.floor} policy={view.policy} />
+          <FloorIndicator floor={view.floor} policy={view.policy} language={lang} />
           <button
             type="button"
             onClick={() => setMicEnabled((on) => !on)}
@@ -693,8 +700,8 @@ export default function TeacherDashboardPage() {
                 ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
                 : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-faint)' }
             }
-            aria-label={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-            title={micEnabled ? 'Mic on' : 'Mic off'}
+            aria-label={micEnabled ? t('mute', lang) : t('unmute', lang)}
+            title={micEnabled ? t('mute', lang) : t('unmute', lang)}
           >
             {micEnabled ? '●' : '○'}
           </button>
@@ -746,7 +753,7 @@ export default function TeacherDashboardPage() {
         </p>
       )}
 
-      {!view.room?.agentId && <AgentAbsentNotice isTeacher />}
+      {!view.room?.agentId && <AgentAbsentNotice isTeacher language={lang} />}
 
       {transcriptionError && (
         <p

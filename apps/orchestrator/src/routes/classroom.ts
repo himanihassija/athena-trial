@@ -1021,6 +1021,36 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ original: text, translated, language: targetLanguage });
   });
 
+  app.post('/api/sessions/:sessionId/language', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, language } = z
+      .object({
+        participantId: z.string().optional(),
+        language: z.enum(['en', 'hi', 'es', 'fr', 'de', 'ta', 'te']),
+      })
+      .parse(request.body);
+
+    session.language = language;
+    if (participantId) {
+      const participant = session.participants.get(participantId);
+      if (participant) {
+        participant.language = language;
+      }
+    }
+
+    // Push updated multilingual system instructions to live Athena immediately
+    await pushInstructions(session).catch(() => false);
+
+    publish(session.sessionId, {
+      kind: 'echosphere:language-changed',
+      participantId: participantId || '',
+      language,
+    });
+
+    return reply.send({ ok: true, language: session.language });
+  });
+
   app.get('/api/sessions/:sessionId/report', async (request, reply) => {
     const session = requireSession(request, reply);
     if (!session) return;
@@ -1081,6 +1111,7 @@ function roomState(session: ClassroomSession): RoomState {
     sessionId: session.sessionId,
     channel: session.channel,
     title: session.title,
+    language: session.language || 'en',
     participants: activeParticipants(session).map(toPublicParticipant),
     floor: session.floor,
     policy: session.policy,

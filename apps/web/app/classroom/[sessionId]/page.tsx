@@ -33,6 +33,7 @@ import { OneOnOneTutorModal } from '@/components/support/OneOnOneTutorModal';
 import { TargetedReadingPanel } from '@/components/support/TargetedReadingPanel';
 import { CatchupBookingModal } from '@/components/support/CatchupBookingModal';
 import { LanguageSelector } from '@/components/support/LanguageSelector';
+import { t } from '@/lib/i18n';
 import { useClassroom } from '@/hooks/useClassroom';
 import {
   clearIdentity,
@@ -102,28 +103,34 @@ export default function ClassroomPage() {
 
   const leave = useCallback(async () => {
     if (identity) {
-      await orchestrator
-        .leave(sessionId, identity.participantId)
-        .catch(() => undefined);
+      await orchestrator.leave(sessionId, identity.participantId).catch(() => undefined);
+      clearIdentity();
     }
-    clearIdentity();
-    router.push('/join');
-  }, [identity, sessionId, router]);
+    router.replace('/join');
+  }, [identity, router, sessionId]);
 
   const toggleScreenShare = useCallback(async () => {
     if (!identity) return;
-    const next = !isScreenSharing;
     try {
-      await view.toggleScreenShare(next);
-      setIsScreenSharing(next);
+      if (isScreenSharing) {
+        await view.toggleScreenShare(false);
+        setIsScreenSharing(false);
+      } else {
+        await view.toggleScreenShare(true);
+        setIsScreenSharing(true);
+      }
     } catch {
-      // The orchestrator already logged the reason (e.g. someone else is sharing).
+      setIsScreenSharing(false);
     }
   }, [identity, isScreenSharing, view]);
 
-  const stopScreenShareFromBrowser = useCallback(() => {
-    setIsScreenSharing(false);
-    if (identity) void view.toggleScreenShare(false).catch(() => undefined);
+  const stopScreenShareFromBrowser = useCallback(async () => {
+    if (!identity) return;
+    try {
+      await view.toggleScreenShare(false);
+    } finally {
+      setIsScreenSharing(false);
+    }
   }, [identity, view]);
 
   if (!identity) {
@@ -140,10 +147,12 @@ export default function ClassroomPage() {
     view.activeScreenShare !== null &&
     view.activeScreenShare.participantId !== identity.participantId;
 
+  const lang = view.myLanguage;
+
   const tabs: DrawerTab[] = [
     {
       id: 'workspace',
-      label: 'Workspace',
+      label: t('tabWorkspace', lang),
       content: (
         <MiroWorkspacePane
           sessionId={sessionId}
@@ -156,18 +165,19 @@ export default function ClassroomPage() {
     },
     {
       id: 'transcript',
-      label: 'Transcript',
+      label: t('tabTranscript', lang),
       content: (
         <TranscriptFeed
           transcript={view.transcript}
           participants={view.participants}
           agentPresent={Boolean(view.room?.agentId)}
+          language={lang}
         />
       ),
     },
     {
       id: 'reading',
-      label: 'Reading',
+      label: t('tabSupport', lang),
       content: (
         <TargetedReadingPanel
           sessionId={sessionId}
@@ -179,12 +189,13 @@ export default function ClassroomPage() {
     },
     {
       id: 'quizzes',
-      label: 'Quizzes',
+      label: t('tabQuizzes', lang),
       content: (
         <QuizCards
           quizzes={view.quizzes}
           canAnswer={!view.ended}
           onAnswer={answer}
+          language={lang}
         />
       ),
     },
@@ -195,11 +206,11 @@ export default function ClassroomPage() {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eco-rule)] pb-4">
         <div className="flex flex-col gap-1">
           <h1 className="eco-display text-2xl text-[var(--eco-cream)]">
-            {view.room?.title ?? 'Classroom'}
+            {view.room?.title ?? t('classroom', lang)}
           </h1>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-[var(--eco-cream-faint)]">
-              Student: {identity.displayName} · {view.connected ? 'connected' : 'reconnecting…'}
+              {t('student', lang)}: {identity.displayName} · {view.connected ? 'connected' : 'reconnecting…'}
             </span>
             <span className="text-[var(--eco-rule)]">|</span>
             <div className="flex items-center gap-1.5">
@@ -236,14 +247,14 @@ export default function ClassroomPage() {
               <>
                 <span className="text-[var(--eco-rule)]">|</span>
                 <span className="text-[var(--eco-cream-faint)]">
-                  say <strong className="font-semibold" style={{ color: 'var(--eco-glow)' }}>&ldquo;{view.policy.wakePhrase}&rdquo;</strong> to ask Athena
+                  {t('athenaReadyNotice', lang)}
                 </span>
               </>
             ) : (
               <>
                 <span className="text-[var(--eco-rule)]">|</span>
                 <span className="text-[var(--eco-cream-faint)]">
-                  Athena is listening only
+                  {t('athenaListeningNotice', lang)}
                 </span>
               </>
             )}
@@ -267,7 +278,7 @@ export default function ClassroomPage() {
             }}
             title="Open dedicated Socratic AI Teaching Assistant for step-by-step help"
           >
-            <span>AI Assistant</span>
+            <span>{t('aiAssistant', lang)}</span>
           </button>
 
           <button
@@ -306,7 +317,7 @@ export default function ClassroomPage() {
             style={{ '--chip-accent': 'var(--eco-amber)' } as CSSProperties}
             title="Raise or lower your hand"
           >
-            <span>{isHandRaised ? 'Hand Raised' : 'Raise Hand'}</span>
+            <span>{isHandRaised ? t('handLower', lang) : t('handRaise', lang)}</span>
           </button>
 
           {canShareScreen && (
@@ -318,11 +329,11 @@ export default function ClassroomPage() {
               style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
               title="Share your screen"
             >
-              {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+              {isScreenSharing ? t('stopScreenShare', lang) : t('screenShare', lang)}
             </button>
           )}
 
-          <FloorIndicator floor={view.floor} policy={view.policy} />
+          <FloorIndicator floor={view.floor} policy={view.policy} language={lang} />
 
           <button
             type="button"
@@ -333,8 +344,8 @@ export default function ClassroomPage() {
                 ? { borderColor: 'var(--eco-glow)', background: 'var(--eco-glow-dim)', color: 'var(--eco-glow-bright)' }
                 : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-faint)' }
             }
-            aria-label={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-            title={micEnabled ? 'Mic on' : 'Mic off'}
+            aria-label={micEnabled ? t('mute', lang) : t('unmute', lang)}
+            title={micEnabled ? t('mute', lang) : t('unmute', lang)}
           >
             {micEnabled ? '●' : '○'}
           </button>
@@ -361,7 +372,7 @@ export default function ClassroomPage() {
             className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream-dim)]"
             style={{ borderColor: 'var(--eco-rule)' }}
           >
-            Leave
+            {t('leave', lang)}
           </button>
         </div>
       </header>
@@ -372,7 +383,7 @@ export default function ClassroomPage() {
         </p>
       )}
 
-      {!view.room?.agentId && <AgentAbsentNotice isTeacher={false} />}
+      {!view.room?.agentId && <AgentAbsentNotice isTeacher={false} language={lang} />}
 
       {transcriptionError && (
         <p

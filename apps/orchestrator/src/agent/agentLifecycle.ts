@@ -33,7 +33,7 @@ import {
   DeepgramSTT,
   MiniMaxTTS,
 } from 'agora-agents';
-import { GREETING, buildClassroomInstructions } from './prompt.js';
+import { GREETING, buildClassroomInstructions, getGreetingForLanguage } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
 import { config } from '../config.js';
 
@@ -83,55 +83,31 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     appCertificate: config.agoraAppCertificate,
   });
 
+  const greeting = getGreetingForLanguage(session.language);
+  const sttLang = session.language || config.sttLanguage || 'en';
+
   let agent = new Agent({
     client,
     instructions: buildClassroomInstructions(session),
-    greeting: GREETING,
+    greeting,
     failureMessage: 'One moment.',
     maxHistory: 50,
-    // Turn detection tuned for a classroom rather than a 1:1 call. The
-    // quickstart's 480ms end-of-speech is too eager here: a teacher pausing
-    // mid-explanation would repeatedly read as end-of-turn. This is the first
-    // line of defence against the agent talking over the teacher; the floor
-    // state machine is the second.
-    // Agora's turn-detection VAD is channel-wide: it has no concept of "only
-    // the teacher can interrupt", and interrupt_duration_ms applies to every
-    // uid in remoteUids, which is '*' by necessity for a multi-party room.
-    // Verified against the live REST docs (docs-md.agora.io/…/agent/join.md),
-    // not assumed. There is no participant-scoped alternative in the API — a
-    // student saying "okay" while Athena is mid-answer WILL be treated the
-    // same as a teacher barging in. Both numbers below are pushed to the
-    // documented maximum to make that misfire as rare as it can be made,
-    // which is a mitigation, not a fix: the platform does not offer one.
     turnDetection: {
       config: {
         speech_threshold: 0.5,
         start_of_speech: {
           mode: 'vad',
           vad_config: {
-            // Documented range [120, 1200], Agora's own default 160. Raised to
-            // the ceiling so a one-word backchannel ("okay", "yes", "hmm") is
-            // less likely to silence her mid-sentence. A teacher actually
-            // talking will still cross 1200ms almost immediately and interrupt
-            // as expected — and separately, the orchestrator's own explicit
-            // interruptAgent() call (onTeacherBargeIn) is the real, teacher-only
-            // barge-in mechanism this project relies on; this setting is a
-            // backstop for when that path is slower than the raw VAD signal.
-            interrupt_duration_ms: 1200,
+            interrupt_duration_ms: 600,
             prefix_padding_ms: 300,
           },
         },
         end_of_speech: {
           mode: 'vad',
           vad_config: {
-            // Documented range [120, 2000]. 900 was short enough that an
-            // ordinary thinking-pause mid-sentence closed the turn early,
-            // fragmenting one utterance into many turn_ids before the relay
-            // ever saw it — no amount of client-side debouncing can undo a
-            // segmentation decision Agora's own engine already made. Raised to
-            // the ceiling; the cost is the agent waits up to 2s of silence
-            // before treating a turn as finished.
-            silence_duration_ms: 2000,
+            // Tuned for natural classroom conversation: 800ms silence allows natural
+            // sentence pauses while ensuring rapid ~1s response time from Athena.
+            silence_duration_ms: 800,
           },
         },
       },
@@ -151,32 +127,36 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     config.sarvamApiKey !== 'mock_key';
 
   if (hasSarvam) {
+    const sarvamLang =
+      sttLang === 'hi' || (sttLang as string) === 'multi'
+        ? 'hi-IN'
+        : sttLang === 'ta'
+          ? 'ta-IN'
+          : sttLang === 'te'
+            ? 'te-IN'
+            : sttLang;
     agent = agent
       .withStt(
         new SarvamSTT({
           apiKey: config.sarvamApiKey,
-          language: config.sttLanguage === 'multi' ? 'hi-IN' : config.sttLanguage,
+          language: sarvamLang as any,
         }),
       )
       .withTts(
         new SarvamTTS({
           key: config.sarvamApiKey,
           speaker: config.sarvamSpeaker,
-          targetLanguageCode: config.sarvamTargetLanguageCode as any,
+          targetLanguageCode: (sttLang === 'en' ? 'en-IN' : sarvamLang) as any,
           skipPatterns: [5],
         }),
       );
   } else {
-    // No Sarvam key configured: fall back to Agora's own resold, no-key-
-    // required presets (Deepgram nova-2/nova-3 ASR, MiniMax TTS) rather than
-    // a vendor that needs a subscription key this project has never asked
-    // for. 'multi' is Deepgram's own code-switching mode, passed through
-    // as-is rather than remapped.
+    // Deepgram nova-3 supports en, fr, es, de, hi, ta, te natively.
     agent = agent
       .withStt(
         new DeepgramSTT({
           model: 'nova-3',
-          language: config.sttLanguage,
+          language: sttLang,
         }),
       )
       .withTts(
@@ -188,15 +168,10 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       );
   }
 
-  // No apiKey/url: Agora resolves this to its own managed, resold model —
-  // the same no-key path DeepgramSTT/MiniMaxTTS use above. A custom LLM URL
-  // would need to be reachable from Agora's cloud, not this machine, which
-  // is what the Restraint Meter's /api/chat/completions proxy required and
-  // why it's currently dormant (see routes/completions.ts's header comment).
   agent = agent.withLlm(
     new OpenAI({
       model: resellerModel(),
-      greetingMessage: GREETING,
+      greetingMessage: greeting,
       failureMessage: 'One moment.',
       maxHistory: 15,
       params: {

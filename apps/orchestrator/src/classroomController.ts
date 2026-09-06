@@ -593,20 +593,12 @@ export async function ingestTranscript(
       `[floor] granted DIRECTLY_ADDRESSED to ${participant.role} in session ${session.sessionId}`,
     );
 
-    // When the floor is closed to students the engine cannot tell the teacher
-    // apart from a student (it has no speaker identity), so it stays silent —
-    // and by the time this finalised transcript lands, the engine's own
-    // autonomous attempt has already been interrupted by enforcement. The
-    // teacher IS allowed, and the orchestrator knows who spoke, so drive the
-    // answer explicitly. Skipped when the floor is open: there the autonomous
-    // reply works and a think() would only step on it.
-    if (participant.role === 'teacher' && !session.policy.studentsMayInvoke) {
+    // The teacher IS allowed, and the orchestrator knows who spoke, so drive the
+    // answer explicitly with a [classroom:system] directive so Athena always responds reliably.
+    if (participant.role === 'teacher') {
       const question = stripWakePhrase(spokenText, session.policy.wakePhrase);
-      // Deferred until the sentence stops growing. Driving this on arrival
-      // made her answer once per relay — the teacher asked one question and
-      // heard the same reply five times.
       onTurnSettled(turnKey === null ? null : `${turnKey}:think`, () => {
-        void think(session.sessionId, addressedByTeacherDirective(question)).catch(
+        void think(session.sessionId, addressedByTeacherDirective(question, session.language)).catch(
           () => undefined,
         );
       });
@@ -1056,7 +1048,7 @@ export async function considerSilenceInterjection(
   markGapAddressed(session, gap.gapId);
   const ok = await think(
     session.sessionId,
-    gapInterjectionDirective(gap.topic, gap.affectedStudentIds.length),
+    gapInterjectionDirective(gap.topic, gap.affectedStudentIds.length, session.language),
   );
   if (!ok) releaseFloor(session);
   return ok;
@@ -1123,7 +1115,7 @@ export async function applyTeacherCommand(
         : undefined;
       const ok = await think(
         session.sessionId,
-        forceSpeakDirective(command.topic, name),
+        forceSpeakDirective(command.topic, name, session.language),
       );
       if (!ok) releaseFloor(session);
       return { ok, detail: ok ? undefined : 'Agent is not running.' };
@@ -1292,7 +1284,7 @@ async function issueSetQuestion(
   // {quiz} payload are one turn; a stray "okay" would truncate the payload.
   const ok = await think(
     session.sessionId,
-    quizDirective(set.topic, names, set.askedQuestions),
+    quizDirective(set.topic, names, set.askedQuestions, session.language),
     { interruptable: false },
   );
   if (!ok) {

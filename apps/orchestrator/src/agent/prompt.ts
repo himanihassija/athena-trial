@@ -18,7 +18,10 @@
  * state machine is binding. Never rely on the prompt to keep the agent quiet.
  */
 
+
+
 import type {
+  LanguageCode,
   ProficiencyTag,
   VerbosityLevel,
 } from '@echosphere/shared-types';
@@ -143,14 +146,52 @@ export function verbosityDirective(level: VerbosityLevel): string {
   }
 }
 
-/**
- * Composes the full system prompt for the current state of a classroom.
- *
- * Called on agent start and again whenever the roster, proficiency tags,
- * teacher policy, or lesson material change — see `pushInstructions`.
- */
+export const SUPPORTED_LANG_MAP: Record<LanguageCode, { english: string; native: string; quizOptionPrefix: string }> = {
+  en: { english: 'English', native: 'English', quizOptionPrefix: 'Option' },
+  fr: { english: 'French', native: 'Français', quizOptionPrefix: 'Option' },
+  es: { english: 'Spanish', native: 'Español', quizOptionPrefix: 'Opción' },
+  hi: { english: 'Hindi', native: 'हिन्दी', quizOptionPrefix: 'विकल्प' },
+  de: { english: 'German', native: 'Deutsch', quizOptionPrefix: 'Option' },
+  ta: { english: 'Tamil', native: 'தமிழ்', quizOptionPrefix: 'விருப்பம்' },
+  te: { english: 'Telugu', native: 'తెలుగు', quizOptionPrefix: 'ఎంపిక' },
+};
+
+export function getGreetingForLanguage(langCode: LanguageCode = 'en'): string {
+  switch (langCode) {
+    case 'fr':
+      return `Bonjour à tous, je suis ${AGENT_NAME}. Je vais écouter la leçon et vous aider dès que vous en aurez besoin. Dites simplement mon nom si vous avez une question.`;
+    case 'es':
+      return `Hola a todos, soy ${AGENT_NAME}. Estaré escuchando y ayudando cuando me necesiten. Solo digan mi nombre si tienen alguna pregunta.`;
+    case 'de':
+      return `Hallo zusammen, ich bin ${AGENT_NAME}. Ich werde zuhören und euch unterstützen, wenn ihr mich braucht. Sagt einfach meinen Namen, wenn ihr eine Frage habt.`;
+    case 'hi':
+      return `नमस्ते सबको, मैं ${AGENT_NAME} हूँ। मैं आपकी क्लास सुनूँगी और जब भी ज़रूरत होगी मदद करूँगी। कोई भी सवाल हो तो बस मेरा नाम लीजिए।`;
+    case 'ta':
+      return `அனைவருக்கும் வணக்கம், நான் ${AGENT_NAME}. உங்களுக்குத் தேவைப்படும்போது நான் உதவி செய்வேன். ஏதேனும் கேள்வி இருந்தால் என் பெயரைச் சொல்லுங்கள்.`;
+    case 'te':
+      return `అందరికీ నమస్కారం, నేను ${AGENT_NAME}. మీకు అవసరమైనప్పుడు సహాయం చేయడానికి సిద్ధంగా ఉన్నాను. ఏదైనా ప్రశ్న ఉంటే నా పేరు చెప్పండి.`;
+    case 'en':
+    default:
+      return `Hi everyone, I'm ${AGENT_NAME}. I'll be listening in and helping out when you need me. Just say my name if you have a question.`;
+  }
+}
+
 export function buildClassroomInstructions(session: ClassroomSession): string {
   const parts: string[] = [PERSONA];
+
+  const langCode: LanguageCode = (session.language as LanguageCode) || 'en';
+  const langInfo = SUPPORTED_LANG_MAP[langCode] || SUPPORTED_LANG_MAP.en;
+
+  if (langCode !== 'en') {
+    parts.push(
+      `# Primary Classroom Language: ${langInfo.english} (${langInfo.native})\n` +
+      `The active language for this classroom is **${langInfo.english} (${langInfo.native})**.\n` +
+      `- You MUST formulate all spoken explanations, answer questions, and communicate entirely in **${langInfo.english} (${langInfo.native})**.\n` +
+      `- Understand teacher and student turns in ${langInfo.english} and reply fluently in **${langInfo.english}**.\n` +
+      `- When presenting quiz questions, speak the question and options in **${langInfo.english}**.\n` +
+      `- Maintain accurate terminology and mathematical concepts in ${langInfo.english}.`
+    );
+  }
 
   parts.push(`# This lesson\n${session.title}`);
 
@@ -199,11 +240,6 @@ export function buildClassroomInstructions(session: ClassroomSession): string {
 
 /**
  * The teacher's material, trimmed to a prompt budget.
- *
- * When the upload is small it goes in whole. When it exceeds the budget the
- * lesson store's keyword retrieval picks the chunks most relevant to what the
- * class has been talking about, so a long document still contributes the parts
- * that matter right now.
  */
 function lessonBlock(session: ClassroomSession): string | null {
   if (session.lesson.isEmpty()) return null;
@@ -227,26 +263,23 @@ export const GREETING = `Hi everyone, I'm ${AGENT_NAME}. I'll be listening in an
 export function gapInterjectionDirective(
   topic: string,
   affectedCount: number,
+  language: LanguageCode = 'en',
 ): string {
-  return `[classroom:system] ${affectedCount} students have shown the same confusion about "${topic}". You have been given a natural pause to address it. Acknowledge it lightly without singling anyone out, give one clearer explanation of that specific point, and hand back to the teacher. Two or three sentences.`;
+  const langName = SUPPORTED_LANG_MAP[language]?.english ?? 'English';
+  return `[classroom:system] ${affectedCount} students have shown the same confusion about "${topic}". In fluent ${langName}, acknowledge it lightly without singling anyone out, give one clearer explanation of that specific point, and hand back to the teacher. Two or three sentences.`;
 }
 
 /**
  * Asks the agent to pose a quiz out loud and report it on the control channel.
- *
- * The labels are spoken as "Option A", never as a bare "A." — an isolated
- * letter is the least reliable thing you can hand a neural TTS. It carries
- * almost no context, so the engine falls back to whatever letter-name reading
- * is most probable, and on a multilingual voice that can be another language's
- * inventory entirely (a bare "D." was coming out as "shahar"). The word
- * "Option" in front gives the engine enough context to read the letter as a
- * label. The full option text was never affected — it has plenty of context.
  */
 export function quizDirective(
   topic: string,
   targetNames: string[],
   askedQuestions: string[] = [],
+  language: LanguageCode = 'en',
 ): string {
+  const langName = SUPPORTED_LANG_MAP[language]?.english ?? 'English';
+  const prefix = SUPPORTED_LANG_MAP[language]?.quizOptionPrefix ?? 'Option';
   const who =
     targetNames.length > 0
       ? `Direct it at ${targetNames.join(' and ')}.`
@@ -257,7 +290,7 @@ export function quizDirective(
           .map((q) => `"${q}"`)
           .join('; ')}. Ask a DIFFERENT question on the same topic — new angle, do not repeat or lightly reword any of those.`
       : '';
-  return `[classroom:system] Ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options. Introduce each one by saying the words "Option A", "Option B", "Option C", "Option D" — always the word "Option" followed by the letter, never a bare letter on its own and never a letter followed by a full stop, because speech synthesis mispronounces an isolated letter. Say only the question and the options aloud — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them — but in the object put ONLY the option text itself, never the "Option A" lead-in, because the screen adds the letter on its own. The control object must be present even if you are cut short. Do not reveal the answer.`;
+  return `[classroom:system] In ${langName}, ask one short multiple-choice question about "${topic}" now.${varyClause} ${who} Give four options. Introduce each one by saying the words "${prefix} A", "${prefix} B", "${prefix} C", "${prefix} D" — always the word "${prefix}" followed by the letter, never a bare letter on its own and never a letter followed by a full stop, because speech synthesis mispronounces an isolated letter. Say only the question and the options aloud in ${langName} — no preamble, no "let's see", no closing remark. Keep the whole thing to a few seconds. Then, as the very last thing in the turn, append the quiz object on the control channel with the question and all four options word-for-word as you said them in ${langName} — but in the object put ONLY the option text itself, never the "${prefix} A" lead-in, because the screen adds the letter on its own. The control object must be present even if you are cut short. Do not reveal the answer.`;
 }
 
 /**
@@ -301,18 +334,20 @@ function drawingClause(said: string): string {
   return ' They have asked for a drawing, not only an explanation, so this turn MUST also carry the `illustrate` control field naming what to draw. Say the explanation out loud as normal and append the field; answering in words alone does not give them what they asked for.';
 }
 
-export function addressedByTeacherDirective(question: string): string {
+export function addressedByTeacherDirective(question: string, language: LanguageCode = 'en'): string {
   const said = question.trim();
+  const langName = SUPPORTED_LANG_MAP[language]?.english ?? 'English';
   return said.length > 0
-    ? `[classroom:system] The teacher just spoke to you directly: "${said}". Answer them now, out loud, in your own words — two or three sentences. If they asked you to continue, pick up the explanation you were giving before.${drawingClause(said)}`
-    : `[classroom:system] The teacher just called on you by name. Respond to them now, out loud — briefly. If you were mid-explanation, continue it.`;
+    ? `[classroom:system] The teacher just spoke to you directly: "${said}". Answer them now in fluent ${langName}, out loud, in your own words — two or three sentences. If they asked you to continue, pick up the explanation you were giving before.${drawingClause(said)}`
+    : `[classroom:system] The teacher just called on you by name. Respond to them now in fluent ${langName}, out loud — briefly. If you were mid-explanation, continue it.`;
 }
 
 /** Teacher pressed "explain this now" (§3.10 FORCE_AGENT_SPEAK). */
-export function forceSpeakDirective(topic: string, studentName?: string): string {
+export function forceSpeakDirective(topic: string, studentName?: string, language: LanguageCode = 'en'): string {
+  const langName = SUPPORTED_LANG_MAP[language]?.english ?? 'English';
   return studentName
-    ? `[classroom:system] The teacher has asked you to explain "${topic}" to ${studentName}. Do it now, at the depth listed for them.${drawingClause(topic)}`
-    : `[classroom:system] The teacher has asked you to explain "${topic}" to the class. Do it now, briefly.${drawingClause(topic)}`;
+    ? `[classroom:system] In ${langName}, the teacher has asked you to explain "${topic}" to ${studentName}. Do it now in fluent ${langName}, at the depth listed for them.${drawingClause(topic)}`
+    : `[classroom:system] In ${langName}, the teacher has asked you to explain "${topic}" to the class. Do it now in fluent ${langName}, briefly.${drawingClause(topic)}`;
 }
 
 /**

@@ -172,6 +172,7 @@ export function useClassroom(
         // loses their raised hand and the room's booked catch-up slots.
         if (event.state.catchupSlots) setCatchupSlots(event.state.catchupSlots);
         if (event.state.raisedHands) setRaisedHands(event.state.raisedHands);
+        if (event.state.language) setMyLanguage(event.state.language);
         // No cast needed: RoomState declares both fields.
         setScreenShareAllowed(event.state.screenShareAllowed ?? []);
         setActiveScreenShare(event.state.activeScreenShare ?? null);
@@ -393,6 +394,7 @@ export function useClassroom(
             p.participantId === event.participantId ? { ...p, language: event.language } : p,
           ),
         );
+        setMyLanguage(event.language);
         break;
 
       case 'echosphere:screen-share-permission-changed':
@@ -463,9 +465,16 @@ export function useClassroom(
     }
   }, [sessionId, participantId, raisedHands]);
 
-  const changeLanguage = useCallback((lang: LanguageCode) => {
-    setMyLanguage(lang);
-  }, []);
+  const changeLanguage = useCallback(
+    (lang: LanguageCode) => {
+      setMyLanguage(lang);
+      if (!participantId) return;
+      orchestrator.setLanguage(sessionId, participantId, lang).catch((err) => {
+        console.error('Failed to set language on server', err);
+      });
+    },
+    [sessionId, participantId],
+  );
 
   const setAnnotating = useCallback(
     async (on: boolean) => {
