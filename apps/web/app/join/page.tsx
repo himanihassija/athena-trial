@@ -377,8 +377,12 @@ export default function JoinPage() {
             color: 'var(--eco-cream)',
             textShadow: '0 1px 2px rgba(0,0,0,0.4)',
           }}
-        >
-          Powered by Agora, built with love ❤️
+                >
+          <span className="inline-flex items-center gap-1.5">
+            Powered by
+            <img src="/agora-logo.png" alt="Agora" className="h-4 w-auto" />
+            · built with love ❤️
+          </span>
         </p>
       </footer>
     </div>

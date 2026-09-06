@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PublicParticipant } from '@echosphere/shared-types';
 import { seatColorVar } from '@/lib/seatColor';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
@@ -17,6 +17,55 @@ interface Tile {
   handRaised: boolean;
   isAgent?: boolean;
   agentPresent?: boolean;
+}
+
+/**
+ * Athena's avatar visual: a one-time intro clip plays each time she's freshly
+ * brought into the room, then this swaps over to the looping Lottie idle
+ * animation for the rest of the session. `agentPresent` flipping false→true
+ * (not just being true) is what re-triggers the intro — leaving/rejoining
+ * plays it again, but a re-render while she's already present does not.
+ *
+ * `muted` is required here: the intro clip's own audio track must never play,
+ * only Athena's real TTS voice should be heard. Missing this was the exact
+ * cause of "two voices at once."
+ */
+function AthenaAvatarVisual({ agentPresent }: { agentPresent: boolean }) {
+  const [introFinished, setIntroFinished] = useState(false);
+  const wasPresentRef = useRef(false);
+
+  useEffect(() => {
+    if (agentPresent && !wasPresentRef.current) {
+      // A fresh entrance — reset so the intro plays again.
+      setIntroFinished(false);
+    }
+    wasPresentRef.current = agentPresent;
+  }, [agentPresent]);
+
+  if (!introFinished) {
+    return (
+      <video
+        key="intro"
+        autoPlay
+        playsInline
+        onEnded={() => setIntroFinished(true)}
+        onError={() => setIntroFinished(true)}
+        className="h-full w-full object-cover"
+      >
+        <source src="/athena-intro.mp4" type="video/mp4" />
+      </video>
+    );
+  }
+
+  return (
+    <DotLottieReact
+      key="loop"
+      src="/athena-avatar.lottie"
+      loop
+      autoplay
+      className="h-full w-full"
+    />
+  );
 }
 
 export function ParticipantGrid({
@@ -129,15 +178,10 @@ export function ParticipantGrid({
             </span>
           )}
 
-              {tile.isAgent ? (
+          {tile.isAgent ? (
             tile.agentPresent ? (
-              <span className="relative h-40 w-40 overflow-hidden rounded-full">
-                <DotLottieReact
-                  src="/athena-avatar.lottie"
-                  loop
-                  autoplay
-                  className="h-full w-full"
-                />
+              <span className="relative h-72 w-72 overflow-hidden rounded-full">
+                <AthenaAvatarVisual agentPresent={Boolean(tile.agentPresent)} />
               </span>
             ) : (
               <span
