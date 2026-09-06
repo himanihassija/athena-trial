@@ -26,6 +26,7 @@ import {
   ingestTranscript,
   startQuiz,
   submitQuizAnswer,
+  releaseIllustrationState,
 } from '../classroomController.js';
 import {
   agentStatus,
@@ -540,6 +541,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (command.type === 'END_SESSION') {
       await stopAgent(session.sessionId);
       endSession(session.sessionId);
+      releaseIllustrationState(session.sessionId);
       publish(session.sessionId, {
         kind: 'echosphere:session-ended',
         sessionId: session.sessionId,
@@ -1037,6 +1039,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!session) return;
     await stopAgent(session.sessionId);
     endSession(session.sessionId);
+    releaseIllustrationState(session.sessionId);
     closeRoom(session.sessionId);
     // See the END_SESSION handler above: fire-and-forget, same reasoning.
     void persistSessionEnd(session).catch((err) =>

@@ -84,4 +84,37 @@ export const config = {
   whiteboardAppIdentifier: process.env.WHITEBOARD_APP_IDENTIFIER ?? '',
   whiteboardSdkToken: process.env.WHITEBOARD_SDK_TOKEN ?? '',
   whiteboardRegion: process.env.WHITEBOARD_REGION ?? 'in-mum',
+
+  /**
+   * Excalidraw+ MCP, which backs Athena's "draw me a diagram" path.
+   *
+   * The orchestrator is the MCP client here: it calls `create_diagram` and
+   * `get_scene_content` on Excalidraw's server directly, and the model's only
+   * job is deciding what the diagram should say — which goes through
+   * `tryComplete` on whatever provider is already configured. So this needs no
+   * second model vendor; the Excalidraw key is the only new credential.
+   *
+   * Optional, and dormant if unset: `illustrationConfigured()` gates the
+   * feature, so a deployment without a key still runs a full lesson, just
+   * without diagrams. Same posture as WHITEBOARD_* above.
+   *
+   * The scratch scene is where diagrams are laid out before their elements are
+   * copied onto the classroom board. Left blank, one is created per classroom
+   * session on first use and remembered for the rest of it (see
+   * board/boardAgent.ts); setting it pins every session to one shared scene.
+   */
+  excalidrawMcpApiKey: process.env.EXCALIDRAW_MCP_API_KEY ?? '',
+  excalidrawMcpUrl:
+    process.env.EXCALIDRAW_MCP_URL ?? 'https://api.excalidraw.com/api/v1/mcp',
+  excalidrawScratchSceneId: process.env.EXCALIDRAW_SCRATCH_SCENE_ID ?? '',
+
+  /**
+   * Collection the scratch scene is created in. `create_scene` requires one.
+   * A personal API key can use the literal 'private' (the default); a
+   * workspace key cannot reach private collections and needs a real id.
+   */
+  excalidrawCollectionId: process.env.EXCALIDRAW_COLLECTION_ID ?? '',
+
+  /** Ceiling on one end-to-end illustrate request, tool round trips included. */
+  illustrationTimeoutMs: Number(process.env.ILLUSTRATION_TIMEOUT_MS ?? 20_000),
 } as const;

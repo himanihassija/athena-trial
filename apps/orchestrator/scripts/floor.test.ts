@@ -44,6 +44,23 @@ const rewind = (session: ReturnType<typeof createSession>, ms: number) => {
   if (session.speakPermit) session.speakPermit.grantedAt -= ms;
 };
 
+/**
+ * Ages the turn clocks, so continuation windows lapse without sleeping.
+ *
+ * Both clocks move together, because this models time passing rather than an
+ * event happening. Rewinding only the authorisation would leave
+ * `lastHumanSpeechAt` looking newer than it, i.e. would fake a human speaking
+ * after the turn was authorised — a different scenario entirely, and the one
+ * `but a think AFTER someone speaks needs its own permit` covers.
+ */
+const rewindAuthorisation = (
+  session: ReturnType<typeof createSession>,
+  ms: number,
+) => {
+  if (session.lastAuthorisedTurnAt !== null) session.lastAuthorisedTurnAt -= ms;
+  session.floor = { ...session.floor, lastHumanSpeechAt: session.floor.lastHumanSpeechAt - ms };
+};
+
 await t('no permit: a turn starting is interrupted', async () => {
   const session = createSession('test');
   const result = await handleAgentState(session, 'thinking');
@@ -92,8 +109,35 @@ await t('a turn ending resets authorization for the next one', async () => {
 
   // No fresh permit was granted — the next turn must be authorized on its
   // own, not inherit the previous turn's clearance.
+  //
+  // This originally asserted that the very next 'thinking' was interrupted,
+  // with no delay. That could not stand once long answers were fixed: the
+  // engine voices a long reply in chunks and re-enters 'thinking' between
+  // them, so an immediate re-think is the commonest shape of a turn that is
+  // still in progress, and interrupting it truncated every long explanation
+  // mid-sentence. The two are indistinguishable from the states alone — only
+  // the gap separates them — so the property this test protects is now scoped
+  // to a re-think that arrives after the continuation window has lapsed.
+  // `a re-think between chunks of one answer is not cut off` covers the other
+  // side of that line, and the brief-gap case immediately below is deliberate.
+  // The window is TURN_CONTINUATION_MS; 9s is comfortably past it.
+  rewindAuthorisation(session, 9_000);
+
   const nextTurn = await handleAgentState(session, 'thinking');
   assert.equal(nextTurn.interrupted, true);
+});
+
+await t('a brief re-think right after a turn ends is treated as the same answer', async () => {
+  const session = createSession('test');
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'speaking');
+  await handleAgentState(session, 'silent');
+
+  // The deliberate cost of the above: within the short window, and only while
+  // nobody has spoken, she may resume. That is what keeps a chunked answer
+  // whole, and the teacher's mute and barge-in still cut it instantly.
+  assert.equal((await handleAgentState(session, 'thinking')).interrupted, false);
 });
 
 await t('mute blocks a turn that has not started yet, even with a valid permit', async () => {
@@ -465,5 +509,116 @@ await t('one agent turn relayed repeatedly is stored once', async () => {
   assert.equal(agentRows.length, 1, 'one spoken turn is one row');
   assert.match(String(agentRows[0]?.text), /Option B: Four/, 'holding the complete sentence');
 });
+
+/*
+ * A long answer voiced in chunks.
+ *
+ * The engine streams a long reply and re-enters 'thinking' between chunks,
+ * after the permit has already been consumed by the first one. 'thinking' was
+ * excluded from the turn-continuation window on the reasoning that thinking is
+ * how a NEW turn begins — true of a new turn, false of a long one. A live
+ * lesson heard "Photosynthesis is the process by which green plants, algae,"
+ * and then silence, while short answers were fine, which is why it read as
+ * intermittent rather than broken.
+ */
+await t('a re-think between chunks of one answer is not cut off', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  assert.equal((await handleAgentState(session, 'thinking')).interrupted, false);
+  assert.equal((await handleAgentState(session, 'speaking')).interrupted, false);
+  // A gap in state delivery between two chunks of the same answer.
+  await handleAgentState(session, 'listening');
+
+  const rethink = await handleAgentState(session, 'thinking');
+  assert.equal(rethink.interrupted, false, 'the rest of the answer must not be cut off');
+  assert.equal((await handleAgentState(session, 'speaking')).interrupted, false);
+});
+
+await t('a re-think after a realistic 3-4s generation gap is not cut off', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'speaking');
+  await handleAgentState(session, 'listening');
+
+  // Measured from a live lesson: grant at 07:28:53, the engine came back for
+  // the next chunk at +2s, +3s and +4s. A 2s window was tried first and still
+  // truncated the answer, which is why the window is not the discriminator.
+  rewindAuthorisation(session, 3_500);
+
+  assert.equal(
+    (await handleAgentState(session, 'thinking')).interrupted,
+    false,
+    'generating the next chunk takes seconds; that is still the same answer',
+  );
+});
+
+await t('a re-think still continues after a silent state', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'speaking');
+  await handleAgentState(session, 'silent');
+  assert.equal((await handleAgentState(session, 'thinking')).interrupted, false);
+});
+
+await t('but a think AFTER someone speaks needs its own permit', async () => {
+  const session = createSession('t');
+  const teacher = addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'speaking');
+  await handleAgentState(session, 'listening');
+
+  // The room moved on. Whatever she says next answers THIS, not the earlier
+  // invitation, so it is a new turn and must be invited on its own.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await ingestTranscript(session, {
+    uid: teacher.uid,
+    text: 'Right, moving on to fractions.',
+    isFinal: true,
+    turnId: 91,
+  });
+
+  const uninvited = await handleAgentState(session, 'thinking');
+  assert.equal(uninvited.interrupted, true, 'an unrelated later turn must not ride on the old invitation');
+  assert.equal(uninvited.reason, 'AGENT_UNINVITED');
+});
+
+await t('the continuation window does not outlive an explicit revocation', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'listening');
+  // Mute, barge-in and closing the floor all funnel through this.
+  clearSpeakPermit(session);
+
+  const stopped = await handleAgentState(session, 'thinking');
+  assert.equal(stopped.interrupted, true, 'an override must beat the continuation window');
+});
+
+await t('a muted agent is still cut off mid-answer', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+  await handleAgentState(session, 'thinking');
+  await handleAgentState(session, 'listening');
+  session.policy.muted = true;
+
+  const muted = await handleAgentState(session, 'thinking');
+  assert.equal(muted.interrupted, true);
+  assert.equal(muted.reason, 'AGENT_MUTED');
+});
+
 
 console.log(`\n${pass} passing`);

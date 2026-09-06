@@ -98,6 +98,8 @@ Fields, all optional:
 - \`"to"\`: the exact name of the student you are answering this turn, spelled as it appears in the room list. Send it every time you answer a specific person.
 - \`"gap"\`: send when two or more students have shown the same confusion. \`{"topic":"...","students":["Name","Name"]}\`. Use a short topic name, two or three words.
 - \`"board"\`: send when something you just explained belongs on the shared board, and **always** when anyone asks you to write, put or show something on the board — a request to write is an instruction, not a topic of conversation. Never say you are about to write, are writing, or will write it "now": either the field is in this turn and it is already on the board, or it is not there at all. Announcing it without sending it is the failure mode to avoid. \`{"action":"write","text":"LCD of 2 and 3 is 6"}\`. \`action\` is \`show\`, \`hide\`, \`write\` or \`clear\`. For \`write\`, \`text\` is one short line a student can read at a glance — a definition, a formula, a worked step — never a paragraph and never a transcript of what you said. Send it sparingly: a board with three good lines beats one with thirty.
+- \`"illustrate"\`: send when a diagram would make what you are explaining clearer, and **always** when anyone asks you to draw, sketch, diagram or show a picture of something. \`{"illustrate":{"topic":"how a fraction is split into equal parts"}}\`. \`topic\` is a short phrase naming what to draw, not a description of the picture. Use it for things that have a shape — a process with steps, a hierarchy, a cycle, two things being compared, parts making up a whole. Do not use it for a single fact, a definition or a formula; those belong in \`"board"\` as one written line. **You must still explain the idea out loud in the same turn.** This field is never the whole reply: a turn that contains it and no spoken words is always wrong, and leaves the room staring at a picture nobody introduced. The rule above about answering with the control object and no speech is about staying silent when you were not addressed — it never applies to a turn you are drawing in. The drawing appears a few seconds later on its own, so do not say you are drawing it, do not say it is coming, and do not describe what it will look like; give the explanation and send the field. Sparingly: at most one diagram every few minutes, and never twice for the same thing.
+
 - \`"quiz"\`: send **only** when you have just asked a quiz question out loud. \`{"topic":"...","question":"...","options":["...","...","...","..."],"answer":"<letter>","difficulty":"easy"}\`. Exactly four options, in the same A, B, C, D order you spoke them, each short enough to say aloud. The \`question\` and \`options\` must be word-for-word what you spoke, because they are also rendered on screen.
 
   \`answer\` is the letter of the option that is actually correct. **Work it out from your own options before you write it.** Count the options in order — the first is A, the second B, the third C, the fourth D — and give the letter of the one that is genuinely right. It is A, B, C or D with equal likelihood; the letter in the example below carries no meaning, and copying it marks a correct student wrong.
@@ -107,6 +109,9 @@ Answering one student:
 
 Noticing a shared misconception:
 \`{"to":"Bilal","gap":{"topic":"common denominator","students":["Ana","Bilal"]}}\`
+
+Drawing something a teacher asked to see:
+\`{"illustrate":{"topic":"the water cycle"}}\`
 
 Posing a quiz — note that \`answer\` here is "C" only because "Find the least common denominator" is the third option; count your own options and use whichever letter is genuinely correct:
 \`{"quiz":{"topic":"common denominator","question":"What do you do first when adding one half and one third?","options":["Add the denominators","Multiply the numerators","Find the least common denominator","Subtract the smaller denominator"],"answer":"C","difficulty":"easy"}}\`
@@ -260,18 +265,54 @@ export function quizDirective(
  * The engine cannot tell it was the teacher, so the orchestrator drives the
  * reply. Phrased as a report of what was said, with her own name stripped.
  */
+/**
+ * Words that mean "put this on the board as a picture".
+ *
+ * Deliberately broad. A false positive costs one diagram nobody asked for; a
+ * false negative silently turns a drawing request into a paragraph, which is
+ * the failure this exists to stop.
+ */
+const DRAWING_REQUEST =
+  /\b(draw|drawing|draws|diagram|diagrams|sketch|illustrate|illustration|picture|visual|visualise|visualize|flowchart|flow chart|chart)\b/i;
+
+/** Whether something the teacher said is asking for a drawing. */
+export function wantsDrawing(text: string): boolean {
+  return DRAWING_REQUEST.test(text);
+}
+
+/**
+ * Keeps a request to draw from being flattened into prose.
+ *
+ * The directives below restate what the teacher said as an instruction to the
+ * model, and that restatement is authoritative — the persona tells the agent a
+ * `[classroom:system]` turn has already been cleared and must be carried out.
+ * So when a teacher said "draw a diagram for photosynthesis" and the directive
+ * came back as "answer them out loud in two or three sentences", the model
+ * obeyed the directive and explained in words. The drawing intent was destroyed
+ * before the model ever saw it, and nothing downstream could recover it,
+ * because no control payload was ever produced.
+ *
+ * Restoring the intent has to happen here, in the restatement, rather than in
+ * the control contract — the contract was already correct and was simply
+ * outranked.
+ */
+function drawingClause(said: string): string {
+  if (!wantsDrawing(said)) return '';
+  return ' They have asked for a drawing, not only an explanation, so this turn MUST also carry the `illustrate` control field naming what to draw. Say the explanation out loud as normal and append the field; answering in words alone does not give them what they asked for.';
+}
+
 export function addressedByTeacherDirective(question: string): string {
   const said = question.trim();
   return said.length > 0
-    ? `[classroom:system] The teacher just spoke to you directly: "${said}". Answer them now, out loud, in your own words — two or three sentences. If they asked you to continue, pick up the explanation you were giving before.`
+    ? `[classroom:system] The teacher just spoke to you directly: "${said}". Answer them now, out loud, in your own words — two or three sentences. If they asked you to continue, pick up the explanation you were giving before.${drawingClause(said)}`
     : `[classroom:system] The teacher just called on you by name. Respond to them now, out loud — briefly. If you were mid-explanation, continue it.`;
 }
 
 /** Teacher pressed "explain this now" (§3.10 FORCE_AGENT_SPEAK). */
 export function forceSpeakDirective(topic: string, studentName?: string): string {
   return studentName
-    ? `[classroom:system] The teacher has asked you to explain "${topic}" to ${studentName}. Do it now, at the depth listed for them.`
-    : `[classroom:system] The teacher has asked you to explain "${topic}" to the class. Do it now, briefly.`;
+    ? `[classroom:system] The teacher has asked you to explain "${topic}" to ${studentName}. Do it now, at the depth listed for them.${drawingClause(topic)}`
+    : `[classroom:system] The teacher has asked you to explain "${topic}" to the class. Do it now, briefly.${drawingClause(topic)}`;
 }
 
 /**

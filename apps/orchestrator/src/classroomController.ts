@@ -66,7 +66,17 @@ import {
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
 import { rememberAgentUtterance, stripSelfEcho } from './agent/echo.js';
-import { applyBoardCommand } from './whiteboard/boardSession.js';
+import {
+  applyBoardCommand,
+  broadcastWhiteboard,
+  mergeSceneElements,
+  openWhiteboard,
+} from './whiteboard/boardSession.js';
+import {
+  forgetIllustrations,
+  generateIllustration,
+  placeBeside,
+} from './board/boardAgent.js';
 import { parseVoiceBoardCommand } from './whiteboard/voice.js';
 import { recordHeldBackDoubt } from './workspace/workspaceManager.js';
 import { suggestReadingForGap } from './support/targetedReading.js';
@@ -162,6 +172,7 @@ const SPEAK_PERMIT_TTL_MS = 15_000;
  */
 const TURN_CONTINUATION_MS = 8_000;
 
+
 export function grantSpeakPermit(
   session: ClassroomSession,
   reason: SpeakTrigger,
@@ -222,15 +233,50 @@ export async function handleAgentState(
   // Still the turn authorised a moment ago, resurfacing after a gap in state
   // delivery rather than starting a new one.
   //
-  // Only 'speaking' qualifies, and that distinction is the whole point:
-  // 'thinking' means the model is generating, which is genuinely how a NEW turn
-  // begins, so it must always present its own permit. 'speaking' is the engine
-  // continuing to voice a turn it already started. Allowing both would let an
-  // unrelated later turn inherit clearance meant for the finished one.
-  const continuingAuthorisedTurn =
-    state === 'speaking' &&
+  // 'speaking' is the engine continuing to voice a turn it already started, so
+  // it qualifies on the window alone.
+  //
+  // 'thinking' used to be excluded outright, on the reasoning that thinking is
+  // how a NEW turn begins and so must always present its own permit. That is
+  // true of a new turn and false of a long one: the engine streams a long
+  // answer in chunks and re-enters 'thinking' between them, having already
+  // consumed the permit on the first chunk. So a long explanation was cut off
+  // partway — "Photosynthesis is the process by which green plants, algae,"
+  // and then silence — while a short one, voiced in a single burst, was fine.
+  // That is why this looked intermittent rather than broken.
+  //
+  // What actually separates the two cases is whether anyone has spoken since
+  // the turn was authorised. Nobody has: the engine is still working through
+  // the answer it was invited to give. Somebody has: whatever it is about to
+  // say is a response to THEM, it is not covered by the earlier invitation, and
+  // it must present its own permit. `lastHumanSpeechAt` moves on interim
+  // transcripts too, so a teacher who has merely started talking is enough.
+  //
+  // The overrides are unaffected. Mute, teacher barge-in and closing the floor
+  // all call `clearSpeakPermit`, which nulls `lastAuthorisedTurnAt` and so
+  // closes this window immediately rather than waiting for it to lapse.
+  const sinceAuthorised =
+    session.lastAuthorisedTurnAt === null
+      ? Number.POSITIVE_INFINITY
+      : Date.now() - session.lastAuthorisedTurnAt;
+
+  // The guard that does the real work for 'thinking'.
+  //
+  // A narrower time window was tried first, on the assumption that a chunk
+  // boundary is a pause of milliseconds. Live sessions disproved it: the gaps
+  // are two to four seconds, because the engine is generating the next chunk,
+  // and a 2s window still cut long answers off. The window is not what
+  // separates the two cases — this is. The engine only produces a turn in
+  // response to input, so a genuinely new, uninvited turn is preceded by
+  // somebody speaking; a continued one is not. `lastHumanSpeechAt` moves on
+  // interim transcripts, so a teacher who has merely started talking closes it.
+  const nobodySpokeSinceAuthorisation =
     session.lastAuthorisedTurnAt !== null &&
-    Date.now() - session.lastAuthorisedTurnAt <= TURN_CONTINUATION_MS;
+    session.floor.lastHumanSpeechAt <= session.lastAuthorisedTurnAt;
+
+  const continuingAuthorisedTurn =
+    sinceAuthorised <= TURN_CONTINUATION_MS &&
+    (state === 'speaking' || nobodySpokeSinceAuthorisation);
 
   if (session.policy.muted || (!hasSpeakPermit(session) && !continuingAuthorisedTurn)) {
     await interruptAgent(session.sessionId).catch(() => undefined);
@@ -372,7 +418,23 @@ export async function ingestTranscript(
     // exactly what happened when the early return below was lifted so that
     // human turns could reach the board and wake-phrase checks. One spoken quiz
     // question was recorded twenty-four times, all under the same turn id.
-    if (alreadyStored) return;
+    //
+    // The row is handled; the control payload is not. It is appended at the END
+    // of a turn, so it exists only in the last and longest relay — precisely the
+    // one that lands here. `upsertByTurn` parses the text to store the spoken
+    // half and drops the object on the floor, so returning outright meant a
+    // diagram or quiz Athena reported on a multi-relay turn was never acted on.
+    // She said "you should be able to see the diagram now" and nothing had been
+    // drawn, because `applyControl` had never been reached.
+    //
+    // Quizzes survived this because they have a second delivery path — the
+    // agent-history poll in `issueSetQuestion` — which is exactly what §3 of the
+    // handoff means by neither path being removable. Anything carried only by
+    // the relay had no such backstop.
+    if (alreadyStored) {
+      applyLateControl(session, text, turnId);
+      return;
+    }
     if (isFinal) ingestAgentTurn(session, text, now, turnId, language);
     return;
   }
@@ -574,6 +636,33 @@ export async function ingestTranscript(
 }
 
 /**
+ * Acts on a control payload that only appeared in a later relay of a turn.
+ *
+ * Guarded per turn id rather than per payload: relays keep arriving after the
+ * object is complete, and each one carries it again. The first relay in which
+ * the JSON actually parses is the right moment — a half-arrived object does not
+ * parse and is skipped, so this cannot fire on a fragment.
+ */
+function applyLateControl(
+  session: ClassroomSession,
+  text: string,
+  turnId: number | undefined,
+): void {
+  // Without an id there is nothing to key the guard on, and `ingestAgentTurn`
+  // has already handled the turn as new.
+  if (turnId === undefined) return;
+  if (session.agentControlAppliedTurns.has(turnId)) return;
+
+  const { control } = parseAgentTurn(text);
+  // An empty `{}` is a valid payload meaning "nothing applies" — it is not
+  // worth marking the turn as spent over.
+  if (!control || Object.keys(control).length === 0) return;
+
+  session.agentControlAppliedTurns.add(turnId);
+  applyControl(session, control);
+}
+
+/**
  * Handles one finished agent turn: strips the control payload, logs the spoken
  * remainder, and applies whatever the agent reported.
  */
@@ -605,7 +694,14 @@ function ingestAgentTurn(
     publish(session.sessionId, { kind: 'echosphere:transcript', segment });
   }
 
-  if (control) applyControl(session, control);
+  if (control) {
+    // Recorded so a later, longer relay of this same turn does not act on the
+    // same payload a second time — see `applyLateControl`.
+    if (turnId !== undefined && Object.keys(control).length > 0) {
+      session.agentControlAppliedTurns.add(turnId);
+    }
+    applyControl(session, control);
+  }
 
   // The permit is deliberately not cleared here. A turn's transcript arrives
   // after the next turn may already have been authorised, so clearing on
@@ -649,6 +745,107 @@ export function findRecentQuizByPayload(
 }
 
 /**
+ * How long the same illustrate topic is treated as a redelivery of one turn
+ * rather than a fresh request.
+ *
+ * Longer than the quiz window, because the cost of getting this wrong is
+ * higher. A duplicate quiz is a second card; a duplicate illustration is a
+ * second Excalidraw round trip and a second copy of the same diagram pasted
+ * beside the first.
+ */
+const ILLUSTRATE_REDELIVERY_WINDOW_MS = 180_000;
+
+/** Recently requested topics per session, for the redelivery guard. */
+const recentIllustrations = new Map<string, Map<string, number>>();
+
+/**
+ * True when this topic has already been sent to the board agent moments ago —
+ * i.e. the second of the two delivery paths has just arrived.
+ *
+ * Same problem as `findRecentQuizByPayload`, and the same reasoning: one spoken
+ * turn reaches `applyControl` twice, once from the agent-history poll in
+ * `issueSetQuestion` and once from the relayed RTM transcript in
+ * `ingestAgentTurn`. Neither path can be dropped, so the payload is the key.
+ * Unlike a quiz there is no record to hand back, because the diagram does not
+ * exist yet — the guard only has to stop the second call being made.
+ */
+export function isDuplicateIllustration(
+  session: ClassroomSession,
+  topic: string,
+): boolean {
+  const key = topic.trim().toLowerCase();
+  if (!key) return true;
+
+  const now = Date.now();
+  let seen = recentIllustrations.get(session.sessionId);
+  if (!seen) {
+    seen = new Map();
+    recentIllustrations.set(session.sessionId, seen);
+  }
+
+  // Sweep here rather than on a timer: the map only grows when Athena draws.
+  for (const [existing, at] of seen) {
+    if (now - at > ILLUSTRATE_REDELIVERY_WINDOW_MS) seen.delete(existing);
+  }
+
+  if (seen.has(key)) return true;
+  seen.set(key, now);
+  return false;
+}
+
+/**
+ * Drops everything remembered about a session's diagrams.
+ *
+ * Two pieces of state, in two modules: the redelivery guard here, and the
+ * scratch-scene/seen-element bookkeeping in the board agent. Released together
+ * when a lesson ends so neither outlives the room.
+ */
+export function releaseIllustrationState(sessionId: string): void {
+  recentIllustrations.delete(sessionId);
+  forgetIllustrations(sessionId);
+}
+
+/**
+ * Draws a diagram and puts it on the board, without blocking the turn.
+ *
+ * Deliberately not awaited by `applyControl`. Generation is a model call plus
+ * two Excalidraw round trips — seconds, not milliseconds — and the spoken turn
+ * it came from has already been said. Making the control path wait would delay
+ * every other field in the same payload behind a picture.
+ *
+ * The result goes onto the board through exactly the path a participant's own
+ * edit takes: merge into the authoritative scene, then publish the same
+ * `whiteboard-scene` event. Nothing in the client needs to know these elements
+ * came from Athena rather than from the teacher's pointer.
+ */
+async function runIllustration(
+  session: ClassroomSession,
+  topic: string,
+): Promise<void> {
+  const drawn = await generateIllustration(session.sessionId, topic);
+  if (drawn.length === 0) return;
+  // The session can end while Excalidraw is still drawing.
+  if (session.endedAt !== null) return;
+
+  const elements = placeBeside(session.whiteboard.scene, drawn);
+  mergeSceneElements(session, elements);
+
+  // A diagram nobody can see is not worth the round trip: if the board was
+  // closed when she was asked, open it as it lands.
+  if (!session.whiteboard.open) {
+    await openWhiteboard(session);
+  } else {
+    broadcastWhiteboard(session);
+  }
+
+  publish(session.sessionId, {
+    kind: 'echosphere:whiteboard-scene',
+    elements,
+    by: 'athena',
+  });
+}
+
+/**
  * Applies a parsed control payload (§3.5 attribution, §3.6 quiz, §3.9 gap).
  * Returns the quiz it created, if any, so a multi-question set can track it.
  */
@@ -674,6 +871,16 @@ export function applyControl(
       const update = recordReportedGap(session, control.gap.topic, ids);
       if (update?.gap) void suggestReadingForGap(session, update.gap);
     }
+  }
+
+  if (control.illustrate && !isDuplicateIllustration(session, control.illustrate.topic)) {
+    // Not gated on annotate mode, unlike `board.write` below. A written line is
+    // Athena putting words in the teacher's space; a diagram is what someone
+    // just asked her out loud to draw, and making that silently depend on a
+    // toggle nobody remembered to set is the more confusing failure.
+    void runIllustration(session, control.illustrate.topic).catch((err) => {
+      console.error('[illustrate] failed:', err);
+    });
   }
 
   if (control.board) {

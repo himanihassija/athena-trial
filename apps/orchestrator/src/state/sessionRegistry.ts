@@ -105,6 +105,17 @@ export interface ClassroomSession {
   lastAuthorisedTurnAt: number | null;
 
   /**
+   * Agent turn ids whose control payload has already been acted on.
+   *
+   * A turn reaches the orchestrator as several relays that grow as she speaks,
+   * and the control object is appended at the very END of a turn — so it exists
+   * only in the last, longest relay. Acting on every relay that carries it
+   * would fire the same quiz or diagram repeatedly; acting on none of them,
+   * which is what used to happen, dropped it entirely.
+   */
+  agentControlAppliedTurns: Set<number>;
+
+  /**
    * A quiz the agent has been asked to pose but has not reported yet.
    *
    * The agent composes the question itself and returns it on the control
@@ -218,6 +229,7 @@ export function createSession(title: string): ClassroomSession {
     speakPermit: null,
     authorizedTurnInProgress: false,
     lastAuthorisedTurnAt: null,
+    agentControlAppliedTurns: new Set(),
     pendingQuiz: null,
     activeQuizSet: null,
     transcript: [],
