@@ -100,3 +100,4 @@ Thumbs.db
 # project this checkout is bound to — an id and a name, no credentials — and
 # committing it means a teammate's `agora project env write` targets the right
 # project without being told which one.
+.vercel
