@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import type { PublicParticipant } from '@echosphere/shared-types';
 import { seatColorVar } from '@/lib/seatColor';
 import { DotLottieReact } from '@lottiefiles/dotlottie-react';
@@ -20,36 +20,30 @@ interface Tile {
 }
 
 /**
- * Athena's avatar visual: a one-time intro clip plays each time she's freshly
- * brought into the room, then this swaps over to the looping Lottie idle
- * animation for the rest of the session. `agentPresent` flipping false→true
- * (not just being true) is what re-triggers the intro — leaving/rejoining
- * plays it again, but a re-render while she's already present does not.
- *
- * `muted` is required here: the intro clip's own audio track must never play,
- * only Athena's real TTS voice should be heard. Missing this was the exact
- * cause of "two voices at once."
+ * Athena's avatar visual. Which one shows is decided entirely by the
+ * `introPlayed` prop from the parent page — this component holds no state of
+ * its own, because it gets unmounted/remounted every time the stage switches
+ * to the whiteboard or a screen share and back (see page.tsx's conditional
+ * render). Tracking "have I played the intro" locally meant every return to
+ * this view looked like a fresh entrance and replayed the video. The parent
+ * page only resets `introPlayed` to false at the moment "Bring Athena in" is
+ * actually clicked, so it now plays exactly once per real entrance.
  */
-function AthenaAvatarVisual({ agentPresent }: { agentPresent: boolean }) {
-  const [introFinished, setIntroFinished] = useState(false);
-  const wasPresentRef = useRef(false);
-
-  useEffect(() => {
-    if (agentPresent && !wasPresentRef.current) {
-      // A fresh entrance — reset so the intro plays again.
-      setIntroFinished(false);
-    }
-    wasPresentRef.current = agentPresent;
-  }, [agentPresent]);
-
-  if (!introFinished) {
+function AthenaAvatarVisual({
+  introPlayed,
+  onIntroEnd,
+}: {
+  introPlayed: boolean;
+  onIntroEnd: () => void;
+}) {
+  if (!introPlayed) {
     return (
       <video
         key="intro"
         autoPlay
         playsInline
-        onEnded={() => setIntroFinished(true)}
-        onError={() => setIntroFinished(true)}
+        onEnded={onIntroEnd}
+        onError={onIntroEnd}
         className="h-full w-full object-cover"
       >
         <source src="/athena-intro.mp4" type="video/mp4" />
@@ -76,6 +70,8 @@ export function ParticipantGrid({
   selfUid,
   selfMicEnabled,
   raisedHands = [],
+  introPlayed = true,
+  onIntroEnd,
 }: {
   participants: PublicParticipant[];
   agentPresent: boolean;
@@ -85,6 +81,10 @@ export function ParticipantGrid({
   selfMicEnabled: boolean;
   /** participantIds with a raised hand, from useClassroom's `raisedHands`. */
   raisedHands?: string[];
+  /** Whether the one-time entrance intro has already played this session. */
+  introPlayed?: boolean;
+  /** Called when the intro video finishes (or fails to load). */
+  onIntroEnd?: () => void;
 }) {
   const teacher = participants.find((p) => p.role === 'teacher');
   const students = participants.filter((p) => p.role === 'student');
@@ -181,7 +181,10 @@ export function ParticipantGrid({
           {tile.isAgent ? (
             tile.agentPresent ? (
               <span className="relative h-72 w-72 overflow-hidden rounded-full">
-                <AthenaAvatarVisual agentPresent={Boolean(tile.agentPresent)} />
+                <AthenaAvatarVisual
+                  introPlayed={introPlayed}
+                  onIntroEnd={() => onIntroEnd?.()}
+                />
               </span>
             ) : (
               <span
