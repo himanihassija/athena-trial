@@ -1,28 +1,27 @@
 'use client';
-
 import { type ReactNode } from 'react';
-
 export interface DrawerTab {
   id: string;
   label: string;
   content: ReactNode;
 }
-
 export function ClassroomDrawer({
   open,
   onClose,
   tabs,
   activeTab,
   onTabChange,
+  headerActions,
 }: {
   open: boolean;
   onClose: () => void;
   tabs: DrawerTab[];
   activeTab: string;
   onTabChange: (id: string) => void;
+  /** Rendered just below the title bar, visible regardless of which tab is active. */
+  headerActions?: ReactNode;
 }) {
   const active = tabs.find((t) => t.id === activeTab) ?? tabs[0];
-
   return (
     <>
       <div
@@ -32,7 +31,6 @@ export function ClassroomDrawer({
           open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
         }`}
       />
-
       <aside
         role="dialog"
         aria-modal="true"
@@ -59,7 +57,14 @@ export function ClassroomDrawer({
             ✕
           </button>
         </div>
-
+        {headerActions && (
+          <div
+            className="flex shrink-0 flex-wrap gap-2 border-b px-5 py-3"
+            style={{ borderColor: 'var(--eco-rule)' }}
+          >
+            {headerActions}
+          </div>
+        )}
         <div
           className="flex shrink-0 flex-wrap gap-1.5 border-b px-4 py-3"
           style={{ borderColor: 'var(--eco-rule)' }}
@@ -80,7 +85,6 @@ export function ClassroomDrawer({
             </button>
           ))}
         </div>
-
         <div className="min-h-0 flex-1 overflow-y-auto p-5">{active?.content}</div>
       </aside>
     </>

@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import type { PublicParticipant } from '@echosphere/shared-types';
 import { seatColorVar } from '@/lib/seatColor';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { initialsOf } from '@/components/classroom/panels';
 
 interface Tile {
@@ -128,27 +129,27 @@ export function ParticipantGrid({
             </span>
           )}
 
-          {tile.isAgent ? (
-            <span
-              className={`relative flex h-16 w-16 items-center justify-center rounded-full text-lg font-semibold ${
-                tile.agentPresent && tile.speaking
-                  ? 'eco-orb-speaking'
-                  : tile.agentPresent
-                    ? 'eco-orb-idle'
-                    : ''
-              }`}
-              style={{
-                background: tile.agentPresent
-                  ? 'radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--eco-athena) 55%, transparent), transparent 70%), var(--eco-ink-sunken)'
-                  : 'var(--eco-ink-sunken)',
-                color: 'var(--eco-athena)',
-                boxShadow: tile.agentPresent
-                  ? '0 0 14px 1px color-mix(in srgb, var(--eco-athena) 35%, transparent)'
-                  : 'none',
-              }}
-            >
-              A
-            </span>
+              {tile.isAgent ? (
+            tile.agentPresent ? (
+              <span className="relative h-40 w-40 overflow-hidden rounded-full">
+                <DotLottieReact
+                  src="/athena-avatar.lottie"
+                  loop
+                  autoplay
+                  className="h-full w-full"
+                />
+              </span>
+            ) : (
+              <span
+                className="relative flex h-16 w-16 items-center justify-center rounded-full text-lg font-semibold"
+                style={{
+                  background: 'var(--eco-ink-sunken)',
+                  color: 'var(--eco-athena)',
+                }}
+              >
+                A
+              </span>
+            )
           ) : (
             <span
               className={`relative flex h-16 w-16 items-center justify-center rounded-full ${
