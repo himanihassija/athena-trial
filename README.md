@@ -60,7 +60,15 @@ Credentials mode and mints the ConvoAI token itself.
 
 ```bash
 pnpm install
+```
 
+**Start both (one terminal):**
+```bash
+pnpm run dev:classroom      # orchestrator :8787 + web :3000, in parallel
+```
+
+**Or one each, if you want their logs separate:**
+```bash
 # Terminal 1 — orchestration backend on :8787
 pnpm --filter @echosphere/orchestrator dev
 
@@ -69,6 +77,33 @@ pnpm --filter @echosphere/web dev
 ```
 
 Open <http://localhost:3000/join>.
+
+**Stop both:**
+```bash
+pkill -f "src/server.ts"     # orchestrator
+pkill -f "src/server.ts"          # web
+```
+
+Confirm they are actually down before restarting — a half-dead process holding
+a port is the usual reason a fresh start fails with `EADDRINUSE`:
+```bash
+lsof -nP -iTCP:8787 -sTCP:LISTEN   # orchestrator; no output = stopped
+lsof -nP -iTCP:3000 -sTCP:LISTEN   # web
+```
+
+> **Ctrl-C on the orchestrator does not always finish.** It runs under
+> `tsx --watch`, and an open SSE connection from a browser tab keeps the process
+> alive, so shutdown can hang at `Waiting for graceful termination...`. The same
+> applies to the automatic restart after you edit a file under
+> `apps/orchestrator/src/` — it can stall instead of coming back, leaving
+> nothing listening on :8787. If that happens, `pkill -f "src/server.ts"` and
+> start it again.
+
+> **Restarting the orchestrator wipes every live classroom.** Sessions, the
+> transcript, quizzes and the whiteboard scene are held in memory in
+> `sessionRegistry.ts`, not in Postgres, so a restart ends any lesson in
+> progress. Avoid editing orchestrator source while a session you care about is
+> running.
 
 ### 3. For a demo or when sharing — run production, not dev
 

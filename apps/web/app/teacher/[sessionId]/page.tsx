@@ -123,6 +123,15 @@ export default function TeacherDashboardPage() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   /** Persistent right-hand transcript sidebar, independent of the Menu drawer. */
   const [transcriptPinned, setTranscriptPinned] = useState(false);
+  /**
+   * Whether Athena's one-time entrance intro has already played. Lives here,
+   * not inside ParticipantGrid, because that component unmounts whenever the
+   * stage switches to the whiteboard or a screen share and back — tracking
+   * this locally there meant every return to the room replayed the video.
+   * Defaults true so a page reload while she's already present doesn't
+   * wrongly replay it; only startAgent() resets it to false.
+   */
+  const [introPlayed, setIntroPlayed] = useState(true);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -172,6 +181,7 @@ export default function TeacherDashboardPage() {
     if (!identity) return;
     setBusy(true);
     setNotice(null);
+    setIntroPlayed(false);
     try {
       await orchestrator.startAgent(sessionId, identity.participantId);
     } catch (error) {
@@ -607,6 +617,16 @@ export default function TeacherDashboardPage() {
           <button
             type="button"
             disabled={busy || !view.room?.agentId}
+            onClick={() => void send({ type: 'RESUME_AGENT' })}
+            className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ '--chip-accent': 'var(--eco-green)' } as CSSProperties}
+            title="Unmute Athena"
+          >
+            Unmute Athena
+          </button>
+          <button
+            type="button"
+            disabled={busy || !view.room?.agentId}
             onClick={() => void stopAgent()}
             className="eco-action-chip disabled:cursor-not-allowed disabled:opacity-40"
             style={{ '--chip-accent': 'var(--eco-red)' } as CSSProperties}
@@ -855,6 +875,8 @@ export default function TeacherDashboardPage() {
                       selfUid={identity.uid}
                       selfMicEnabled={micEnabled}
                       raisedHands={view.raisedHands}
+                      introPlayed={introPlayed}
+                      onIntroEnd={() => setIntroPlayed(true)}
                     />
                   )}
                 </div>

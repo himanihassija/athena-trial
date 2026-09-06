@@ -375,11 +375,30 @@ export function onTurnSettled(key: string | null, action: () => void): void {
   settlingTurns.set(key, timer);
 }
 
+/**
+ * True for the orchestrator's own injected instructions coming back through the
+ * transcript stream.
+ *
+ * These reach us on either side of the relay's speaker split. The engine treats
+ * an injected directive as user input, so it usually arrives uid "0" and is
+ * dropped on the human path below — but the browser's discriminator keys on
+ * `metadata.object`, and when the engine tags the echo AGENT_TRANSCRIPTION the
+ * same text arrives under the agent's uid instead, taking the `uid ===
+ * AGENT_UID` branch and never reaching that guard. It was then appended as one
+ * of Athena's own turns, which is how a classroom read
+ * "[classroom:system] The teacher just spoke to you directly:" on screen,
+ * attributed to her.
+ */
+function isSystemDirective(text: string): boolean {
+  return text.trimStart().startsWith(SYSTEM_PREFIX);
+}
+
 export async function ingestTranscript(
   session: ClassroomSession,
   { uid, text, isFinal, turnId, language, attributionConfidence }: IngestOptions,
 ): Promise<void> {
   const now = Date.now();
+  const systemDirective = isSystemDirective(text);
 
   // Every browser in the room sees the same RTM transcript stream, and any of
   // them may relay it, so (uid, turnId) identifies one utterance across relays.
@@ -391,7 +410,11 @@ export async function ingestTranscript(
   // below is skipped. Intent still runs: see the `updated` branch.
   let alreadyStored = false;
 
-  if (isFinal && turnId !== undefined) {
+  // A directive must not reach the upsert either. It shares its turn id with
+  // the reply it provoked, so a relay carrying the directive is a *longer*
+  // version of that turn and would overwrite Athena's stored words with the
+  // instruction text.
+  if (isFinal && turnId !== undefined && !systemDirective) {
     const outcome = upsertByTurn(session, uid, text, turnId);
     if (outcome === 'unchanged') return;
     if (outcome === 'updated') {
@@ -445,7 +468,7 @@ export async function ingestTranscript(
   // logging them would put "[classroom:system] The teacher has asked you to…"
   // in front of the students and feed it to the gap detector as a confused
   // question.
-  if (text.trimStart().startsWith(SYSTEM_PREFIX)) return;
+  if (systemDirective) return;
 
   const participant = participantByUid(session, uid);
   if (!participant) return; // Unknown uid — not a registered classroom member.
@@ -676,8 +699,11 @@ function ingestAgentTurn(
   const { spoken, control } = parseAgentTurn(text);
 
   // Only the spoken half is stored. The control object never reached the room's
-  // ears, so it must not appear in the transcript the room can read either.
-  if (spoken.length > 0) {
+  // ears, so it must not appear in the transcript the room can read either —
+  // and neither must an injected directive that the engine echoed back tagged
+  // as the agent's own speech. `applyControl` below still runs: dropping the
+  // row must not cost a board write or diagram that rode on the same turn.
+  if (spoken.length > 0 && !isSystemDirective(spoken)) {
     // Recorded so a later human turn that is actually this speech leaking back
     // in through an open mic can be recognised and stripped.
     rememberAgentUtterance(session, spoken);
