@@ -82,7 +82,10 @@ function resolveProvider(): Provider | null {
     return {
       type: 'openai-compatible',
       url: 'https://api.groq.com/openai/v1/chat/completions',
-      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      // llama-3.3-70b-versatile was Groq's default here until Groq
+      // decommissioned it — the account's model list no longer carries it, so
+      // every call 404'd. gpt-oss-120b is current and generally available.
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
       headers: { Authorization: `Bearer ${groqKey.trim()}` },
     };
   }
@@ -113,6 +116,14 @@ function resolveProvider(): Provider | null {
   }
 
   return null;
+}
+
+/**
+ * Whether a model spends completion budget on hidden reasoning tokens, so its
+ * visible reply needs extra headroom to avoid coming back empty.
+ */
+function isReasoningModel(model: string): boolean {
+  return /gpt-oss|qwen3|reasoner|thinking/i.test(model);
 }
 
 /**
@@ -223,6 +234,18 @@ export async function tryComplete(
     }
 
     // 3. OpenAI & OpenAI-compatible providers
+    //
+    // Reasoning models (gpt-oss, qwen3, deepseek-reasoner) spend part of the
+    // completion budget on hidden reasoning tokens that never reach `content`.
+    // At a tight budget they burn all of it thinking and return an empty
+    // string, which reads as "the provider is broken" rather than "the cap was
+    // too low". Gemini already gets this headroom above; mirror it here so a
+    // reasoning model cannot answer blank.
+    const requestedMax = options.maxTokens ?? 700;
+    const maxTokens = isReasoningModel(provider.model)
+      ? Math.max(requestedMax + 1500, 2500)
+      : requestedMax;
+
     const response = await fetch(provider.url, {
       method: 'POST',
       headers: {
@@ -233,7 +256,7 @@ export async function tryComplete(
         model: provider.model,
         messages,
         temperature: options.temperature ?? 0.4,
-        max_tokens: options.maxTokens ?? 700,
+        max_tokens: maxTokens,
       }),
     });
 
