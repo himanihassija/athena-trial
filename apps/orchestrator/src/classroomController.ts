@@ -328,8 +328,33 @@ export async function handleAgentState(
     sinceAuthorised <= TURN_CONTINUATION_MS &&
     (state === 'speaking' || nobodySpokeSinceAuthorisation);
 
-  if (session.policy.muted || (!hasSpeakPermit(session) && !continuingAuthorisedTurn)) {
-    await interruptAgent(session.sessionId).catch(() => undefined);
+  let permitted = hasSpeakPermit(session) || continuingAuthorisedTurn;
+
+  // The invitation for this very turn may not have arrived yet. See
+  // `awaitPermitInFlight` — this is the window in which Athena was cut off for
+  // answering a question she had, in fact, just been asked.
+  if (!permitted && !session.policy.muted) {
+    permitted = await awaitPermitInFlight(session);
+    // Another relay of the same state change adjudicated it while we waited.
+    // It has already done everything below; doing it again would consume a
+    // second permit for one turn.
+    if (session.authorizedTurnInProgress) return { interrupted: false };
+  }
+
+  if (session.policy.muted || !permitted) {
+    // Revoked BEFORE the interrupt, not after.
+    //
+    // `interruptAgent` is a round trip to Agora — measured at 1.4s in a live
+    // session — and this function used to clear the permit on the far side of
+    // that await. A permit granted during those 1.4s (which is exactly what
+    // happens when the transcript of the address lands a moment after the
+    // engine has already started answering it) was therefore wiped by a
+    // decision taken before it existed. The `think` that followed then had no
+    // permit, was cut off in turn, and the floor was left reading
+    // "Waiting on Athena" with no answer ever coming.
+    //
+    // Every mutation here is a consequence of the decision made above, so it
+    // belongs with that decision, in the same synchronous step.
     releaseFloor(session);
     clearSpeakPermit(session);
     // Report why the interrupt actually fired.
@@ -354,6 +379,7 @@ export async function handleAgentState(
       at: Date.now(),
     });
     setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
+    await interruptAgent(session.sessionId).catch(() => undefined);
     return { interrupted: true, reason };
   }
 
@@ -362,13 +388,91 @@ export async function handleAgentState(
   // invitation meant for this one.
   session.authorizedTurnInProgress = true;
   session.lastAuthorisedTurnAt = Date.now();
+  // Kept past the permit's own lifetime, for the things that must know whether
+  // anyone asked for this turn. A continuation carries the trigger of the turn
+  // it continues, so it is only overwritten when a fresh permit is consumed.
+  if (session.speakPermit) {
+    session.lastAuthorisedTurnTrigger = session.speakPermit.reason;
+  }
   session.speakPermit = null;
+  claimFloorForAgent(session);
   setRestraintMeter(session, 'speaking');
   return { interrupted: false };
 }
 
+/**
+ * How long to wait for an invitation that is probably already on its way.
+ *
+ * The engine hears the wake word itself and starts answering within a few
+ * hundred milliseconds. The orchestrator learns the same thing far later: the
+ * browser holds each spoken turn for `TURN_SETTLE_MS` before relaying it, so
+ * that a sentence is posted once, complete, rather than as a dozen growing
+ * fragments. For that window the agent is legitimately answering a question
+ * the orchestrator has not been told about yet, and enforcement — which knows
+ * only that no permit exists — cut her off for it.
+ *
+ * Comfortably longer than the relay's settle plus a round trip, so the
+ * transcript has had its chance to land. Waiting is only ever entered for a
+ * turn that would otherwise be interrupted outright, and never when the agent
+ * is muted, so the mute veto keeps its immediacy.
+ */
+const PERMIT_GRACE_MS = 1_500;
+const PERMIT_GRACE_POLL_MS = 100;
+
+/**
+ * True once this turn turns out to have been invited after all.
+ *
+ * Polls rather than waits on an event because the grant happens in a different
+ * request — the transcript POST — and the two share nothing but the session.
+ */
+async function awaitPermitInFlight(session: ClassroomSession): Promise<boolean> {
+  const deadline = Date.now() + PERMIT_GRACE_MS;
+  while (Date.now() < deadline) {
+    // Deliberately NOT unref'd, unlike `onTurnSettled`'s timer: this one is
+    // awaited inside a request that is holding a decision open, so letting the
+    // process exit out from under it would leave that decision unmade.
+    await new Promise((resolve) => setTimeout(resolve, PERMIT_GRACE_POLL_MS));
+    // A mute or a barge-in arriving mid-wait settles the question immediately.
+    if (session.policy.muted) return false;
+    if (session.endedAt !== null) return false;
+    if (session.authorizedTurnInProgress) return true;
+    if (hasSpeakPermit(session)) return true;
+  }
+  return false;
+}
+
+/**
+ * Marks the floor as Athena's for the turn she has just been cleared to give.
+ *
+ * Only `requestFloor` used to do this, which covers the turns the orchestrator
+ * starts. A directly-addressed turn is started by the engine, so the floor sat
+ * in `STUDENT_QUESTION_PENDING` — the state the room reads as "Waiting on
+ * Athena" — for the whole of her answer and beyond, since `releaseFloor` had
+ * nothing to release. Now every authorised turn passes through the same two
+ * states, whoever started it.
+ */
+function claimFloorForAgent(session: ClassroomSession): void {
+  if (session.floor.state === 'AGENT_SPEAKING') return;
+  session.floor = onAgentSpeechStart(session.floor, Date.now());
+  broadcastFloor(session);
+}
+
+/**
+ * Hands the floor back after an agent turn ends — or after one is refused.
+ *
+ * `STUDENT_QUESTION_PENDING` is released as well as `AGENT_SPEAKING`. A
+ * question that will never be answered — she was interrupted, muted, or the
+ * floor closed under her — otherwise left the room's floor indicator showing
+ * "Waiting on Athena" indefinitely, with nothing but the next person to speak
+ * able to clear it.
+ */
 export function releaseFloor(session: ClassroomSession): void {
-  if (session.floor.state !== 'AGENT_SPEAKING') return;
+  if (
+    session.floor.state !== 'AGENT_SPEAKING' &&
+    session.floor.state !== 'STUDENT_QUESTION_PENDING'
+  ) {
+    return;
+  }
   session.floor = onAgentSpeechEnd(session.floor, Date.now());
   session.activeQuestionerId = null;
   broadcastFloor(session);
@@ -960,12 +1064,31 @@ export function applyControl(
   }
 
   if (control.board) {
-    // Gated on annotate mode: Athena may judge something board-worthy at any
-    // time, but she only writes while the teacher has asked her to. `show`,
-    // `hide` and `clear` are board control rather than content, so they are
-    // allowed through either way.
+    // `show`, `hide` and `clear` are board control rather than content, so they
+    // are allowed through either way.
     const isContent = control.board.action === 'write';
-    if (!isContent || session.whiteboard.annotating) {
+
+    // Annotate mode gates the writes she VOLUNTEERS, which is the case it was
+    // built for: Athena judges something board-worthy while the teacher is
+    // teaching, and without the gate she would write onto a board nobody asked
+    // her to touch every time a definition came up.
+    //
+    // It must not gate a write on a turn somebody asked for. Gating those made
+    // her narrate a board she had not been allowed to write on — "I've put the
+    // example on the board: 3/4 = 3 parts out of 4 equal parts" with the board
+    // untouched — because the payload was dropped here, silently, while the
+    // spoken half of the same turn went out as normal. Nothing told the
+    // teacher, and nothing told her either, so she went on referring to it.
+    //
+    // `GAP_DETECTED_IN_SILENCE` is the only trigger that means nobody asked;
+    // an unauthorised turn has no trigger at all and is treated as asked-for,
+    // since the alternative is to drop it silently all over again. This is the
+    // same call the `illustrate` field above already makes, for the same
+    // reason.
+    const volunteered =
+      session.lastAuthorisedTurnTrigger === 'GAP_DETECTED_IN_SILENCE';
+
+    if (!isContent || !volunteered || session.whiteboard.annotating) {
       applyBoardCommand(session, {
         action: control.board.action,
         text: control.board.text,

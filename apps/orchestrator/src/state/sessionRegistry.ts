@@ -167,6 +167,20 @@ export interface ClassroomSession {
   lastAuthorisedTurnAt: number | null;
 
   /**
+   * Why the turn currently — or most recently — authorised was allowed to run.
+   *
+   * `speakPermit` cannot answer this: it is consumed the moment a turn is
+   * authorised, and the agent's own transcript (and so its control payload)
+   * arrives well after that. Anything that has to treat a solicited turn
+   * differently from one she started on her own therefore needs the trigger to
+   * outlive the permit, which is what this is for.
+   *
+   * `GAP_DETECTED_IN_SILENCE` is the only trigger that means "nobody asked" —
+   * every other one is a person addressing her or a teacher command.
+   */
+  lastAuthorisedTurnTrigger: SpeakTrigger | null;
+
+  /**
    * Agent turn ids whose control payload has already been acted on.
    *
    * A turn reaches the orchestrator as several relays that grow as she speaks,
@@ -296,6 +310,7 @@ export function createSession(
     lastSettledHumanSpeech: null,
     authorizedTurnInProgress: false,
     lastAuthorisedTurnAt: null,
+    lastAuthorisedTurnTrigger: null,
     agentControlAppliedTurns: new Set(),
     pendingQuiz: null,
     activeQuizSet: null,
