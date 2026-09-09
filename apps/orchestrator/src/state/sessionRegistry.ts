@@ -356,6 +356,29 @@ export function removeParticipant(
   participant.leftAt = Date.now();
 }
 
+/**
+ * Undoes a `removeParticipant` that should not have stuck.
+ *
+ * The browser cannot reliably tell a tab closing for good from a page
+ * refresh — both fire the same `pagehide` event — so the client sends a
+ * leave beacon on either. A refresh is deliberately NOT a real departure
+ * (see `storeIdentity`'s comment: the same participantId reconnects rather
+ * than re-joining), so on every mount the client also calls this to clear
+ * whatever a stray beacon from a moment ago may have set. Safe to call on a
+ * participant who was never marked left at all — it is a no-op then, which
+ * is what makes it fine to call unconditionally on every mount rather than
+ * only ones the client can prove followed a refresh.
+ */
+export function resumeParticipant(
+  session: ClassroomSession,
+  participantId: string,
+): boolean {
+  const participant = session.participants.get(participantId);
+  if (!participant) return false;
+  participant.leftAt = undefined;
+  return true;
+}
+
 export function participantByUid(
   session: ClassroomSession,
   uid: string,

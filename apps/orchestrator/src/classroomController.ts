@@ -145,18 +145,6 @@ export function requestFloor(
 }
 
 /**
- * How long a permit stays valid before the agent must actually BEGIN a turn.
- *
- * This only bounds the gap between being addressed and the engine's first
- * thinking/speaking transition — not how long she may then keep talking.
- * Once a turn starts, `authorizedTurnInProgress` takes over and this TTL is
- * irrelevant until the next turn. Long enough to cover ASR settle + LLM
- * generation latency; short enough that being addressed once does not
- * license an unrelated reply minutes later.
- */
-const SPEAK_PERMIT_TTL_MS = 15_000;
-
-/**
  * How long after a turn was authorised a further starting state still counts as
  * that same turn.
  *
@@ -180,10 +168,36 @@ export function grantSpeakPermit(
   session.speakPermit = { grantedAt: Date.now(), reason };
 }
 
+/**
+ * Whether an invitation to speak is still the one it was, not how long ago it
+ * was issued.
+ *
+ * This used to be a fixed 15-second TTL — long enough, it seemed, to cover
+ * ASR settle plus generation latency for the model in place at the time. A
+ * reasoning model broke that assumption: measured live, a single reply can
+ * take upwards of 20 seconds just to begin, and there is no duration short
+ * enough to bound that without also being long enough to feel broken on a
+ * fast one. A slow reply to a question that is still the most recent thing
+ * anyone said is not "uninvited" — it is just slow, and it is invited for as
+ * long as nothing has since made it not the answer to the most recent thing
+ * said.
+ *
+ * So validity is judged by that instead: has anyone spoken again since the
+ * permit was granted. If not, it is still exactly the invitation it was, no
+ * matter how long the engine takes to act on it — wait for her. If someone
+ * has, the room has moved on and a reply this stale would be answering
+ * something that is no longer the question; that check already exists as
+ * `nobodySpokeSinceAuthorisation` below for a turn already in progress, and
+ * this mirrors it for one that has not started yet. Anything that should
+ * revoke an invitation outright already does, explicitly and immediately,
+ * by calling `clearSpeakPermit` — mute, teacher barge-in, the floor closing
+ * to students, a quiz that never landed. This only has to catch a stale
+ * invitation nobody explicitly revoked, not stand in for those calls.
+ */
 export function hasSpeakPermit(session: ClassroomSession): boolean {
   const permit = session.speakPermit;
   if (!permit) return false;
-  return Date.now() - permit.grantedAt <= SPEAK_PERMIT_TTL_MS;
+  return session.floor.lastHumanSpeechAt <= permit.grantedAt;
 }
 
 /**
