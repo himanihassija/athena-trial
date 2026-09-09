@@ -17,9 +17,16 @@
  *     as end-of-turn without charging every ordinary turn a fixed 2s wait.
  *   - `interruption` in keyword mode, so only someone addressing Athena by
  *     name can cut her off — not a scraping chair or a student's aside.
- *   - `sal` (Selective Attention Locking) in recognition mode, so the engine
- *     itself separates voices and suppresses room noise across the several
- *     microphones `remoteUids: ['*']` opens it up to.
+ *
+ * There is deliberately NO Selective Attention Locking (SAL) here. A `sal`
+ * block used to be sent, but `advanced_features.enable_sal` never was, and
+ * Agora documents that flag as what turns the feature on — so nothing was
+ * separating voices and the comments claiming otherwise described behaviour
+ * that had never run. Enabling it properly is not the fix either: the join
+ * schema states `sal.sample_urls` supports "Only one voiceprint URL", so
+ * `recognition` mode can enrol exactly one speaker, which a classroom of
+ * rotating students cannot use. Cross-talk is therefore a known, unmitigated
+ * property of this deployment rather than a solved problem.
  *
  * The LLM is Agora's resold gpt-4o-mini. No OpenAI key is involved anywhere in
  * this project: speech recognition, the model and the voice are all billed
@@ -41,6 +48,7 @@ import {
 import { GREETING, buildClassroomInstructions, getGreetingForLanguage } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
 import { config } from '../config.js';
+import { isReasoningModel, reasoningHeadroom } from '../llm/reasoning.js';
 
 /**
  * Models Agora resells under its own billing presets. The SDK types the
@@ -58,11 +66,35 @@ const RESELLER_MODELS = [
 type ResellerModel = (typeof RESELLER_MODELS)[number];
 
 /** Falls back to the smallest supported preset if LLM_MODEL is not resold. */
-function resellerModel(): ResellerModel {
+export function resellerModel(): ResellerModel {
   const configured = config.llmModel;
   return RESELLER_MODELS.includes(configured as ResellerModel)
     ? (configured as ResellerModel)
     : 'gpt-4o-mini';
+}
+
+/**
+ * What LLM_MODEL was set to versus what the agent will actually run.
+ *
+ * These diverge silently. `resellerModel()` falls back to `gpt-4o-mini` for any
+ * value outside `RESELLER_MODELS` — a typo, or a model Agora does not resell —
+ * and nothing anywhere logs it. `/health` then echoed the raw env var, so a
+ * deployment could report a model it was not running.
+ *
+ * That is not a hypothetical: `gpt-4o-mini` is the model that answered a
+ * restraint instruction by saying the word "Silence." out loud, so a typo in a
+ * deployment env var silently reinstates a fixed bug while the health endpoint
+ * insists the model was changed. Both values are surfaced so the two can never
+ * be confused again.
+ */
+export function modelResolution(): {
+  configured: string;
+  resolved: ResellerModel;
+  supported: boolean;
+} {
+  const configured = config.llmModel;
+  const resolved = resellerModel();
+  return { configured, resolved, supported: configured === resolved };
 }
 
 /**
@@ -84,10 +116,28 @@ function resellerModel(): ResellerModel {
  * never disagree: a deployment that changes LLM_MODEL and forgets a second
  * switch would break in exactly the way this exists to prevent.
  */
+/** How much SPOKEN reply a classroom turn is meant to be worth. */
+const VISIBLE_REPLY_TOKENS = 700;
+
 function llmParams(): Record<string, unknown> {
-  return resellerModel().startsWith('gpt-5')
-    ? { max_completion_tokens: 700 }
-    : { max_tokens: 700, temperature: 0.4, top_p: 0.9 };
+  const model = resellerModel();
+
+  // Two independent axes, deliberately not collapsed into one branch.
+  //
+  // Whether the model burns hidden reasoning tokens decides the SIZE of the cap
+  // — 700 was the whole budget, and a reasoning pass can consume all of it and
+  // return an empty string. Shared with the orchestrator's own LLM calls so the
+  // two can no longer disagree about what counts as a reasoning model.
+  const maxTokens = isReasoningModel(model)
+    ? reasoningHeadroom(VISIBLE_REPLY_TOKENS)
+    : VISIBLE_REPLY_TOKENS;
+
+  // Whether it is GPT-5 decides the NAME of the cap. GPT-5 renamed
+  // `max_tokens` to `max_completion_tokens` and rejects `temperature`/`top_p`
+  // outright — a hard 400 that fails the whole pipeline, not an ignored field.
+  return model.startsWith('gpt-5')
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens, temperature: 0.4, top_p: 0.9 };
 }
 
 /**
@@ -107,26 +157,6 @@ function interruptKeywords(session: ClassroomSession): string[] {
     (k): k is string => typeof k === 'string' && k.length > 0,
   );
   return [...new Set(candidates)];
-}
-
-/**
- * Selective Attention Locking, as configured for this deployment.
- *
- * Returns undefined when SAL_MODE is 'off', in which case no `sal` block is
- * sent and the engine behaves exactly as it did before this was added — the
- * escape hatch, since SAL's benefit is only observable in a real room.
- *
- * 'recognition' is the default and the only mode that suits a classroom: it
- * separates the voices the engine hears and suppresses background voices and
- * room noise, WITHOUT silencing legitimate second and third speakers.
- * 'locking' would do the opposite — it latches onto one voice and blocks ~95%
- * of all other human speech, which in this product means muting the students.
- * No `sample_urls` are registered: voiceprint enrolment needs a hosted 16kHz
- * mono PCM sample per speaker, which a classroom of rotating students has no
- * way to produce.
- */
-function salConfig(): { sal_mode: 'recognition' | 'locking' } | undefined {
-  return config.salMode === 'off' ? undefined : { sal_mode: config.salMode };
 }
 
 /** Live sessions, keyed by classroom sessionId. */
@@ -172,14 +202,30 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
         start_of_speech: {
           mode: 'vad',
           vad_config: {
-            // Documented range [120, 1200], Agora's own default 160. Raised to
-            // the ceiling so a one-word backchannel ("okay", "yes", "hmm") is
-            // less likely to silence her mid-sentence. The orchestrator's own
-            // interruptAgent() call (onTeacherBargeIn) is the real, teacher-only
-            // barge-in mechanism; this is a backstop for when that path is
-            // slower than the raw VAD signal.
-            interrupt_duration_ms: 1200,
-            prefix_padding_ms: 300,
+            // These two live under `start_of_speech`, whose schema description
+            // is "Determines when a user begins speaking" — they gate turn
+            // START, not barge-in.
+            //
+            // `interrupt_duration_ms` was pinned to the documented ceiling of
+            // 1200 on the belief that it suppressed a one-word backchannel
+            // cutting Athena off mid-sentence. That is the job of its sibling
+            // `speaking_interrupt_duration_ms` ("Interruption duration in
+            // milliseconds while the agent is speaking"), which is left at
+            // Agora's default of 160 and is deliberately not set here.
+            //
+            // Because listening is Athena's resting state, the ceiling applied
+            // to almost every utterance in the room: a speaker had to sustain
+            // 1.2 continuous seconds above the VAD threshold before the engine
+            // registered that a turn had begun at all. Teacher speech clears
+            // that easily; student speech — "six", "yeah", "I don't get it" —
+            // mostly does not, which is the shape of the missing-transcription
+            // fault. 200 sits just above Agora's 160 default, keeping a little
+            // of the noise margin the ceiling was reaching for.
+            interrupt_duration_ms: 200,
+            // Agora's default. How much audio from BEFORE the detected start is
+            // kept, so 300 clipped the opening word of anything that did get
+            // through — compounding the above rather than offsetting it.
+            prefix_padding_ms: 800,
           },
         },
         // Semantic end-of-turn, not a silence stopwatch.
@@ -241,18 +287,18 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     },
     advancedFeatures: { enable_rtm: true, enable_tools: true },
     parameters: {
-      audio_scenario: 'chorus',
+      // Agora documents `aiserver` as "Optimized for interactions between the
+      // user and the conversational AI agent in terms of latency and network
+      // resilience", and it is what `default` maps to. This ran `chorus` —
+      // "Real-time chorus scenario, where users have good network conditions
+      // and require ultra-low latency" — which trades away exactly the network
+      // resilience a room of student laptops on school wifi depends on.
+      audio_scenario: 'aiserver',
       data_channel: 'rtm',
       enable_error_message: true,
       enable_metrics: true,
     },
   });
-
-  // Applied conditionally rather than passed to the constructor so that
-  // SAL_MODE=off sends no `sal` key at all, rather than an explicit null the
-  // engine would have to interpret.
-  const sal = salConfig();
-  if (sal) agent = agent.withSal(sal);
 
   const hasSarvam =
     Boolean(config.sarvamApiKey) &&
