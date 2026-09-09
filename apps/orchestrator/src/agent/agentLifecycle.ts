@@ -196,14 +196,30 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
         start_of_speech: {
           mode: 'vad',
           vad_config: {
-            // Documented range [120, 1200], Agora's own default 160. Raised to
-            // the ceiling so a one-word backchannel ("okay", "yes", "hmm") is
-            // less likely to silence her mid-sentence. The orchestrator's own
-            // interruptAgent() call (onTeacherBargeIn) is the real, teacher-only
-            // barge-in mechanism; this is a backstop for when that path is
-            // slower than the raw VAD signal.
-            interrupt_duration_ms: 1200,
-            prefix_padding_ms: 300,
+            // These two live under `start_of_speech`, whose schema description
+            // is "Determines when a user begins speaking" — they gate turn
+            // START, not barge-in.
+            //
+            // `interrupt_duration_ms` was pinned to the documented ceiling of
+            // 1200 on the belief that it suppressed a one-word backchannel
+            // cutting Athena off mid-sentence. That is the job of its sibling
+            // `speaking_interrupt_duration_ms` ("Interruption duration in
+            // milliseconds while the agent is speaking"), which is left at
+            // Agora's default of 160 and is deliberately not set here.
+            //
+            // Because listening is Athena's resting state, the ceiling applied
+            // to almost every utterance in the room: a speaker had to sustain
+            // 1.2 continuous seconds above the VAD threshold before the engine
+            // registered that a turn had begun at all. Teacher speech clears
+            // that easily; student speech — "six", "yeah", "I don't get it" —
+            // mostly does not, which is the shape of the missing-transcription
+            // fault. 200 sits just above Agora's 160 default, keeping a little
+            // of the noise margin the ceiling was reaching for.
+            interrupt_duration_ms: 200,
+            // Agora's default. How much audio from BEFORE the detected start is
+            // kept, so 300 clipped the opening word of anything that did get
+            // through — compounding the above rather than offsetting it.
+            prefix_padding_ms: 800,
           },
         },
         // Semantic end-of-turn, not a silence stopwatch.
