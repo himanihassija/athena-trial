@@ -216,12 +216,26 @@ export function useClassroom(
 
       case 'echosphere:transcript':
         setTranscript((prev) => {
-          // The server already de-duplicates, but a reconnect can replay a
-          // segment the client still holds.
-          if (prev.some((s) => s.segmentId === event.segment.segmentId)) {
-            return prev;
+          const i = prev.findIndex((s) => s.segmentId === event.segment.segmentId);
+          if (i === -1) {
+            return [...prev, event.segment].slice(-MAX_TRANSCRIPT);
           }
-          return [...prev, event.segment].slice(-MAX_TRANSCRIPT);
+          // Same segmentId reaching here twice means one of two different
+          // things, and only one of them is a no-op. A reconnect can replay
+          // an event the client still holds unchanged — nothing to do. But
+          // the server also deliberately republishes the SAME segmentId with
+          // longer text as a turn grows across relays (`republishTurn` in
+          // classroomController.ts, upsertByTurn's whole reason to exist),
+          // which used to be silently dropped here: this checked existence,
+          // not content, so "And" — the first fragment of "And yep, that's
+          // it, could you take it forward?" — stayed on screen forever while
+          // the server's own transcript store had the completed sentence.
+          // Replacing in place rather than appending is what keeps a
+          // corrected turn from also showing up as a second, duplicate line.
+          if (prev[i].text === event.segment.text) return prev;
+          const next = [...prev];
+          next[i] = event.segment;
+          return next;
         });
         break;
 
