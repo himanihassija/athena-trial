@@ -15,6 +15,16 @@
  * now valid for as long as it still is the invitation it was: nobody has
  * spoken again since it was granted. There is no duration left to tune.
  *
+ * That event-based check then needed one more refinement, also found live:
+ * a turn commonly relays more than once, and `lastHumanSpeechAt` refreshes on
+ * every relay because the silence-gap detector needs it to — so a permit
+ * granted off the first relay of an address read every later relay of that
+ * SAME utterance as new speech and revoked itself within about a second.
+ * `lastHumanSpeechTurnId`, tracked alongside grantSpeakPermit's own optional
+ * turnId, lets `hasSpeakPermit` tell "this turn relaying again" apart from
+ * "someone genuinely spoke" without slowing that refresh down for anything
+ * else that depends on it.
+ *
  * Time is faked by rewinding `speakPermit.grantedAt` and by moving
  * `floor.lastHumanSpeechAt` directly, rather than sleeping; these run in
  * milliseconds and still exercise real elapsed-time and event-ordering logic.
@@ -75,9 +85,14 @@ const rewindAuthorisation = (
  * simulated without also faking "and someone has spoken since" — moving only
  * `grantedAt` backward would put it before the speech that caused it, which
  * cannot happen for real.
+ *
+ * `lastSettledHumanSpeech` is what `hasSpeakPermit` actually reads;
+ * `floor.lastHumanSpeechAt` moves too so the floor stays coherent for
+ * everything else that reads it.
  */
 const rewindPermit = (session: ReturnType<typeof createSession>, ms: number) => {
   if (session.speakPermit) session.speakPermit.grantedAt -= ms;
+  if (session.lastSettledHumanSpeech) session.lastSettledHumanSpeech.at -= ms;
   session.floor = { ...session.floor, lastHumanSpeechAt: session.floor.lastHumanSpeechAt - ms };
 };
 
@@ -151,7 +166,7 @@ await t(
 
     // Someone spoke again — without re-addressing her, which would grant a
     // fresh permit — so the room has moved on since this invitation.
-    session.floor = { ...session.floor, lastHumanSpeechAt: Date.now() + 1000 };
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 7 };
     assert.equal(hasSpeakPermit(session), false);
 
     const result = await handleAgentState(session, 'thinking');
@@ -159,6 +174,94 @@ await t(
       result.interrupted,
       true,
       'a reply this stale is no longer an answer to the most recent thing said',
+    );
+  },
+);
+
+await t(
+  'a permit survives a later relay of the SAME utterance that earned it',
+  async () => {
+    // The exact live regression: "Athena, can you hear me?" relays more than
+    // once as the recogniser settles on a final version. Each relay bumps
+    // lastHumanSpeechAt — the silence-gap detector needs that — which used to
+    // read as someone new speaking and revoke the permit within about a
+    // second, on the very address that granted it.
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 42);
+
+    // A later relay of turnId 42 settles again: the timestamp moves forward,
+    // same as any speech would, but it is still turnId 42.
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 42 };
+
+    assert.equal(
+      hasSpeakPermit(session),
+      true,
+      'a relay of the turn that earned the permit is not new speech',
+    );
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(result.interrupted, false);
+  },
+);
+
+await t(
+  'the live regression, end to end: an address relayed twice is still answered',
+  async () => {
+    // Drives the real ingest path rather than setting state by hand, because
+    // the bug lived in the interaction between them: the same turn arriving
+    // twice, each arrival refreshing floor.lastHumanSpeechAt, against a
+    // permit granted on the first arrival. Reproduced live as a permit
+    // granted and revoked inside one second.
+    const session = createSession('t');
+    const teacher = addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
+
+    await ingestTranscript(session, {
+      uid: teacher.uid,
+      text: 'Athena, can you hear me?',
+      isFinal: true,
+      turnId: 4,
+    });
+    assert.equal(session.speakPermit?.reason, 'DIRECTLY_ADDRESSED');
+
+    // The same turn again, restated slightly longer — what upsertByTurn
+    // treats as 'updated', and what the recogniser genuinely does.
+    await ingestTranscript(session, {
+      uid: teacher.uid,
+      text: 'Athena, can you hear me? Yes.',
+      isFinal: true,
+      turnId: 4,
+    });
+
+    assert.ok(
+      session.floor.lastHumanSpeechAt >= (session.speakPermit?.grantedAt ?? 0),
+      'sanity: the shared floor timestamp did move past the grant, as it should',
+    );
+    assert.equal(
+      hasSpeakPermit(session),
+      true,
+      'the same turn relaying again is not somebody else speaking',
+    );
+
+    const turn = await handleAgentState(session, 'thinking');
+    assert.equal(turn.interrupted, false, 'she must be allowed to answer');
+  },
+);
+
+await t(
+  'a permit still goes stale when a genuinely different turn is spoken',
+  async () => {
+    // The other half of the same fix: it must not become impossible to
+    // revoke a permit. A DIFFERENT turnId is unambiguously new speech.
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 42);
+
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 43 };
+
+    assert.equal(hasSpeakPermit(session), false);
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(
+      result.interrupted,
+      true,
+      'a different turn is not an echo of the one that earned the permit',
     );
   },
 );

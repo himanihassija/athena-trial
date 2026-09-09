@@ -164,8 +164,16 @@ const TURN_CONTINUATION_MS = 8_000;
 export function grantSpeakPermit(
   session: ClassroomSession,
   reason: SpeakTrigger,
+  /**
+   * The turnId of the spoken address that earned this permit, when there is
+   * one — omitted for a teacher-command grant (`/agent/start`'s greeting,
+   * FORCE_AGENT_SPEAK) that has no transcript turn to point to. Threaded
+   * through so `hasSpeakPermit` can tell a later relay of this SAME
+   * utterance apart from someone genuinely speaking again.
+   */
+  turnId?: number,
 ): void {
-  session.speakPermit = { grantedAt: Date.now(), reason };
+  session.speakPermit = { grantedAt: Date.now(), reason, turnId };
 }
 
 /**
@@ -191,13 +199,41 @@ export function grantSpeakPermit(
  * this mirrors it for one that has not started yet. Anything that should
  * revoke an invitation outright already does, explicitly and immediately,
  * by calling `clearSpeakPermit` — mute, teacher barge-in, the floor closing
- * to students, a quiz that never landed. This only has to catch a stale
+ * to students, a quiz that never landed.
+ *
+ * "Has anyone spoken again" turned out to need one more qualification, found
+ * live: a turn commonly relays more than once — the recogniser settling on a
+ * final version, or simply arriving twice — and `lastHumanSpeechAt` refreshes
+ * on every relay, finished or not, because the silence-gap detector and the
+ * floor indicator both need it to (a teacher mid-sentence must never read as
+ * silent). A permit granted off the FIRST relay of an address then read every
+ * later relay of that SAME utterance as fresh evidence someone else had
+ * spoken, and revoked itself — measured live, within about a second of being
+ * granted, on the very address that granted it. The fix is not to slow that
+ * refresh down (`lastHumanSpeechAt`'s other consumers depend on it staying
+ * fast); it is to also ask WHICH turn the latest speech belongs to.
+ * `lastHumanSpeechTurnId`, tracked in parallel, answers that: if it names the
+ * same turn the permit itself was granted for, the timestamp moving on is not
+ * new speech, it is an echo of the old, and does not count. This only has to
+ * catch a stale
  * invitation nobody explicitly revoked, not stand in for those calls.
  */
 export function hasSpeakPermit(session: ClassroomSession): boolean {
   const permit = session.speakPermit;
   if (!permit) return false;
-  return session.floor.lastHumanSpeechAt <= permit.grantedAt;
+  const settled = session.lastSettledHumanSpeech;
+  // Nothing has finished being said since the grant. Note this reads
+  // `lastSettledHumanSpeech`, not `floor.lastHumanSpeechAt`: an interim
+  // fragment of the sentence still being spoken bumps the latter — by
+  // design, the silence detector needs it to — and must not read as
+  // somebody else having spoken.
+  if (!settled || settled.at <= permit.grantedAt) return true;
+  // Something did settle after the grant — but if it is the SAME turn that
+  // earned this permit, restated or relayed again, it is an echo of the old,
+  // not new speech, and must not count against it. A permit with no turnId
+  // (a teacher-command grant, which points at no transcript turn) has no
+  // such exception: it goes stale the instant anything else is said.
+  return permit.turnId !== undefined && settled.turnId === permit.turnId;
 }
 
 /**
@@ -538,6 +574,12 @@ export async function ingestTranscript(
     return;
   }
 
+  // Real, settled, human speech — final, and not Athena's own voice coming
+  // back through a mic. This is the only thing `hasSpeakPermit` counts as
+  // somebody having spoken; see `lastSettledHumanSpeech`'s doc comment for
+  // why `floor.lastHumanSpeechAt` cannot be used for that question.
+  session.lastSettledHumanSpeech = { at: now, turnId };
+
   if (!alreadyStored) {
     const segment = appendTranscript(session, {
       participantId: participant.participantId,
@@ -600,8 +642,10 @@ export async function ingestTranscript(
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
     // The permit that makes the answer legitimate; without it the enforcement
-    // path cuts her off.
-    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+    // path cuts her off. Carries turnId so a later relay of THIS utterance —
+    // the recogniser settling on a final version, or arriving twice — cannot
+    // read as someone else speaking and invalidate the very permit it earned.
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', turnId);
     session.floor = onAddressedAgent(session.floor, participant.participantId, now);
     console.info(
       `[floor] granted DIRECTLY_ADDRESSED to ${participant.role} in session ${session.sessionId}`,

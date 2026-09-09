@@ -100,8 +100,48 @@ export interface ClassroomSession {
    * orchestrator starts, and the agent's ordinary replies bypass §3.3 entirely.
    * A permit is issued when someone addresses her or the teacher invokes her,
    * and any agent turn that begins without one is interrupted.
+   *
+   * `turnId` — set only when the permit came from a spoken address, never from
+   * a teacher-command grant that has no transcript turn to point to — is the
+   * turnId of the utterance that earned it, so `hasSpeakPermit` can tell a
+   * later relay of that SAME utterance apart from someone genuinely speaking
+   * again. See `lastSettledHumanSpeech` below.
    */
-  speakPermit: { grantedAt: number; reason: SpeakTrigger } | null;
+  speakPermit: { grantedAt: number; reason: SpeakTrigger; turnId?: number } | null;
+
+  /**
+   * The most recent human speech that actually SETTLED — final text, echo
+   * already stripped — with the turn it belonged to. Tracked in parallel with
+   * `floor.lastHumanSpeechAt`, never in place of it, and read only by
+   * `hasSpeakPermit`.
+   *
+   * `floor.lastHumanSpeechAt` is a shared primitive: the silence-gap
+   * interjection tick, the floor indicator, and gap detection all read it to
+   * mean "how long has the room actually been quiet", so it is deliberately
+   * refreshed on EVERY relay, interim ones included — a teacher still
+   * mid-sentence must never read as silent. That is correct for them and was
+   * never the problem.
+   *
+   * The problem was `hasSpeakPermit` reusing that same timestamp to decide
+   * whether an invitation to speak was still current. Two different things
+   * bump it that are not "somebody else said something":
+   *
+   *   - an interim fragment of the very sentence still being spoken, and
+   *   - a later relay of a turn that already settled, as the recogniser
+   *     restates it or it simply arrives twice.
+   *
+   * Either one, landing after a permit was granted, read as new speech and
+   * revoked it. Measured live: granted and revoked inside a second, on the
+   * very address that granted it.
+   *
+   * So this pair answers the narrower question `hasSpeakPermit` actually
+   * needs — has a DIFFERENT turn finished being said since the permit was
+   * granted — and it only moves where the surrounding code already does its
+   * final-only work, past the `isFinal` gate and past self-echo stripping.
+   * Nothing about `floor.lastHumanSpeechAt` changes, so nothing that already
+   * depends on it is affected.
+   */
+  lastSettledHumanSpeech: { at: number; turnId?: number } | null;
 
   /**
    * Whether the agent's CURRENT turn was already authorized to begin.
@@ -253,6 +293,7 @@ export function createSession(
     policy: { ...DEFAULT_AGENT_POLICY },
     activeQuestionerId: null,
     speakPermit: null,
+    lastSettledHumanSpeech: null,
     authorizedTurnInProgress: false,
     lastAuthorisedTurnAt: null,
     agentControlAppliedTurns: new Set(),
