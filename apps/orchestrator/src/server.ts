@@ -16,7 +16,7 @@ import { inspectRoutes } from './routes/inspect.js';
 import { completionsRoutes } from './routes/completions.js';
 import { considerSilenceInterjection } from './classroomController.js';
 import { listSessions } from './state/sessionRegistry.js';
-import { stopAllAgents } from './agent/agentLifecycle.js';
+import { modelResolution, stopAllAgents } from './agent/agentLifecycle.js';
 
 /**
  * How often the silence-gap check runs (§3.3b). Fast enough that a natural pause
@@ -44,12 +44,25 @@ await app.register(cors, {
 // Fastify reported those as 500 and echoed the raw issue dump to the caller.
 registerErrorHandler(app);
 
-app.get('/health', async () => ({
-  ok: true,
-  sessions: listSessions().length,
-  model: config.llmModel,
-  stt: config.sttLanguage,
-}));
+/**
+ * `modelConfigured` is the raw LLM_MODEL env value; `modelResolved` is what the
+ * agent actually runs. They differ whenever LLM_MODEL is not one of the models
+ * Agora resells, because `resellerModel()` falls back to `gpt-4o-mini` without
+ * saying so. Reporting only the raw value — as this endpoint used to — meant a
+ * deployment could claim a model it was not running, which is how a fixed
+ * model-specific bug could quietly come back. Both are reported, never one.
+ */
+app.get('/health', async () => {
+  const model = modelResolution();
+  return {
+    ok: true,
+    sessions: listSessions().length,
+    modelConfigured: model.configured,
+    modelResolved: model.resolved,
+    modelSupported: model.supported,
+    stt: config.sttLanguage,
+  };
+});
 
 await app.register(classroomRoutes);
 await app.register(inspectRoutes);
@@ -79,5 +92,19 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+// Surfaced at boot as well as on /health: an operator who mistypes LLM_MODEL
+// never thinks to call /health, because as far as they know the model changed.
+const startupModel = modelResolution();
+if (!startupModel.supported) {
+  app.log.warn(
+    { configured: startupModel.configured, resolved: startupModel.resolved },
+    `LLM_MODEL="${startupModel.configured}" is not a model Agora resells — ` +
+      `falling back to "${startupModel.resolved}". The agent is NOT running the ` +
+      `configured model. Supported: gpt-4o-mini, gpt-4.1-mini, gpt-5-nano, gpt-5-mini.`,
+  );
+} else {
+  app.log.info({ model: startupModel.resolved }, 'LLM model resolved');
+}
 
 await app.listen({ port: config.port, host: config.host });

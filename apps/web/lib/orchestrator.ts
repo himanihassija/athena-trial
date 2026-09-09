@@ -87,9 +87,16 @@ export const orchestrator = {
   baseUrl: BASE,
 
   health: () =>
-    request<{ ok: boolean; sessions: number; model: string; stt: string }>(
-      '/health',
-    ),
+    request<{
+      ok: boolean;
+      sessions: number;
+      /** Raw LLM_MODEL env value. */
+      modelConfigured: string;
+      /** What the agent actually runs; differs when LLM_MODEL is unsupported. */
+      modelResolved: string;
+      modelSupported: boolean;
+      stt: string;
+    }>('/health'),
 
   listSessions: () => request<SessionSummary[]>('/api/sessions'),
 

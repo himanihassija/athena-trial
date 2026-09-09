@@ -58,11 +58,35 @@ const RESELLER_MODELS = [
 type ResellerModel = (typeof RESELLER_MODELS)[number];
 
 /** Falls back to the smallest supported preset if LLM_MODEL is not resold. */
-function resellerModel(): ResellerModel {
+export function resellerModel(): ResellerModel {
   const configured = config.llmModel;
   return RESELLER_MODELS.includes(configured as ResellerModel)
     ? (configured as ResellerModel)
     : 'gpt-4o-mini';
+}
+
+/**
+ * What LLM_MODEL was set to versus what the agent will actually run.
+ *
+ * These diverge silently. `resellerModel()` falls back to `gpt-4o-mini` for any
+ * value outside `RESELLER_MODELS` — a typo, or a model Agora does not resell —
+ * and nothing anywhere logs it. `/health` then echoed the raw env var, so a
+ * deployment could report a model it was not running.
+ *
+ * That is not a hypothetical: `gpt-4o-mini` is the model that answered a
+ * restraint instruction by saying the word "Silence." out loud, so a typo in a
+ * deployment env var silently reinstates a fixed bug while the health endpoint
+ * insists the model was changed. Both values are surfaced so the two can never
+ * be confused again.
+ */
+export function modelResolution(): {
+  configured: string;
+  resolved: ResellerModel;
+  supported: boolean;
+} {
+  const configured = config.llmModel;
+  const resolved = resellerModel();
+  return { configured, resolved, supported: configured === resolved };
 }
 
 /**
