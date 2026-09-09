@@ -30,13 +30,51 @@ import {
   timestamp,
 } from 'drizzle-orm/pg-core';
 
-export const sessions = pgTable('sessions', {
-  sessionId: text('session_id').primaryKey(),
-  channel: text('channel').notNull(),
-  title: text('title').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  endedAt: timestamp('ended_at', { withTimezone: true }),
+/**
+ * Teachers who have signed in, mirrored from Supabase Auth.
+ *
+ * Supabase owns the credentials — they live in its own `auth.users` table, in a
+ * schema Drizzle deliberately does not manage, and no password ever reaches
+ * this database. This table exists so the orchestrator can join a session to a
+ * human without querying across schemas, and so "list my lessons" stays a
+ * single ordinary query.
+ *
+ * The primary key IS the Supabase user id (the `sub` claim on the JWT), so a
+ * row is upserted on first authenticated request rather than created by a
+ * signup flow of our own.
+ */
+export const teacherProfiles = pgTable('teacher_profiles', {
+  /** Supabase auth user id — the JWT `sub` claim. */
+  userId: text('user_id').primaryKey(),
+  email: text('email').notNull(),
+  displayName: text('display_name'),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
 });
+
+export const sessions = pgTable(
+  'sessions',
+  {
+    sessionId: text('session_id').primaryKey(),
+    channel: text('channel').notNull(),
+    title: text('title').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    /**
+     * The signed-in teacher who created the lesson, or null.
+     *
+     * Nullable on purpose. Sessions created before auth existed have no owner,
+     * and AUTH_REQUIRED=false still permits anonymous creation — so a NOT NULL
+     * column here would reject exactly the traffic the deployed app serves
+     * today. `onDelete: 'set null'` keeps a lesson and its report intact if the
+     * teacher's account is later removed; the class happened either way.
+     */
+    ownerId: text('owner_id').references(() => teacherProfiles.userId, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [index('sessions_owner_idx').on(table.ownerId)],
+);
 
 export const participants = pgTable(
   'participants',
@@ -144,7 +182,15 @@ export const reports = pgTable('reports', {
   report: jsonb('report').notNull(),
 });
 
+export const teacherProfilesRelations = relations(teacherProfiles, ({ many }) => ({
+  sessions: many(sessions),
+}));
+
 export const sessionsRelations = relations(sessions, ({ many, one }) => ({
+  owner: one(teacherProfiles, {
+    fields: [sessions.ownerId],
+    references: [teacherProfiles.userId],
+  }),
   participants: many(participants),
   transcriptSegments: many(transcriptSegments),
   quizQuestions: many(quizQuestions),

@@ -94,6 +94,26 @@ export const config = {
    * it ends.
    */
   databaseUrl: process.env.DATABASE_URL,
+
+  /**
+   * Supabase project URL, e.g. https://<ref>.supabase.co
+   *
+   * Used only to locate the project's public JWKS endpoint, so teacher tokens
+   * can be verified. No key, secret, or service-role credential is needed or
+   * accepted — see auth/supabaseAuth.ts. Unset means tokens cannot be verified
+   * and every request is treated as anonymous.
+   */
+  supabaseUrl: process.env.SUPABASE_URL ?? '',
+
+  /**
+   * Whether teacher-owned actions refuse anonymous callers.
+   *
+   * Defaults to false so that adding the auth gate to a route is a no-op until
+   * this is deliberately switched on: the deployed app currently has no login
+   * screen, and defaulting this to true would lock every existing user out on
+   * the next deploy. Turn it on once the frontend's sign-in flow is live.
+   */
+  authRequired: process.env.AUTH_REQUIRED === '1',
   resendApiKey: process.env.RESEND_API_KEY,
 
   /**

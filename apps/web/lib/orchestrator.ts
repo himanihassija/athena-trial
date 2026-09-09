@@ -21,6 +21,8 @@ import type {
   WhiteboardJoin,
 } from '@echosphere/shared-types';
 
+import { getAccessToken } from './supabase';
+
 const BASE =
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? 'http://localhost:8787';
 
@@ -48,10 +50,18 @@ export interface JoinResult {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Attached whenever a teacher happens to be signed in, and simply absent
+  // otherwise — students have no account and must keep working untouched. The
+  // orchestrator treats a missing token as an anonymous caller, so this is
+  // additive: it upgrades a request from anonymous to owned rather than being
+  // a precondition for one.
+  const token = await getAccessToken();
+
   const response = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });

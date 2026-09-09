@@ -35,6 +35,7 @@ import {
   stopAgent,
 } from '../agent/agentLifecycle.js';
 import { rankedGaps } from '../gaps/gapDetector.js';
+import { requireTeacher } from '../auth/supabaseAuth.js';
 import { generateReport } from '../report/summary.js';
 import { persistSessionEnd } from '../report/persist.js';
 import { closeRoom, publish, subscribe } from '../state/eventBus.js';
@@ -138,6 +139,13 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
   // ── Sessions (§3.1) ───────────────────────────────────────────────────────
 
   app.post('/api/sessions', async (request, reply) => {
+    // Creating a lesson is the one action that establishes ownership, so it is
+    // where the teacher's token is checked. With AUTH_REQUIRED off this still
+    // reads the token when one is present — an authenticated teacher gets an
+    // owned lesson, an anonymous one gets an unowned lesson exactly as before.
+    const auth = await requireTeacher(request, reply);
+    if (!auth.ok) return;
+
     const body = z
       .object({
         title: z.string().min(1).max(140).optional(),
@@ -149,7 +157,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       (body.seed === 'unlike-fractions'
         ? UNLIKE_FRACTIONS_TITLE
         : 'Untitled lesson');
-    const session = createSession(title);
+    const session = createSession(title, auth.teacher);
     if (body.seed === 'unlike-fractions') {
       seedUnlikeFractionsLesson(session.lesson);
     }
@@ -1031,6 +1039,26 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!isTeacher(session, participantId)) {
       return reply.code(403).send({ error: 'The report is teacher-only' });
     }
+
+    // Second gate, on top of the in-room teacher check above. That check only
+    // proves the caller holds a teacher participantId for this session, which
+    // is a value that travels in a URL and outlives the class. Once a lesson
+    // has a signed-in owner, the report — the most sensitive artefact here,
+    // since it names students and characterises their understanding — is
+    // restricted to that account.
+    if (session.owner) {
+      const auth = await requireTeacher(request, reply);
+      if (!auth.ok) return;
+      if (auth.teacher && auth.teacher.userId !== session.owner.userId) {
+        return reply
+          .code(403)
+          .send({ error: 'This lesson belongs to another teacher.' });
+      }
+      // auth.teacher === null only when AUTH_REQUIRED is off, which is the
+      // pre-auth behaviour this deployment still runs on; the participantId
+      // check above remains the gate in that case.
+    }
+
     const report = await generateReport(session);
     return reply.send(report);
   });
