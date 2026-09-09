@@ -13,7 +13,7 @@ import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { RTMClient } from 'agora-rtm';
-import { clearIdentity, type StoredIdentity } from '@/lib/orchestrator';
+import { clearIdentity, orchestrator, type StoredIdentity } from '@/lib/orchestrator';
 
 const AgoraProvider = dynamic(
   async () => {
@@ -212,6 +212,29 @@ export function ClassroomShell({ identity, children }: ClassroomShellProps) {
     // object would otherwise tear down and re-establish a working connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity.appId, identity.uid, identity.rtmToken, identity.channel]);
+
+  /**
+   * Keeps a departed participant from showing as present forever.
+   *
+   * Closing a tab is the only thing that used to clear a participant from
+   * the roster — the explicit "Leave" button aside — because nothing told
+   * the server about a refresh, a browser crash, or simply navigating away.
+   * `pagehide` fires for all of those, so a leave beacon fires there
+   * unconditionally; `resume` on mount undoes it for the one case that
+   * beacon gets wrong, a refresh of the same tab, where the same
+   * participantId reconnects rather than re-joining (see `storeIdentity`).
+   * `sendBeacon`, not `fetch`: a normal request is not reliable once the
+   * page has started tearing down.
+   */
+  useEffect(() => {
+    void orchestrator.resume(identity.sessionId, identity.participantId);
+
+    const onPageHide = () => {
+      orchestrator.leaveBeacon(identity.sessionId, identity.participantId);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => window.removeEventListener('pagehide', onPageHide);
+  }, [identity.sessionId, identity.participantId]);
 
   if (duplicateIdentity) {
     return (

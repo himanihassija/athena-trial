@@ -124,6 +124,44 @@ export const orchestrator = {
       body: JSON.stringify({ participantId }),
     }),
 
+  /**
+   * Clears a leave that should not have stuck — see `leaveBeacon` below and
+   * the route's own comment. Call on every mount; a no-op if nothing needed
+   * undoing.
+   */
+  resume: (sessionId: string, participantId: string) =>
+    request<{ ok: boolean }>(`/api/sessions/${sessionId}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId }),
+    }),
+
+  /**
+   * Tells the server a participant is gone, from a page-unload handler where
+   * a normal `fetch` is not reliable — the browser is free to abandon it the
+   * moment the page starts tearing down. `sendBeacon` is built for exactly
+   * this: the browser guarantees the request is sent even as the page goes
+   * away, at the cost of not being able to read a response, which nothing
+   * here needs anyway.
+   *
+   * Fires on a refresh as well as a real close — the browser cannot tell
+   * them apart from this event alone — so a refresh looks like a departure
+   * for a moment. `resume` above is what undoes that once the page comes
+   * back, which is why every mount calls it unconditionally.
+   */
+  leaveBeacon: (sessionId: string, participantId: string): void => {
+    try {
+      navigator.sendBeacon(
+        `${BASE}/api/sessions/${sessionId}/leave`,
+        new Blob([JSON.stringify({ participantId })], {
+          type: 'application/json',
+        }),
+      );
+    } catch {
+      // Best-effort: a browser without sendBeacon just keeps the old
+      // behaviour of relying on an explicit "Leave" click.
+    }
+  },
+
   startAgent: (sessionId: string, participantId: string) =>
     request<{ agentId: string; state: string }>(
       `/api/sessions/${sessionId}/agent/start`,

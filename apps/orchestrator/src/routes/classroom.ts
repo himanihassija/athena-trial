@@ -75,6 +75,7 @@ import {
   isTeacher,
   listSessions,
   removeParticipant,
+  resumeParticipant,
   toPublicParticipant,
   type ClassroomSession,
 } from '../state/sessionRegistry.js';
@@ -225,6 +226,34 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       kind: 'echosphere:participant-left',
       participantId,
     });
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * Undoes a leave that should not have stuck.
+   *
+   * The browser cannot tell a tab closing for good from a page refresh, so
+   * the client sends a leave beacon on both — without this, closing a tab
+   * was the only thing that ever cleared a participant, and anyone who
+   * instead just refreshed, or navigated away and back without an explicit
+   * "Leave" click, kept showing as present in every other participant's
+   * roster and transcript attribution indefinitely, because nothing ever
+   * told the server they had not really gone.
+   *
+   * Called on every mount, not only ones the client can prove followed a
+   * refresh — `resumeParticipant` is a no-op for a participant who was never
+   * marked left, so this is safe unconditionally.
+   */
+  app.post('/api/sessions/:sessionId/resume', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId } = z
+      .object({ participantId: z.string() })
+      .parse(request.body);
+    if (!resumeParticipant(session, participantId)) {
+      return reply.code(404).send({ error: 'Unknown participant' });
+    }
+    broadcastParticipantJoined(session, participantId);
     return reply.send({ ok: true });
   });
 
