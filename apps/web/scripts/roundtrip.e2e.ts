@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   console.log('\n── Teacher joins a fresh lesson');
   await page.goto(`${WEB}/join`, { waitUntil: 'networkidle' });
   await page.getByPlaceholder('e.g. Ana').fill('Ms Rao');
-  await page.getByRole('button', { name: 'teacher', exact: true }).click();
+  await page.getByRole('button', { name: 'Join as teacher', exact: true }).click();
   await page.getByPlaceholder(/Lesson title/).fill('Common denominators');
   await page.getByRole('button', { name: /Create/ }).click();
   await page.waitForURL(/\/teacher\//, { timeout: 20_000 });

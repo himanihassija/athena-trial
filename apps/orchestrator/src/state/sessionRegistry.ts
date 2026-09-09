@@ -17,6 +17,7 @@ import {
   DEFAULT_AGENT_POLICY,
   emptyStudentStats,
   type AgentPolicy,
+  type CatchupMessage,
   type FloorSnapshot,
   type JoinClassroomRequest,
   type LearningGap,
@@ -30,6 +31,7 @@ import {
   type StudentProfile,
   type TranscriptSegment,
   type InterventionRecord,
+  type WhiteboardPublicState,
 } from '@echosphere/shared-types';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
@@ -92,6 +94,25 @@ export interface ClassroomSession {
    * revocation can stop it early.
    */
   authorizedTurnInProgress: boolean;
+  /**
+   * When the last turn was authorised. Agent state arrives over RTM and is
+   * neither ordered nor guaranteed, so a momentary non-speaking state can clear
+   * `authorizedTurnInProgress` while she is still mid-sentence. This lets a
+   * state change arriving just after that be recognised as the same turn
+   * continuing rather than a new, un-permitted one.
+   */
+  lastAuthorisedTurnAt: number | null;
+
+  /**
+   * Agent turn ids whose control payload has already been acted on.
+   *
+   * A turn reaches the orchestrator as several relays that grow as she speaks,
+   * and the control object is appended at the very END of a turn — so it exists
+   * only in the last, longest relay. Acting on every relay that carries it
+   * would fire the same quiz or diagram repeatedly; acting on none of them,
+   * which is what used to happen, dropped it entirely.
+   */
+  agentControlAppliedTurns: Set<number>;
 
   /**
    * A quiz the agent has been asked to pose but has not reported yet.
@@ -135,17 +156,67 @@ export interface ClassroomSession {
   suppressedInterventions: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
   interventionHistory: InterventionRecord[];
+
+  /**
+   * Shared local Excalidraw board state.
+   */
+  whiteboard: {
+    open: boolean;
+    cards: WhiteboardPublicState['cards'];
+    /**
+     * Presence and scene, mirroring how screen share is modelled: one presenter
+     * at a time, and the orchestrator holds the authoritative drawing so a late
+     * joiner or a reload gets the board as it stands.
+     */
+    presenting: WhiteboardPublicState['presenting'];
+    scene: WhiteboardPublicState['scene'];
+    /**
+     * Athena only annotates while the teacher has this on. Without a gate she
+     * would write on every turn that happened to contain a definition, which
+     * floods a board nobody asked her to touch. Explicit teacher intent is the
+     * whole point of the feature.
+     */
+    annotating: boolean;
+  };
+
+  workspace?: import('@echosphere/shared-types').MiroWorkspaceState;
+  targetedReadings?: import('@echosphere/shared-types').TargetedReadingItem[];
+  catchupSlots?: import('@echosphere/shared-types').CatchupAvailabilitySlot[];
+  raisedHands: Set<string>;
+
+  /** participantIds the teacher has granted screen-share permission to. */
+  screenShareAllowed: Set<string>;
+  /** Who is currently sharing, if anyone — only one screen at a time. */
+  activeScreenShare: { participantId: string; displayName: string } | null;
+
+  /** Primary classroom language (e.g. 'en', 'fr', 'es', 'hi', 'de', 'ta', 'te'). */
+  language: import('@echosphere/shared-types').LanguageCode;
+
+  /** Private catch-up threads, keyed by student participantId. */
+  catchupByParticipant: Map<string, CatchupMessage[]>;
 }
 
 const sessions = new Map<string, ClassroomSession>();
 
+function generate4DigitShareCode(): string {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const candidate = String(Math.floor(1000 + Math.random() * 9000));
+    const existing = sessions.get(candidate);
+    if (!existing || existing.endedAt !== null) {
+      return candidate;
+    }
+  }
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
 export function createSession(title: string): ClassroomSession {
-  const sessionId = randomUUID().slice(0, 8);
+  const sessionId = generate4DigitShareCode();
   const now = Date.now();
   const session: ClassroomSession = {
     sessionId,
     channel: `echosphere-${sessionId}`,
     title,
+    language: 'en',
     createdAt: now,
     endedAt: null,
     agentId: null,
@@ -156,6 +227,8 @@ export function createSession(title: string): ClassroomSession {
     activeQuestionerId: null,
     speakPermit: null,
     authorizedTurnInProgress: false,
+    lastAuthorisedTurnAt: null,
+    agentControlAppliedTurns: new Set(),
     pendingQuiz: null,
     activeQuizSet: null,
     transcript: [],
@@ -166,6 +239,17 @@ export function createSession(title: string): ClassroomSession {
     suppressedInterventions: [],
     restraintMeterState: 'listening',
     interventionHistory: [],
+    whiteboard: {
+      open: false,
+      cards: [],
+      annotating: false,
+      presenting: null,
+      scene: [],
+    },
+    raisedHands: new Set(),
+    screenShareAllowed: new Set(),
+    activeScreenShare: null,
+    catchupByParticipant: new Map(),
   };
   sessions.set(sessionId, session);
   return session;
@@ -185,7 +269,7 @@ export function endSession(sessionId: string): ClassroomSession | undefined {
   return session;
 }
 
-// ─── Participants (§3.2, §3.8) ───────────────────────────────────────────────
+// ─── Participants (§3.2, §3.8) ─────────────────────────────────────────────
 
 /**
  * RTC uids must be positive 32-bit ints and unique within the channel. The
@@ -278,6 +362,8 @@ export function toPublicParticipant(p: Participant): PublicParticipant {
     displayName: p.displayName,
     role: p.role,
     proficiency: p.role === 'student' ? (p as StudentProfile).proficiency : undefined,
+    language: p.language,
+    handRaised: p.handRaised,
   };
 }
 
@@ -293,7 +379,7 @@ export function setProficiency(
   return student;
 }
 
-// ─── Transcript (§3.4 rolling context, §3.9 full log) ────────────────────────
+// ─── Transcript (§3.4 rolling context, §3.9 full log) ──────────────────────
 
 export function appendTranscript(
   session: ClassroomSession,

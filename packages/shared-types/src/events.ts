@@ -18,6 +18,14 @@ import type {
   SpeakDenialReason,
 } from './floor.js';
 import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
+import type {
+  ActiveWhiteboard,
+  BoardElement,
+  WhiteboardCommand,
+  WhiteboardPublicState,
+} from './whiteboard.js';
+import type { MiroWorkspaceState, MiroStickyNote, MiroCommand } from './workspace.js';
+import type { TargetedReadingItem, CatchupAvailabilitySlot, LanguageCode } from './support.js';
 
 /** Discriminator prefix so classroom events are never confused with Agora's own. */
 export const ECHOSPHERE_EVENT_PREFIX = 'echosphere:' as const;
@@ -44,10 +52,42 @@ export type ClassroomEvent =
   /** Teacher-only: a new or updated learning gap. */
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }
   | { kind: 'echosphere:proficiency-changed'; participantId: string; proficiency: ProficiencyTag }
+    | {
+      kind: 'echosphere:screen-share-permission-changed';
+      participantId: string;
+      allowed: boolean;
+    }
+  | {
+      kind: 'echosphere:screen-share-started';
+      participantId: string;
+      displayName: string;
+    }
+  | { kind: 'echosphere:screen-share-stopped'; participantId: string }
   | { kind: 'echosphere:session-ended'; sessionId: string }
   | { kind: 'echosphere:command'; command: TeacherCommand; issuedBy: string }
   | { kind: 'echosphere:restraint-meter-changed'; state: 'listening' | 'ready' | 'held-back' | 'speaking'; score?: number }
-  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number };
+  | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
+  /** A student answered every question in a quiz set correctly. Sent only to that student. */
+  | { kind: 'echosphere:quiz-set-perfect'; topic: string }
+  | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
+  /** Someone began presenting the board, the way a screen share starts. */
+  | { kind: 'echosphere:whiteboard-started'; presenter: ActiveWhiteboard }
+  | { kind: 'echosphere:whiteboard-stopped'; participantId: string }
+  /**
+   * Drawing changed. Carries only the elements that moved rather than the whole
+   * scene — a stroke is a stream of small edits and resending everything would
+   * saturate the bus.
+   */
+  | { kind: 'echosphere:whiteboard-scene'; elements: BoardElement[]; by: string }
+  | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand }
+  | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
+  | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }
+  | { kind: 'echosphere:sticky-note-updated'; note: MiroStickyNote }
+  | { kind: 'echosphere:targeted-reading-updated'; items: TargetedReadingItem[] }
+  | { kind: 'echosphere:catchup-slots-updated'; slots: CatchupAvailabilitySlot[] }
+  | { kind: 'echosphere:hand-raised'; participantId: string; displayName: string; at: number }
+  | { kind: 'echosphere:hand-lowered'; participantId: string }
+  | { kind: 'echosphere:language-changed'; participantId: string; language: LanguageCode };
 
 export type ClassroomEventKind = ClassroomEvent['kind'];
 
@@ -58,6 +98,8 @@ export interface PublicParticipant {
   displayName: string;
   role: Role;
   proficiency?: ProficiencyTag;
+  language?: LanguageCode;
+  handRaised?: boolean;
 }
 
 /**
@@ -108,6 +150,20 @@ export interface RoomState {
   endedAt: number | null;
   suppressedInterventions?: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState?: 'listening' | 'ready' | 'held-back' | 'speaking';
+  workspace?: MiroWorkspaceState;
+  targetedReadings?: TargetedReadingItem[];
+  catchupSlots?: CatchupAvailabilitySlot[];
+  raisedHands?: string[];
+  /**
+   * Screen-share state at join time. The live `screen-share-*` events keep an
+   * open client current, but a late joiner or a reload has no event to replay —
+   * without these two the client starts with empty permissions and no idea
+   * anyone is already sharing.
+   */
+  whiteboard?: WhiteboardPublicState;
+  screenShareAllowed?: string[];
+  activeScreenShare?: { participantId: string; displayName: string } | null;
+  language?: LanguageCode;
 }
 
 export function isClassroomEvent(value: unknown): value is ClassroomEvent {

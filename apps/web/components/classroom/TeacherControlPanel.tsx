@@ -10,12 +10,14 @@
 'use client';
 
 import { useState } from 'react';
-import type { AgentPolicy, VerbosityLevel } from '@echosphere/shared-types';
+import type { AgentPolicy, VerbosityLevel, LanguageCode } from '@echosphere/shared-types';
+import { t } from '@/lib/i18n';
 
 export interface TeacherControlPanelProps {
   policy: AgentPolicy | null;
   agentRunning: boolean;
   busy: boolean;
+  language?: LanguageCode;
   onMute: () => void;
   onResume: () => void;
   onEndTurn: () => void;
@@ -34,6 +36,7 @@ export function TeacherControlPanel({
   policy,
   agentRunning,
   busy,
+  language = 'en',
   onMute,
   onResume,
   onEndTurn,
@@ -56,12 +59,12 @@ export function TeacherControlPanel({
   return (
     <section className="eco-panel flex flex-col gap-4 p-4">
       <div className="flex items-center justify-between">
-        <h2 className="eco-label">AI controls</h2>
+        <h2 className="eco-label">{t('tabControls', language)}</h2>
         <span className="flex items-center gap-1.5 text-xs text-[var(--eco-cream-faint)]">
           <span
             className={`eco-lamp ${agentRunning ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
           />
-          {agentRunning ? 'Athena is in the room' : 'Athena not started'}
+          {agentRunning ? t('athenaPresent', language) : t('athenaNotStarted', language)}
         </span>
       </div>
 
@@ -74,7 +77,7 @@ export function TeacherControlPanel({
             className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:opacity-40"
             style={{ background: 'var(--eco-glow)', color: 'var(--eco-ink)' }}
           >
-            Bring Athena in
+            {t('bringAthenaIn', language)}
           </button>
         ) : (
           <button
@@ -88,7 +91,6 @@ export function TeacherControlPanel({
           </button>
         )}
 
-        {/* The demo moment from the plan: mute mid-explanation, speech stops. */}
         <button
           type="button"
           disabled={busy}
@@ -100,7 +102,7 @@ export function TeacherControlPanel({
               : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
           }
         >
-          {muted ? 'Unmute Athena' : 'Mute Athena'}
+          {muted ? t('unmuteAi', language) : t('muteAi', language)}
         </button>
 
         <button

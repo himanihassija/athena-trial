@@ -12,6 +12,8 @@
 import assert from 'node:assert/strict';
 import type { ClassroomEvent } from '@echosphere/shared-types';
 import {
+  applyControl,
+  ingestTranscript,
   maybeAdvanceQuizSet,
   startQuiz,
   submitQuizAnswer,
@@ -24,6 +26,7 @@ import {
 } from './../src/quiz/quizEngine.ts';
 import { subscribe } from './../src/state/eventBus.ts';
 import {
+  AGENT_UID,
   addParticipant,
   createSession,
   removeParticipant,
@@ -207,6 +210,134 @@ await t('every question in a set requests the floor (a muted agent blocks Start 
   const result = await startQuiz(session, 'fractions', [], 'teacher');
   assert.equal(result.ok, false, 'a muted agent must block the quiz');
   assert.equal(session.activeQuizSet, null, 'no half-started set is left behind');
+});
+
+/**
+ * One spoken turn used to become two identical cards on screen, both labelled
+ * with the same "Question N of M". The payload reaches `applyControl` from two
+ * places — the agent-history poll in `issueSetQuestion` and the relayed RTM
+ * transcript in `ingestAgentTurn` — and each minted a fresh quizId.
+ */
+await t('the same quiz payload delivered twice creates only one card', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const turn =
+    'Which of the following numbers is even? Option A: 3. Option B: 7. Option C: 10. Option D: 15. ' +
+    '{"quiz":{"topic":"even numbers","question":"Which of the following numbers is even?",' +
+    '"options":["3","7","10","15"],"answer":"C","difficulty":"easy"}}';
+
+  await ingestTranscript(session, { uid: AGENT_UID, text: turn, isFinal: true, turnId: 1 });
+  await ingestTranscript(session, { uid: AGENT_UID, text: turn, isFinal: true, turnId: 2 });
+
+  assert.equal(session.quizzes.size, 1, 'a redelivered payload must not create a second card');
+});
+
+await t('a genuinely different question still gets its own card', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const q1 =
+    'Q one? {"quiz":{"topic":"t","question":"Which number is even?","options":["3","10"],"answer":"B"}}';
+  const q2 =
+    'Q two? {"quiz":{"topic":"t","question":"Which number is odd?","options":["3","10"],"answer":"A"}}';
+
+  await ingestTranscript(session, { uid: AGENT_UID, text: q1, isFinal: true, turnId: 1 });
+  await ingestTranscript(session, { uid: AGENT_UID, text: q2, isFinal: true, turnId: 2 });
+
+  assert.equal(session.quizzes.size, 2, 'the dedupe must key on the payload, not just fire once');
+});
+
+/**
+ * The answer letter is resolved to option text, so an off-by-one in the letter
+ * silently marks a correct student wrong — the bug seen live, where "which is
+ * even?" with options 3/7/10/15 came back as "B".
+ */
+await t('the answer letter maps to the option at that position', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+
+  const quiz = recordQuizFromControl(
+    session,
+    {
+      topic: 'even numbers',
+      question: 'Which of the following numbers is even?',
+      options: ['3', '7', '10', '15'],
+      answer: 'C',
+    },
+    'teacher',
+    [],
+  );
+
+  assert.equal(quiz.correctAnswer, '10', 'C must resolve to the third option');
+});
+
+/**
+ * The bug this pins: the payload dedupe returned `{}` for a quiz that had
+ * already arrived via the other delivery path. `issueSetQuestion` records the
+ * returned quiz's id in `set.quizIds`, and `maybeAdvanceQuizSet` refuses to
+ * advance a set whose closing quiz is not listed there — so every set silently
+ * stopped after its first question.
+ *
+ * Driven through `applyControl`, which is where the dedupe decision is made;
+ * probing the lookup helper alone passes either way and proves nothing.
+ */
+await t('a redelivered payload still returns the quiz, so a set can advance', async () => {
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Ana', role: 'student' });
+  session.activeQuizSet = {
+    topic: 't', targetStudentIds: [], origin: 'teacher',
+    total: 3, asked: 1, quizIds: [], askedQuestions: [],
+  };
+
+  const control = {
+    topic: 't',
+    question: 'Which number is even?',
+    options: ['3', '7', '10', '15'],
+    answer: 'C',
+  };
+
+  // Delivery one — the relay. Creates and broadcasts the card, and (as the
+  // real relay does) its return value goes unused.
+  const first = applyControl(session, { quiz: control });
+  assert.ok(first.quiz, 'the first delivery must produce a quiz');
+  assert.equal(session.quizzes.size, 1);
+
+  // Delivery two — the history poll, arriving at the same payload. It must not
+  // create a second card, but it MUST hand back the quiz, because this is the
+  // return value issueSetQuestion pushes into set.quizIds.
+  const second = applyControl(session, { quiz: control });
+  assert.equal(session.quizzes.size, 1, 'redelivery must not create a second card');
+  assert.ok(second.quiz, 'redelivery must still identify the quiz, or the set cannot advance');
+  assert.equal(second.quiz.quizId, first.quiz.quizId, 'and it must be the same quiz');
+});
+
+await t('a set whose quiz arrived twice still advances past question 1', async () => {
+  const session = createSession('t');
+  const ana = addParticipant(session, { displayName: 'Ana', role: 'student' });
+  const control = {
+    topic: 't', question: 'Q1?', options: ['a', 'b', 'c', 'd'], answer: 'A',
+  };
+  session.activeQuizSet = {
+    topic: 't', targetStudentIds: [ana.participantId], origin: 'teacher',
+    total: 3, asked: 1, quizIds: [], askedQuestions: [],
+  };
+
+  applyControl(session, { quiz: control });               // relay
+  const viaPoll = applyControl(session, { quiz: control }); // history poll
+  // issueSetQuestion registers whatever the poll path returned.
+  if (viaPoll.quiz) session.activeQuizSet.quizIds.push(viaPoll.quiz.quizId);
+
+  assert.equal(
+    session.activeQuizSet.quizIds.length,
+    1,
+    'the set must know about its own first question',
+  );
+  const closing = [...session.quizzes.values()][0]!;
+  assert.ok(
+    session.activeQuizSet.quizIds.includes(closing.quizId),
+    'maybeAdvanceQuizSet bails unless the closing quiz is listed in the set',
+  );
 });
 
 console.log(`\n${pass} passing`);

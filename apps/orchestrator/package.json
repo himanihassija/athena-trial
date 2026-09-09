@@ -11,7 +11,7 @@
     "start": "node --env-file-if-exists=.env --import tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
-    "test": "node --import tsx scripts/tokens.test.ts && node --import tsx scripts/control.test.ts && node --import tsx scripts/floorMachine.test.ts && node --env-file=.env --import tsx scripts/floor.test.ts && node --env-file=.env --import tsx scripts/echo.test.ts && node --import tsx scripts/gate.test.ts && node --env-file=.env --import tsx scripts/quiz.test.ts",
+    "test": "node --import tsx scripts/tokens.test.ts && node --import tsx scripts/control.test.ts && node --import tsx scripts/errors.test.ts && node --env-file=.env --import tsx scripts/board.test.ts && node --import tsx scripts/voice.test.ts && node --import tsx scripts/floorMachine.test.ts && node --env-file=.env --import tsx scripts/floor.test.ts && node --env-file=.env --import tsx scripts/echo.test.ts && node --import tsx scripts/gate.test.ts && node --env-file=.env --import tsx scripts/quiz.test.ts && node --env-file=.env --import tsx scripts/catchup.test.ts && node --env-file=.env --import tsx scripts/illustrate.test.ts",
     "verify": "pnpm run typecheck && pnpm run test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -20,11 +20,13 @@
   "dependencies": {
     "@echosphere/shared-types": "workspace:*",
     "@fastify/cors": "^11.0.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "agora-agents": "^2.3.1",
     "agora-token": "^2.0.5",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.2.1",
     "postgres": "^3.4.9",
+    "resend": "^6.26.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

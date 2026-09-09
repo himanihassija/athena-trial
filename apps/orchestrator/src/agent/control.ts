@@ -29,11 +29,33 @@ export interface GapControl {
   students: string[];
 }
 
+/**
+ * A request to draw a diagram of something on the shared board (§3.4).
+ *
+ * Separate from `board` rather than a fifth `BoardControl.action`, because the
+ * two are not the same kind of thing. A board command is synchronous and local
+ * — `applyBoardCommand` finishes before the turn is done. An illustration is a
+ * round trip to Excalidraw+ that lands seconds later, so it cannot share a
+ * return path, and folding it into `WhiteboardAction` would have put a value in
+ * that union which `applyBoardCommand` must silently ignore.
+ */
+export interface IllustrateControl {
+  /** What to draw, in a few words. */
+  topic: string;
+}
+
+export interface BoardControl {
+  action: 'show' | 'hide' | 'write' | 'clear';
+  text?: string;
+}
+
 export interface CoTeacherControl {
   /** Display name of the student being answered this turn (§3.5, §3.9). */
   to?: string;
   gap?: GapControl;
   quiz?: QuizControl;
+  board?: BoardControl;
+  illustrate?: IllustrateControl;
 }
 
 export interface ParsedTurn {
@@ -102,6 +124,32 @@ function readQuiz(value: unknown): QuizControl | undefined {
   };
 }
 
+function readBoard(value: unknown): BoardControl | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  if (
+    v.action !== 'show' &&
+    v.action !== 'hide' &&
+    v.action !== 'write' &&
+    v.action !== 'clear'
+  ) {
+    return undefined;
+  }
+  const text = typeof v.text === 'string' ? v.text.trim() : undefined;
+  if (v.action === 'write' && !text) return undefined;
+  return { action: v.action, text };
+}
+
+function readIllustrate(value: unknown): IllustrateControl | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const v = value as Record<string, unknown>;
+  const topic = typeof v.topic === 'string' ? v.topic.trim() : '';
+  // A blank topic would send an empty prompt to the diagram model and come back
+  // with something arbitrary on the board, which is worse than nothing.
+  if (!topic) return undefined;
+  return { topic };
+}
+
 function readGap(value: unknown): GapControl | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const v = value as Record<string, unknown>;
@@ -132,6 +180,10 @@ export function parseAgentTurn(text: string): ParsedTurn {
   if (gap) control.gap = gap;
   const quiz = readQuiz(raw.quiz);
   if (quiz) control.quiz = quiz;
+  const board = readBoard(raw.board);
+  if (board) control.board = board;
+  const illustrate = readIllustrate(raw.illustrate);
+  if (illustrate) control.illustrate = illustrate;
 
   const spoken = (text.slice(0, span.start) + text.slice(span.end))
     .replace(/\s{2,}/g, ' ')

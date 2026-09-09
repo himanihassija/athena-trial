@@ -13,20 +13,22 @@ import type {
   LearningGap,
   PublicParticipant,
   TranscriptSegment,
+  LanguageCode,
 } from '@echosphere/shared-types';
 import type { BlockedAttempt, QuizCardState } from '@/hooks/useClassroom';
 import { seatColorVar } from '@/lib/seatColor';
+import { t, type TranslationKey } from '@/lib/i18n';
 
 /** Below this, a spoken-attribution guess is a close call, not a fact. */
 const UNCERTAIN_ATTRIBUTION_THRESHOLD = 0.62;
 
-// ─── Floor indicator (§3.3) — the on-air lamp ────────────────────────────────
+// ─── Floor indicator (§3.3) — the on-air lamp ─────────────────────────────
 
-const FLOOR_LABEL: Record<FloorSnapshot['state'], string> = {
-  TEACHER_HOLDS_FLOOR: 'Teacher is speaking',
-  OPEN_FLOOR: 'Open floor',
-  AGENT_SPEAKING: 'Athena is speaking',
-  STUDENT_QUESTION_PENDING: 'Waiting on Athena',
+const FLOOR_LABEL_KEY: Record<FloorSnapshot['state'], TranslationKey> = {
+  TEACHER_HOLDS_FLOOR: 'teacherSpeaking',
+  OPEN_FLOOR: 'openFloor',
+  AGENT_SPEAKING: 'athenaSpeaking',
+  STUDENT_QUESTION_PENDING: 'waitingOnAthena',
 };
 
 const FLOOR_LAMP: Record<FloorSnapshot['state'], string> = {
@@ -39,9 +41,11 @@ const FLOOR_LAMP: Record<FloorSnapshot['state'], string> = {
 export function FloorIndicator({
   floor,
   policy,
+  language = 'en',
 }: {
   floor: FloorSnapshot | null;
   policy: AgentPolicy | null;
+  language?: LanguageCode;
 }) {
   if (!floor) return null;
   return (
@@ -49,12 +53,12 @@ export function FloorIndicator({
       <span className="eco-panel-sunken flex items-center gap-2 px-3 py-1.5">
         <span className={`eco-lamp ${FLOOR_LAMP[floor.state]}`} />
         <span className="text-xs font-medium text-[var(--eco-cream)]">
-          {FLOOR_LABEL[floor.state]}
+          {t(FLOOR_LABEL_KEY[floor.state], language)}
         </span>
       </span>
       {policy && !policy.studentsMayInvoke && !policy.muted && (
         <span className="eco-panel-sunken px-3 py-1.5 text-xs font-medium text-[var(--eco-cream-dim)]">
-          Listening only
+          {t('listeningOnly', language)}
         </span>
       )}
       {policy?.muted && (
@@ -67,7 +71,7 @@ export function FloorIndicator({
           }}
         >
           <span className="eco-lamp eco-lamp-red" />
-          AI muted
+          {t('aiMuted', language)}
         </span>
       )}
       {policy && policy.verbosity !== 'normal' && (
@@ -79,10 +83,10 @@ export function FloorIndicator({
   );
 }
 
-// ─── Roster (§3.2, §3.5) ─────────────────────────────────────────────────────
+// ─── Roster (§3.2, §3.5) ────────────────────────────────────────────────
 
 /** First + last initial, e.g. "Ms Rao" -> "MR", "ana" -> "A". */
-function initialsOf(name: string): string {
+export function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return (parts[0]?.[0] ?? '?').toUpperCase();
@@ -129,7 +133,6 @@ function Avatar({
       className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
         speaking ? 'eco-avatar-speaking' : ''
       }`}
-      // `color` here is `currentColor` for the speaking-ring keyframe.
       style={{ background: color, color }}
     >
       <span className="text-sm font-semibold" style={{ color: 'var(--eco-ink)' }}>
@@ -146,6 +149,7 @@ export function RosterPanel({
   agentUid,
   speakingUid,
   onSetProficiency,
+  language = 'en',
 }: {
   participants: PublicParticipant[];
   agentPresent: boolean;
@@ -153,16 +157,17 @@ export function RosterPanel({
   /** RTC uid of whoever is speaking right now, from ClassroomAudio's volume poll. */
   speakingUid?: string | null;
   onSetProficiency?: (participantId: string, proficiency: string) => void;
+  language?: LanguageCode;
 }) {
   const teacher = participants.find((p) => p.role === 'teacher');
   const students = participants.filter((p) => p.role === 'student');
 
   const levelLabel = (p?: string) =>
-    p === 'advanced' ? 'Level A' : p === 'beginner' ? 'Level C' : 'Level B';
+    p === 'advanced' ? t('levelA', language) : p === 'beginner' ? t('levelC', language) : t('levelB', language);
 
   return (
     <section className="eco-panel flex flex-col gap-4 p-4">
-      <h2 className="eco-label">In the room</h2>
+      <h2 className="eco-label">{t('inTheRoom', language)}</h2>
       <ul className="flex flex-col gap-3.5 text-sm">
         {teacher && (
           <li className="flex items-center gap-3">
@@ -176,7 +181,7 @@ export function RosterPanel({
               <span className="truncate text-[var(--eco-cream)]">
                 {teacher.displayName}
               </span>
-              <span className="text-xs text-[var(--eco-cream-faint)]">Teacher</span>
+              <span className="text-xs text-[var(--eco-cream-faint)]">{t('teacher', language)}</span>
             </div>
           </li>
         )}
@@ -205,7 +210,7 @@ export function RosterPanel({
           <div className="flex min-w-0 flex-col">
             <span className="text-[var(--eco-cream)]">Athena</span>
             <span className="text-xs text-[var(--eco-cream-faint)]">
-              {agentPresent ? 'AI teacher' : 'Not started'}
+              {agentPresent ? t('aiTeacher', language) : t('athenaNotStarted', language)}
             </span>
           </div>
         </li>
@@ -222,11 +227,11 @@ export function RosterPanel({
               <span className="truncate text-[var(--eco-cream)]">
                 {student.displayName}
               </span>
-              <span className="text-xs text-[var(--eco-cream-faint)]">Student</span>
+              <span className="text-xs text-[var(--eco-cream-faint)]">{t('student', language)}</span>
             </div>
             {onSetProficiency ? (
               <select
-                aria-label={`Explanation level for ${student.displayName}`}
+                aria-label={`${t('explanationLevel', language)} for ${student.displayName}`}
                 className="rounded-md border px-1.5 py-0.5 text-xs"
                 style={{
                   borderColor: 'var(--eco-rule)',
@@ -238,9 +243,9 @@ export function RosterPanel({
                   onSetProficiency(student.participantId, e.target.value)
                 }
               >
-                <option value="advanced">Level A (advanced)</option>
-                <option value="intermediate">Level B (intermediate)</option>
-                <option value="beginner">Level C (beginner)</option>
+                <option value="advanced">{t('levelA', language)}</option>
+                <option value="intermediate">{t('levelB', language)}</option>
+                <option value="beginner">{t('levelC', language)}</option>
               </select>
             ) : (
               <span className="text-xs text-[var(--eco-cream-faint)]">
@@ -256,16 +261,13 @@ export function RosterPanel({
 
 /**
  * Explains an empty room when the AI is not in it.
- *
- * Agora's ConvoAI agent owns the whole ASR path, so with no agent in the channel
- * nobody gets a transcript however much they talk — the audio still flows
- * between people, but nothing transcribes it. Without this notice the transcript
- * panel's "nothing spoken yet" reads as a bug rather than a missing step.
  */
 export function AgentAbsentNotice({
   isTeacher,
+  language = 'en',
 }: {
   isTeacher: boolean;
+  language?: LanguageCode;
 }) {
   return (
     <div
@@ -277,26 +279,26 @@ export function AgentAbsentNotice({
       }}
     >
       <strong style={{ color: 'var(--eco-amber)' }}>
-        Athena is not in the room yet.
+        {t('absentNoticeTitle', language)}
       </strong>{' '}
-      {isTeacher
-        ? 'Press "Bring Athena in" above to start her. Live transcription runs through her, so nothing will be transcribed until she joins.'
-        : 'Live transcription runs through her, so nothing will appear here until your teacher brings her in. You can still be heard by everyone.'}
+      {isTeacher ? t('absentNoticeTeacher', language) : t('absentNoticeStudent', language)}
     </div>
   );
 }
 
-// ─── Transcript (§3.4) ───────────────────────────────────────────────────────
+// ─── Transcript (§3.4) ─────────────────────────────────────────────────
 
 export function TranscriptFeed({
   transcript,
   participants,
   agentPresent = true,
+  language = 'en',
 }: {
   transcript: TranscriptSegment[];
   participants: PublicParticipant[];
   /** When false, an empty transcript is expected rather than surprising. */
   agentPresent?: boolean;
+  language?: LanguageCode;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -319,26 +321,22 @@ export function TranscriptFeed({
   const timeOf = (at: number) =>
     new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  // `min-h-0` at every level of the flex chain is what actually lets the scroll
-  // area own the leftover height. Without it a flex child refuses to shrink
-  // below its content and the transcript collapses to a sliver no matter how
-  // tall the window is.
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <h2 className="eco-label">Live transcript</h2>
+        <h2 className="eco-label">{t('liveTranscript', language)}</h2>
         {transcript.length > 0 && (
           <span className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
-            {transcript.length} turn{transcript.length === 1 ? '' : 's'}
+            {transcript.length} {transcript.length === 1 ? t('turn', language) : t('turns', language)}
           </span>
         )}
       </div>
-      <div className="eco-panel min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="eco-panel max-h-[60vh] min-h-0 flex-1 overflow-y-auto p-4 md:max-h-none">
         {transcript.length === 0 ? (
           <p className="text-sm text-[var(--eco-cream-faint)]">
             {agentPresent
-              ? 'Nothing spoken yet. The transcript fills in as people talk.'
-              : 'Transcription starts when Athena joins the room.'}
+              ? t('nothingSpokenYet', language)
+              : t('transcriptionStartsWhenJoined', language)}
           </p>
         ) : (
           <ul className="flex flex-col gap-4">
@@ -363,6 +361,18 @@ export function TranscriptFeed({
                     <span className="eco-numerals text-[0.7rem] text-[var(--eco-cream-faint)]">
                       {timeOf(segment.at)}
                     </span>
+                    {segment.language && (
+                      <span
+                        className="rounded px-1 text-[0.625rem] font-semibold uppercase tracking-wider"
+                        style={{
+                          background: 'var(--eco-ink-raised)',
+                          color: 'var(--eco-athena)',
+                          border: '1px solid color-mix(in srgb, var(--eco-athena) 30%, transparent)',
+                        }}
+                      >
+                        {segment.language}
+                      </span>
+                    )}
                     {uncertain && (
                       <span
                         className="rounded px-1 text-[0.625rem] font-medium uppercase tracking-wide"
@@ -370,9 +380,9 @@ export function TranscriptFeed({
                           background: 'var(--eco-amber-dim)',
                           color: 'var(--eco-amber)',
                         }}
-                        title="Two people were speaking at close to the same volume — this attribution is a best guess, not a fact."
+                        title={t('unclearWhoTooltip', language)}
                       >
-                        unclear who
+                        {t('unclearWho', language)}
                       </span>
                     )}
                   </span>
@@ -404,7 +414,7 @@ export function TranscriptFeed({
   );
 }
 
-// ─── Quiz cards (§3.6) ───────────────────────────────────────────────────────
+// ─── Quiz cards (§3.6) ─────────────────────────────────────────────────
 
 const QUIZ_LETTERS = ['A', 'B', 'C', 'D'];
 
@@ -412,17 +422,19 @@ export function QuizCards({
   quizzes,
   canAnswer,
   onAnswer,
+  language = 'en',
 }: {
   quizzes: QuizCardState[];
   canAnswer: boolean;
   onAnswer: (quizId: string, answer: string) => void;
+  language?: LanguageCode;
 }) {
   if (quizzes.length === 0) return null;
 
   return (
     <section className="flex flex-col gap-3">
       <h2 className="eco-label" style={{ color: 'var(--eco-athena)' }}>
-        Quiz
+        {t('quiz', language)}
       </h2>
       {quizzes.slice(-3).map(({ quiz, myAnswer, myResult, correctAnswer, results }) => (
         <article
@@ -432,7 +444,7 @@ export function QuizCards({
         >
           {quiz.setIndex && quiz.setTotal && (
             <span className="eco-label" style={{ color: 'var(--eco-athena)' }}>
-              Question {quiz.setIndex} of {quiz.setTotal}
+              {t('questionNofTotal', language, { n: quiz.setIndex, total: quiz.setTotal })}
             </span>
           )}
           <p className="text-sm font-medium text-[var(--eco-cream)]">
@@ -504,17 +516,19 @@ export function QuizCards({
                 color: myResult === 'correct' ? 'var(--eco-athena)' : 'var(--eco-red)',
               }}
             >
-              {myResult === 'correct' ? 'Correct.' : 'Not quite.'}
+              {myResult === 'correct' ? t('correct', language) : t('notQuite', language)}
             </p>
           )}
           {Object.keys(results).length > 0 && (
             <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
-              {Object.values(results).filter(Boolean).length} of{' '}
-              {Object.keys(results).length} answered correctly
+              {t('answeredCorrectly', language, {
+                count: Object.values(results).filter(Boolean).length,
+                total: Object.keys(results).length,
+              })}
             </p>
           )}
           <p className="text-xs text-[var(--eco-cream-faint)]">
-            You can also answer out loud — say the option or its letter.
+            {t('voiceAnswerPrompt', language)}
           </p>
         </article>
       ))}
@@ -522,26 +536,28 @@ export function QuizCards({
   );
 }
 
-// ─── Gap dashboard, teacher-only (§3.9) ──────────────────────────────────────
+// ─── Gap dashboard, teacher-only (§3.9) ─────────────────────────────────
 
 export function GapPanel({
   gaps,
   participants,
   onQuiz,
+  language = 'en',
 }: {
   gaps: LearningGap[];
   participants: PublicParticipant[];
   onQuiz: (topic: string, studentIds: string[]) => void;
+  language?: LanguageCode;
 }) {
   const nameOf = (id: string) =>
     participants.find((p) => p.participantId === id)?.displayName ?? 'someone';
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="eco-label">Who needs help</h2>
+      <h2 className="eco-label">{t('whoNeedsHelp', language)}</h2>
       {gaps.length === 0 ? (
         <p className="text-sm text-[var(--eco-cream-faint)]">
-          No repeated misconceptions detected yet.
+          {t('noGapsYet', language)}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -571,7 +587,7 @@ export function GapPanel({
                     {gap.topic}
                   </p>
                   <span className="eco-numerals text-xs text-[var(--eco-cream-dim)]">
-                    {count} student{count === 1 ? '' : 's'}
+                    {t('studentsCount', language, { count })}
                   </span>
                 </div>
                 <p className="text-xs text-[var(--eco-cream-dim)]">
@@ -579,7 +595,7 @@ export function GapPanel({
                 </p>
                 {gap.addressedAt && (
                   <p className="text-xs text-[var(--eco-cream-faint)]">
-                    Athena has addressed this.
+                    {t('athenaAddressedThis', language)}
                   </p>
                 )}
                 <button
@@ -588,7 +604,7 @@ export function GapPanel({
                   className="self-start rounded-md border px-2 py-1 text-xs text-[var(--eco-cream)]"
                   style={{ borderColor: 'var(--eco-rule)' }}
                 >
-                  Quiz these students
+                  {t('quizTheseStudents', language)}
                 </button>
               </li>
             );
@@ -599,30 +615,37 @@ export function GapPanel({
   );
 }
 
-// ─── Blocked-attempt audit trail (§3.10) ─────────────────────────────────────
+// ─── Blocked-attempt audit trail (§3.10) ─────────────────────────────────
 
 const DENIAL_LABEL: Record<string, string> = {
   AGENT_MUTED: 'blocked — you muted the AI',
   STUDENT_INVOCATION_DISABLED:
     'a student called her — floor is closed to students',
   TEACHER_HOLDS_FLOOR: 'blocked — you had the floor',
+  AGENT_UNINVITED: 'held back — she started speaking uninvited',
   AGENT_ALREADY_SPEAKING: 'blocked — already speaking',
   TOPIC_DISABLED: 'blocked — topic disabled',
   SILENCE_GAP_TOO_SHORT: 'blocked — no natural pause yet',
   NO_SESSION: 'blocked — session not found',
 };
 
-export function BlockedAttempts({ attempts }: { attempts: BlockedAttempt[] }) {
+export function BlockedAttempts({
+  attempts,
+  language = 'en',
+}: {
+  attempts: BlockedAttempt[];
+  language?: LanguageCode;
+}) {
   if (attempts.length === 0) return null;
   return (
     <section className="flex flex-col gap-1">
-      <h2 className="eco-label">AI held back</h2>
+      <h2 className="eco-label">{t('aiHeldBack', language)}</h2>
       <ul className="eco-numerals flex flex-col gap-0.5 text-xs text-[var(--eco-cream-dim)]">
         {attempts
           .slice(-5)
           .reverse()
           .map((attempt) => (
-            <li key={`${attempt.at}-${attempt.reason}`}>
+            <li key={attempt.id}>
               {new Date(attempt.at).toLocaleTimeString()} ·{' '}
               {DENIAL_LABEL[attempt.reason] ?? attempt.reason}
             </li>

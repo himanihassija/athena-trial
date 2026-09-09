@@ -1,9 +1,5 @@
 /**
  * Join screen — PS31 §3.2 (role awareness) and §3.8 (student identification).
- *
- * The plan's rule is that identity and role are resolved before an Agora token
- * is minted. That ordering is enforced by the orchestrator; this page is simply
- * the form in front of it. Nothing here talks to Agora directly.
  */
 
 'use client';
@@ -11,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Role } from '@echosphere/shared-types';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   orchestrator,
   storeIdentity,
@@ -24,6 +21,7 @@ export default function JoinPage() {
   const [role, setRole] = useState<Role>('student');
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [newTitle, setNewTitle] = useState('');
+  const [shareCodeInput, setShareCodeInput] = useState('');
   const [language, setLanguage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,30 +90,44 @@ export default function JoinPage() {
   const nameValid = displayName.trim().length > 0;
 
   return (
-    <main className="eco-room flex min-h-screen justify-center px-6 py-14">
-      <div className="flex w-full max-w-lg flex-col gap-8">
-        <header className="flex flex-col gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="eco-lamp eco-lamp-glow eco-pulse" />
-            <span className="eco-label">On air</span>
-          </div>
-          <h1 className="eco-wordmark text-5xl leading-none text-[var(--eco-cream)]">
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-cover bg-center bg-fixed bg-no-repeat"
+      style={{
+        backgroundImage: 'var(--eco-join-tint), url(/classroom-bg.png)',
+      }}
+    >
+      {/* ── Top nav ─────────────────────────────────────────────────── */}
+      <header className="mx-auto flex w-full max-w-6xl shrink-0 items-center justify-between px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="eco-lamp eco-lamp-glow eco-pulse" />
+          <span className="eco-wordmark text-lg text-[var(--eco-cream)]">
             Athena
+          </span>
+        </div>
+        <ThemeToggle />
+      </header>
+
+      {/* ── Body ────────────────────────────────────────────────────── */}
+      <main className="mx-auto flex w-full min-h-0 max-w-6xl flex-1 flex-col gap-4 px-6 pb-4">
+        <div className="eco-glass flex shrink-0 flex-col items-center gap-1.5 px-8 py-5 text-center animate-fade-up">
+          <span
+            className="eco-lamp eco-lamp-amber eco-pulse mb-1"
+            style={{ width: '0.625rem', height: '0.625rem' }}
+          />
+          <h1 className="eco-display text-2xl leading-tight text-[var(--eco-cream)] sm:text-3xl">
+            Welcome to the{' '}
+            <span style={{ color: 'var(--eco-athena)' }}>classroom</span>
           </h1>
-          <p className="text-sm text-[var(--eco-cream-dim)]">
-            Live classroom with an AI co-teacher, tuned in and
-            listening.
+          <p className="max-w-md text-sm text-[var(--eco-cream-dim)]">
+            Your AI co-teacher is tuned in and listening. Enter your name to
+            join a live lesson.
           </p>
-        </header>
+        </div>
 
         {reachable === false && (
           <p
-            className="rounded-[0.625rem] border px-4 py-3 text-sm"
-            style={{
-              borderColor: 'var(--eco-amber)',
-              background: 'var(--eco-amber-dim)',
-              color: 'var(--eco-cream)',
-            }}
+            className="eco-glass w-full shrink-0 px-4 py-3 text-sm animate-fade-up animate-fade-up-d1"
+            style={{ color: 'var(--eco-cream)' }}
           >
             Cannot reach the orchestrator at{' '}
             <code className="eco-numerals">{orchestrator.baseUrl}</code>. Start
@@ -127,193 +139,260 @@ export default function JoinPage() {
           </p>
         )}
 
-        <section className="eco-panel flex flex-col gap-5 p-5">
-          <label className="flex flex-col gap-1.5">
-            <span className="eco-label-dim">Your name</span>
-            <input
-              className="rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
-              style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="e.g. Ana"
-              autoFocus
-            />
-          </label>
-
-          <fieldset className="flex flex-col gap-1.5">
-            <legend className="eco-label-dim">Join as</legend>
-            <div className="flex gap-2">
-              {(['student', 'teacher'] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setRole(option)}
-                  className="flex-1 rounded-lg border px-3 py-2 text-sm capitalize transition-colors"
-                  style={
-                    role === option
-                      ? {
-                          borderColor: 'var(--eco-glow)',
-                          background: 'var(--eco-glow-dim)',
-                          color: 'var(--eco-glow-bright)',
-                        }
-                      : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
-                  }
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-[var(--eco-cream-faint)]">
-              {role === 'teacher'
-                ? 'Teachers get the control panel, gap dashboard, and post-class report. One teacher per classroom.'
-                : 'Students get the transcript, quiz cards, and can ask the AI by name.'}
-            </p>
-          </fieldset>
-
-          {role === 'student' && (
-            <label className="flex flex-col gap-1.5">
-              <span className="eco-label-dim">
-                Preferred language{' '}
-                <span className="normal-case tracking-normal text-[var(--eco-cream-faint)]">
-                  (optional)
-                </span>
-              </span>
-              <input
-                className="rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
-                style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                placeholder="e.g. hi-IN — the AI mirrors whatever you actually speak"
-              />
-            </label>
-          )}
-        </section>
-
-        {role === 'teacher' && (
-          <section className="eco-panel flex flex-col gap-2 p-4">
-            <h2 className="eco-label-dim">Start a new lesson</h2>
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
-                style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Lesson title, e.g. Adding unlike fractions"
-              />
-              <button
-                type="button"
-                disabled={!nameValid || busy}
-                onClick={() => void createAndJoin()}
-                className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
-                style={{ background: 'var(--eco-glow)', color: 'var(--eco-ink)' }}
-              >
-                {busy ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-            <button
-              type="button"
-              disabled={!nameValid || busy}
-              onClick={() => void createAndJoin('unlike-fractions')}
-              className="self-start rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
-              style={{ borderColor: 'var(--eco-rule)' }}
-            >
-              Start fractions demo (LCD)
-            </button>
-            {!nameValid && (
-              <p className="text-xs text-[var(--eco-cream-faint)]">
-                Enter your name above first.
-              </p>
-            )}
-          </section>
-        )}
-
-        <section className="flex flex-col gap-2">
-          <h2 className="eco-label">
-            {sessions.length > 0 ? 'Live classrooms' : 'No live classrooms yet'}
-          </h2>
-
-          {/* An empty list is the first thing most people see, so it has to say
-              what to do next rather than just reporting nothing. A student cannot
-              create a lesson, so point them at the role toggle instead of leaving
-              them on a dead end. */}
-          {sessions.length === 0 && reachable !== false && (
-            <div className="eco-panel-sunken flex flex-col items-start gap-2 border-dashed p-4">
-              {role === 'teacher' ? (
-                <p className="text-sm text-[var(--eco-cream-dim)]">
-                  Give your lesson a title above and press{' '}
-                  <strong className="text-[var(--eco-cream)]">Create</strong> to
-                  open the first classroom.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm text-[var(--eco-cream-dim)]">
-                    A teacher needs to start one before you can join.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setRole('teacher')}
-                    className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)]"
-                    style={{ borderColor: 'var(--eco-glow)' }}
-                  >
-                    I&rsquo;m the teacher — start a lesson
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
-          <ul className="flex flex-col gap-2">
-            {sessions.map((session) => (
-              <li
-                key={session.sessionId}
-                className="eco-panel flex items-center justify-between p-3.5"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`eco-lamp ${session.agentId ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-[var(--eco-cream)]">
-                      {session.title}
-                    </p>
-                    <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
-                      {session.participantCount} in room ·{' '}
-                      {session.agentId ? 'AI co-teacher present' : 'AI not started'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  disabled={!nameValid || busy}
-                  onClick={() => {
-                    setSelectedSessionId(session.sessionId);
-                    void join(session.sessionId);
-                  }}
-                  className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
-                  style={{ borderColor: 'var(--eco-glow)' }}
-                >
-                  {busy && selectedSessionId === session.sessionId
-                    ? 'Joining…'
-                    : 'Join'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-
         {error && (
           <p
-            className="rounded-[0.625rem] border px-4 py-3 text-sm"
-            style={{
-              borderColor: 'var(--eco-red)',
-              background: 'var(--eco-red-dim)',
-              color: 'var(--eco-cream)',
-            }}
+            className="eco-glass w-full shrink-0 px-4 py-3 text-sm animate-fade-up"
+            style={{ color: 'var(--eco-cream)' }}
           >
             {error}
           </p>
         )}
-      </div>
-    </main>
+
+        {/* Two cards side by side from `lg` up; stacked (and page-scrolling)
+            below that. Each card owns its own internal scroll so the page
+            itself never needs to. */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto lg:grid-cols-2 lg:overflow-visible">
+          {/* Left: identity + role (+ create lesson for teachers) */}
+          <section className="eco-glass flex min-h-0 flex-col gap-5 overflow-y-auto p-6 animate-fade-up animate-fade-up-d1">
+            <label className="flex flex-col gap-1.5">
+              <span className="eco-label-dim">Your name</span>
+              <input
+                className="rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+                style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Ana"
+                autoFocus
+              />
+            </label>
+
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="eco-label-dim">Join as</legend>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRole('student')}
+                  className="flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors"
+                  style={
+                    role === 'student'
+                      ? { borderColor: 'var(--eco-athena)', background: 'var(--eco-athena)', color: 'var(--eco-ink)' }
+                      : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
+                  }
+                >
+                  Join as student
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRole('teacher')}
+                  className="flex-1 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors"
+                  style={
+                    role === 'teacher'
+                      ? { borderColor: 'var(--eco-athena)', color: 'var(--eco-athena)' }
+                      : { borderColor: 'var(--eco-rule)', color: 'var(--eco-cream-dim)' }
+                  }
+                >
+                  Join as teacher
+                </button>
+              </div>
+              <p className="text-xs text-[var(--eco-cream-faint)]">
+                {role === 'teacher'
+                  ? 'Teachers get the control panel, gap dashboard, and post-class report. One teacher per classroom.'
+                  : 'Students get the transcript, quiz cards, and can ask the AI by name.'}
+              </p>
+            </fieldset>
+
+            {role === 'teacher' && (
+              <div className="flex flex-col gap-2 border-t pt-5" style={{ borderColor: 'var(--eco-rule)' }}>
+                <h2 className="eco-label-dim">Start a new lesson</h2>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+                    style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Lesson title, e.g. Adding unlike fractions"
+                  />
+                  <button
+                    type="button"
+                    disabled={!nameValid || busy}
+                    onClick={() => void createAndJoin()}
+                    className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity disabled:opacity-40"
+                    style={{ background: 'var(--eco-athena)', color: 'var(--eco-ink)' }}
+                  >
+                    {busy ? 'Creating…' : 'Create'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={!nameValid || busy}
+                  onClick={() => void createAndJoin('unlike-fractions')}
+                  className="self-start rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)] disabled:opacity-40"
+                  style={{ borderColor: 'var(--eco-rule)' }}
+                >
+                  Start fractions demo (LCD)
+                </button>
+                {!nameValid && (
+                  <p className="text-xs text-[var(--eco-cream-faint)]">
+                    Enter your name above first.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Right: language (students) + 4-digit code entry + live sessions list */}
+          <section className="eco-glass flex min-h-0 flex-col gap-4 overflow-y-auto p-6 animate-fade-up animate-fade-up-d2">
+            {role === 'student' && (
+              <label className="flex flex-col gap-1.5 border-b pb-4" style={{ borderColor: 'var(--eco-rule)' }}>
+                <span className="eco-label-dim">
+                  Classroom & Speaking Language{' '}
+                  <span className="normal-case tracking-normal text-[var(--eco-cream-faint)]">
+                    (optional)
+                  </span>
+                </span>
+                <select
+                  className="rounded-lg border px-3 py-2 text-sm text-[var(--eco-cream)] outline-none transition-colors focus:border-[var(--eco-glow)]"
+                  style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                >
+                  <option value="">Default (English)</option>
+                  <option value="fr">Français (French)</option>
+                  <option value="es">Español (Spanish)</option>
+                  <option value="hi">हिन्दी (Hindi)</option>
+                  <option value="de">Deutsch (German)</option>
+                  <option value="ta">தமிழ் (Tamil)</option>
+                  <option value="te">తెలుగు (Telugu)</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+            )}
+
+            {/* Quick 4-Digit Share Code Entry */}
+            <div
+              className="flex flex-col gap-2 rounded-xl border p-4 shadow-sm"
+              style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="eco-label-dim">Enter 4-Digit Share Code</span>
+                <span className="text-[10px] text-[var(--eco-cream-faint)]">e.g. 4829</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={shareCodeInput}
+                  onChange={(e) => setShareCodeInput(e.target.value.trim())}
+                  placeholder="4-digit code"
+                  className="flex-1 rounded-lg border px-3 py-2 text-center font-mono text-base font-bold tracking-widest text-[var(--eco-cream)] outline-none focus:border-[var(--eco-glow)]"
+                  style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink)' }}
+                />
+                <button
+                  type="button"
+                  disabled={!nameValid || busy || shareCodeInput.length === 0}
+                  onClick={() => void join(shareCodeInput)}
+                  className="rounded-lg px-4 py-2 text-sm font-semibold transition-opacity disabled:opacity-40"
+                  style={{ background: 'var(--eco-athena)', color: 'var(--eco-ink)' }}
+                >
+                  {busy && selectedSessionId === shareCodeInput ? 'Joining…' : 'Join by Code'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <h2 className="eco-label">
+                {sessions.length > 0 ? 'Active Classrooms' : 'No active classrooms'}
+              </h2>
+              <span className="text-xs text-[var(--eco-cream-faint)]">
+                {sessions.length} live
+              </span>
+            </div>
+
+            {sessions.length === 0 && reachable !== false && (
+              <div className="flex flex-col items-start gap-2">
+                {role === 'teacher' ? (
+                  <p className="text-sm text-[var(--eco-cream-dim)]">
+                    Give your lesson a title on the left and press{' '}
+                    <strong className="text-[var(--eco-cream)]">Create</strong> to
+                    open the first classroom.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm text-[var(--eco-cream-dim)]">
+                      Ask your teacher for the 4-digit code, or wait for a lesson to start.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setRole('teacher')}
+                      className="rounded-lg border px-3 py-1.5 text-sm text-[var(--eco-cream)]"
+                      style={{ borderColor: 'var(--eco-athena)' }}
+                    >
+                      I&rsquo;m the teacher — start a lesson
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+              {sessions.map((session) => (
+                <li
+                  key={session.sessionId}
+                  className="flex items-center justify-between rounded-[0.625rem] border p-3.5"
+                  style={{ borderColor: 'var(--eco-rule)', background: 'var(--eco-ink-sunken)' }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`eco-lamp ${session.agentId ? 'eco-lamp-glow' : 'eco-lamp-off'}`}
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-[var(--eco-cream)]">
+                        {session.title}
+                      </p>
+                      <p className="eco-numerals text-xs text-[var(--eco-cream-faint)]">
+                        {session.participantCount} in room ·{' '}
+                        {session.agentId ? 'AI co-teacher present' : 'AI not started'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!nameValid || busy}
+                    onClick={() => {
+                      setSelectedSessionId(session.sessionId);
+                      void join(session.sessionId);
+                    }}
+                    className="rounded-lg border px-3 py-1.5 text-sm font-medium text-[var(--eco-cream)] disabled:opacity-40 transition-colors hover:bg-white/5"
+                    style={{ borderColor: 'var(--eco-athena)' }}
+                  >
+                    {busy && selectedSessionId === session.sessionId
+                      ? 'Joining…'
+                      : 'Join'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </main>
+
+            <footer className="shrink-0 px-6 pb-3">
+        <p
+          className="mx-auto w-full max-w-6xl rounded-lg px-4 py-2 text-center text-xs"
+          style={{
+            background: 'color-mix(in srgb, var(--eco-ink) 55%, transparent)',
+            backdropFilter: 'blur(4px)',
+            color: 'var(--eco-cream)',
+            textShadow: '0 1px 2px rgba(0,0,0,0.4)',
+          }}
+                >
+          <span className="inline-flex items-center gap-1.5">
+            Powered by
+            <img src="/agora-logo.png" alt="Agora" className="h-4 w-auto" />
+            · built with love ❤️
+          </span>
+        </p>
+      </footer>
+    </div>
   );
 }

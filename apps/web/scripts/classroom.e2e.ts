@@ -97,15 +97,18 @@ async function main(): Promise<void> {
   if (hasLiveRooms) {
     console.log('  skip live classrooms already exist, empty state not applicable');
   } else {
+    // The page opens on the student role, so the student variant of the empty
+    // state is what renders by default; the teacher variant appears after
+    // switching role. Either satisfies "explains what to do".
     const emptyHint = teacher.getByText(
-      /A teacher needs to start one|Give your lesson a title/,
+      /A teacher needs to start one|Give your lesson a title|Ask your teacher for the 4-digit code/,
     );
     check('empty state explains what to do', (await emptyHint.count()) > 0);
   }
 
   console.log('\n── Create a lesson as teacher');
   await teacher.getByPlaceholder('e.g. Ana').fill('Ms Rao');
-  await teacher.getByRole('button', { name: 'teacher', exact: true }).click();
+  await teacher.getByRole('button', { name: 'Join as teacher', exact: true }).click();
   await teacher.getByPlaceholder(/Lesson title/).fill('Adding unlike fractions');
   await teacher.getByRole('button', { name: /Create/ }).click();
   await teacher.waitForURL(/\/teacher\//, { timeout: 15_000 });
@@ -125,6 +128,14 @@ async function main(): Promise<void> {
   check('teacher shows connected, not reconnecting', teacherText.includes('connected') && !teacherText.includes('reconnecting'));
 
   console.log('\n── Teacher controls are reachable');
+  // Since the Meet-style redesign the controls live behind the app menu rather
+  // than on the page, so "reachable" now means "reachable after opening it" —
+  // which is also what a teacher actually does.
+  await teacher.getByRole('button', { name: 'Open menu' }).click();
+  const controlsTab = teacher.getByRole('button', { name: 'Controls', exact: true });
+  if ((await controlsTab.count()) > 0) await controlsTab.first().click();
+  await teacher.waitForTimeout(400);
+
   const bringIn = teacher.getByRole('button', { name: /Bring Athena in/ });
   await bringIn.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
   check('"Bring Athena in" is visible', await bringIn.count() > 0);
@@ -144,7 +155,10 @@ async function main(): Promise<void> {
   console.log('\n── Student joins the same lesson');
   await student.goto(`${WEB}/join`, { waitUntil: 'networkidle' });
   await student.getByPlaceholder('e.g. Ana').fill('Ana');
-  await student.getByRole('button', { name: /^Join$/ }).first().click();
+  await student.getByRole('button', { name: 'Join as student', exact: true }).click();
+  // Joining is by share code, and the code is the session id.
+  await student.getByPlaceholder('4-digit code').fill(sessionId);
+  await student.getByRole('button', { name: 'Join by Code' }).click();
   await student.waitForURL(/\/classroom\//, { timeout: 15_000 });
   check('student landed in the classroom', student.url().includes(`/classroom/${sessionId}`));
 
@@ -161,8 +175,13 @@ async function main(): Promise<void> {
   check('teacher sees the student', (await teacher.innerText('body')).includes('Ana'));
 
   console.log('\n── RTC audio actually joined');
-  const rtcJoined = await student.locator('text=Connected to classroom audio').count();
-  check('student RTC connected', rtcJoined > 0);
+  // Waited for rather than sampled once. Join time varies with how much client
+  // JS the route carries and with network conditions; a single count() right
+  // after a fixed pause asserts "connects within N seconds", which is not the
+  // property under test and fails for reasons that are not regressions.
+  const rtcStatus = student.locator('text=Connected to classroom audio');
+  await rtcStatus.waitFor({ state: 'attached', timeout: 20_000 }).catch(() => undefined);
+  check('student RTC connected', (await rtcStatus.count()) > 0);
 
   if (START_AGENT) {
     console.log('\n── Bringing the agent in (uses Agora minutes)');

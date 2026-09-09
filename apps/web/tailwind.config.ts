@@ -12,8 +12,15 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+      // Mapped to the fonts layout.tsx actually loads. Before this, `sans`
+      // resolved to --font-sans (plain system-ui) while the app rendered in IBM
+      // Plex Sans via .eco-room, and `serif`/`mono` were unmapped Tailwind
+      // defaults — so a stray font-serif or font-mono pulled in a typeface that
+      // is nowhere else in the design system.
       fontFamily: {
-        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-body)', 'var(--font-devanagari)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
   		colors: {
         // The <alpha-value> placeholder enables Tailwind opacity modifiers like
