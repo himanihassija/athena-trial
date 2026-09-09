@@ -66,6 +66,31 @@ function resellerModel(): ResellerModel {
 }
 
 /**
+ * Sampling and length settings for the configured model.
+ *
+ * The GPT-5 family takes a different parameter set from GPT-4, and sending the
+ * GPT-4 one is a hard 400 from the API rather than an ignored field — the whole
+ * pipeline fails to start and the room is told transcription is unavailable:
+ *
+ *   "Unsupported parameter: 'max_tokens' is not supported with this model.
+ *    Use 'max_completion_tokens' instead."
+ *
+ * Two differences, both handled here:
+ *   - the output cap was renamed `max_tokens` → `max_completion_tokens`
+ *   - `temperature` and `top_p` are fixed at their defaults and are rejected
+ *     if sent at all, so they are omitted rather than set
+ *
+ * Keyed off the model name rather than a config flag, because the two must
+ * never disagree: a deployment that changes LLM_MODEL and forgets a second
+ * switch would break in exactly the way this exists to prevent.
+ */
+function llmParams(): Record<string, unknown> {
+  return resellerModel().startsWith('gpt-5')
+    ? { max_completion_tokens: 700 }
+    : { max_tokens: 700, temperature: 0.4, top_p: 0.9 };
+}
+
+/**
  * The words that may cut Athena off mid-sentence.
  *
  * Derived from the room's own wake phrase so a teacher who renames her keeps a
@@ -282,11 +307,7 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       greetingMessage: greeting,
       failureMessage: 'One moment.',
       maxHistory: 15,
-      params: {
-        max_tokens: 700,
-        temperature: 0.4,
-        top_p: 0.9,
-      },
+      params: llmParams(),
     }),
   );
 
@@ -341,12 +362,11 @@ export async function pushInstructions(
         // model from a running agent, and since this runs whenever the roster
         // changes, the LLM broke the moment a second person joined the room.
         // The engine then answered every turn with the failure message.
-        params: {
-          model: resellerModel(),
-          max_tokens: 700,
-          temperature: 0.4,
-          top_p: 0.9,
-        },
+        // Same GPT-4/GPT-5 split as on start (see llmParams). This path is the
+        // more dangerous of the two: it fires whenever the roster or policy
+        // changes, so a wrong parameter set here breaks a lesson that was
+        // already running rather than one that never started.
+        params: { model: resellerModel(), ...llmParams() },
       },
     });
     return true;
