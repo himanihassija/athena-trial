@@ -43,6 +43,19 @@ const ROLLING_TRANSCRIPT_WINDOW = 40;
 /** Agora RTC uid reserved for the AI co-teacher. Matches the web client's constant. */
 export const AGENT_UID = '123456';
 
+/**
+ * The teacher account a lesson belongs to.
+ *
+ * Mirrors the verified JWT claims rather than re-reading them from Supabase:
+ * by the time a session exists the token has already been checked, and a class
+ * must not stop working because an auth lookup is slow mid-lesson.
+ */
+export interface SessionOwner {
+  userId: string;
+  email: string;
+  displayName: string | null;
+}
+
 export interface ClassroomSession {
   sessionId: string;
   /** Agora RTC/RTM channel name. Derived from sessionId so both are guessable from either. */
@@ -50,6 +63,16 @@ export interface ClassroomSession {
   title: string;
   createdAt: number;
   endedAt: number | null;
+
+  /**
+   * The signed-in teacher who created this lesson, if any.
+   *
+   * Null for a lesson created anonymously — which is every lesson while
+   * AUTH_REQUIRED is off. Carried in memory so that `persistSessionEnd` can
+   * record ownership at the end without re-deriving who started the class, and
+   * so the report route can check the caller is the owner.
+   */
+  owner: SessionOwner | null;
 
   /** Runtime agent id returned by ConvoAI /join. Null until the agent is started. */
   agentId: string | null;
@@ -209,7 +232,10 @@ function generate4DigitShareCode(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-export function createSession(title: string): ClassroomSession {
+export function createSession(
+  title: string,
+  owner: SessionOwner | null = null,
+): ClassroomSession {
   const sessionId = generate4DigitShareCode();
   const now = Date.now();
   const session: ClassroomSession = {
@@ -219,6 +245,7 @@ export function createSession(title: string): ClassroomSession {
     language: 'en',
     createdAt: now,
     endedAt: null,
+    owner,
     agentId: null,
     participants: new Map(),
     uidToParticipantId: new Map(),
