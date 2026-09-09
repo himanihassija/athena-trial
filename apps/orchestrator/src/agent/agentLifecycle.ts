@@ -17,9 +17,16 @@
  *     as end-of-turn without charging every ordinary turn a fixed 2s wait.
  *   - `interruption` in keyword mode, so only someone addressing Athena by
  *     name can cut her off — not a scraping chair or a student's aside.
- *   - `sal` (Selective Attention Locking) in recognition mode, so the engine
- *     itself separates voices and suppresses room noise across the several
- *     microphones `remoteUids: ['*']` opens it up to.
+ *
+ * There is deliberately NO Selective Attention Locking (SAL) here. A `sal`
+ * block used to be sent, but `advanced_features.enable_sal` never was, and
+ * Agora documents that flag as what turns the feature on — so nothing was
+ * separating voices and the comments claiming otherwise described behaviour
+ * that had never run. Enabling it properly is not the fix either: the join
+ * schema states `sal.sample_urls` supports "Only one voiceprint URL", so
+ * `recognition` mode can enrol exactly one speaker, which a classroom of
+ * rotating students cannot use. Cross-talk is therefore a known, unmitigated
+ * property of this deployment rather than a solved problem.
  *
  * The LLM is Agora's resold gpt-4o-mini. No OpenAI key is involved anywhere in
  * this project: speech recognition, the model and the voice are all billed
@@ -150,26 +157,6 @@ function interruptKeywords(session: ClassroomSession): string[] {
     (k): k is string => typeof k === 'string' && k.length > 0,
   );
   return [...new Set(candidates)];
-}
-
-/**
- * Selective Attention Locking, as configured for this deployment.
- *
- * Returns undefined when SAL_MODE is 'off', in which case no `sal` block is
- * sent and the engine behaves exactly as it did before this was added — the
- * escape hatch, since SAL's benefit is only observable in a real room.
- *
- * 'recognition' is the default and the only mode that suits a classroom: it
- * separates the voices the engine hears and suppresses background voices and
- * room noise, WITHOUT silencing legitimate second and third speakers.
- * 'locking' would do the opposite — it latches onto one voice and blocks ~95%
- * of all other human speech, which in this product means muting the students.
- * No `sample_urls` are registered: voiceprint enrolment needs a hosted 16kHz
- * mono PCM sample per speaker, which a classroom of rotating students has no
- * way to produce.
- */
-function salConfig(): { sal_mode: 'recognition' | 'locking' } | undefined {
-  return config.salMode === 'off' ? undefined : { sal_mode: config.salMode };
 }
 
 /** Live sessions, keyed by classroom sessionId. */
@@ -306,12 +293,6 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       enable_metrics: true,
     },
   });
-
-  // Applied conditionally rather than passed to the constructor so that
-  // SAL_MODE=off sends no `sal` key at all, rather than an explicit null the
-  // engine would have to interpret.
-  const sal = salConfig();
-  if (sal) agent = agent.withSal(sal);
 
   const hasSarvam =
     Boolean(config.sarvamApiKey) &&

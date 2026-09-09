@@ -45,28 +45,6 @@ export const config = {
   sttLanguage: process.env.STT_LANGUAGE ?? 'en',
   ttsVoiceId: process.env.TTS_VOICE_ID ?? 'English_captivating_female1',
 
-  /**
-   * Selective Attention Locking (SAL) — Agora's own speaker-focus feature,
-   * which runs inside the engine's audio path rather than anywhere in this
-   * codebase.
-   *
-   *   'recognition' — the engine separates the voices it hears and suppresses
-   *     background voices and room noise. This is the multi-speaker mode, and
-   *     the only one appropriate to a classroom.
-   *   'locking' — the engine latches onto ONE speaker and blocks ~95% of other
-   *     human voices. Correct for a 1:1 assistant, actively wrong here: it
-   *     would mute the students.
-   *   'off' — send no SAL config at all, the behaviour before this was added.
-   *
-   * Exposed as an env var because SAL's effect can only be judged in a real
-   * room with real cross-talk; this allows A/B-ing it during a live lesson
-   * without a code change and the dev-server restart that comes with one.
-   */
-  salMode: (process.env.SAL_MODE ?? 'recognition') as
-    | 'recognition'
-    | 'locking'
-    | 'off',
-
   /** Comma-separated browser origins allowed to call this service. */
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
     .split(',')
