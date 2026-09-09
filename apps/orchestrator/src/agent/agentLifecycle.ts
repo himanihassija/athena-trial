@@ -13,8 +13,13 @@
  *     requester (§3.1 multi-party).
  *   - `skipPatterns: [5]` on TTS, opening the brace control channel (§3.6, §3.9).
  *   - `idleTimeout: 0` so the agent does not drop out of a quiet classroom.
- *   - longer end-of-speech silence, so a teacher pausing mid-explanation is not
- *     read as end-of-turn.
+ *   - semantic end-of-speech, so a teacher pausing mid-explanation is not read
+ *     as end-of-turn without charging every ordinary turn a fixed 2s wait.
+ *   - `interruption` in keyword mode, so only someone addressing Athena by
+ *     name can cut her off — not a scraping chair or a student's aside.
+ *   - `sal` (Selective Attention Locking) in recognition mode, so the engine
+ *     itself separates voices and suppresses room noise across the several
+ *     microphones `remoteUids: ['*']` opens it up to.
  *
  * The LLM is Agora's resold gpt-4o-mini. No OpenAI key is involved anywhere in
  * this project: speech recognition, the model and the voice are all billed
@@ -60,6 +65,45 @@ function resellerModel(): ResellerModel {
     : 'gpt-4o-mini';
 }
 
+/**
+ * The words that may cut Athena off mid-sentence.
+ *
+ * Derived from the room's own wake phrase so a teacher who renames her keeps a
+ * working barge-in. "athena" is included as a bare token too: the wake phrase
+ * defaults to "hey athena", and someone cutting in almost never repeats the
+ * whole phrase — they say her name.
+ *
+ * Deduplicated and lowercased. The engine caps this list at 128 entries; this
+ * produces at most three.
+ */
+function interruptKeywords(session: ClassroomSession): string[] {
+  const wake = session.policy?.wakePhrase?.trim().toLowerCase();
+  const candidates = [wake, 'athena', 'stop'].filter(
+    (k): k is string => typeof k === 'string' && k.length > 0,
+  );
+  return [...new Set(candidates)];
+}
+
+/**
+ * Selective Attention Locking, as configured for this deployment.
+ *
+ * Returns undefined when SAL_MODE is 'off', in which case no `sal` block is
+ * sent and the engine behaves exactly as it did before this was added — the
+ * escape hatch, since SAL's benefit is only observable in a real room.
+ *
+ * 'recognition' is the default and the only mode that suits a classroom: it
+ * separates the voices the engine hears and suppresses background voices and
+ * room noise, WITHOUT silencing legitimate second and third speakers.
+ * 'locking' would do the opposite — it latches onto one voice and blocks ~95%
+ * of all other human speech, which in this product means muting the students.
+ * No `sample_urls` are registered: voiceprint enrolment needs a hosted 16kHz
+ * mono PCM sample per speaker, which a classroom of rotating students has no
+ * way to produce.
+ */
+function salConfig(): { sal_mode: 'recognition' | 'locking' } | undefined {
+  return config.salMode === 'off' ? undefined : { sal_mode: config.salMode };
+}
+
 /** Live sessions, keyed by classroom sessionId. */
 const liveAgents = new Map<string, AgentSession>();
 
@@ -92,25 +136,83 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     greeting,
     failureMessage: 'One moment.',
     maxHistory: 50,
+    // Turn detection tuned for a classroom rather than a 1:1 call. The
+    // quickstart's 480ms end-of-speech is too eager here: a teacher pausing
+    // mid-explanation would repeatedly read as end-of-turn. This is the first
+    // line of defence against the agent talking over the teacher; the floor
+    // state machine is the second.
     turnDetection: {
       config: {
         speech_threshold: 0.5,
         start_of_speech: {
           mode: 'vad',
           vad_config: {
-            interrupt_duration_ms: 600,
+            // Documented range [120, 1200], Agora's own default 160. Raised to
+            // the ceiling so a one-word backchannel ("okay", "yes", "hmm") is
+            // less likely to silence her mid-sentence. The orchestrator's own
+            // interruptAgent() call (onTeacherBargeIn) is the real, teacher-only
+            // barge-in mechanism; this is a backstop for when that path is
+            // slower than the raw VAD signal.
+            interrupt_duration_ms: 1200,
             prefix_padding_ms: 300,
           },
         },
+        // Semantic end-of-turn, not a silence stopwatch.
+        //
+        // This previously ran `mode: 'vad'` with `silence_duration_ms` pinned
+        // to the documented ceiling of 2000. The reasoning was sound and the
+        // cost was real: a flat timer cannot tell a thinking-pause from a
+        // finished sentence, so the only way to stop one utterance being
+        // fragmented into several turn_ids was to wait long enough that no
+        // ordinary pause could close the turn — which meant EVERY turn, even
+        // an obviously complete one, paid a two-second wait before Athena
+        // could answer. That wait is the single largest contributor to the
+        // conversation feeling sluggish.
+        //
+        // `semantic` asks the engine to decide whether the utterance is
+        // actually finished rather than whether the room went quiet, so a
+        // complete sentence closes promptly and a trailing-off one does not.
+        // `pause_state_enabled` handles the exact case the old ceiling was
+        // protecting: a speaker ending on "hold on" or "just a moment" is
+        // understood as still holding the floor, not as end-of-turn.
         end_of_speech: {
-          mode: 'vad',
-          vad_config: {
-            // Tuned for natural classroom conversation: 800ms silence allows natural
-            // sentence pauses while ensuring rapid ~1s response time from Athena.
-            silence_duration_ms: 800,
+          mode: 'semantic',
+          semantic_config: {
+            // The floor under the semantic decision, not the decision itself.
+            // Well below the old 2000 because semantics — not this number — is
+            // now what protects a mid-sentence pause.
+            silence_duration_ms: 640,
+            // Ceiling on waiting for that decision. On timeout the engine
+            // falls back to its current read of the turn, so this bounds
+            // worst-case latency rather than changing ordinary behaviour.
+            max_wait_ms: 3000,
+            pause_state_enabled: true,
           },
         },
       },
+    },
+    // Keyword-gated barge-in, handled inside the engine.
+    //
+    // The default is `start_of_speech`: ANY human voice cuts the agent off.
+    // In a 1:1 call that is what you want. In a classroom it means a student
+    // murmuring to a neighbour, a chair scraping into someone's mic, or a
+    // one-word "okay" truncates an explanation the teacher asked for — which
+    // is what `interrupt_duration_ms: 1200` above was straining to suppress by
+    // demanding a long burst of speech before honouring an interrupt.
+    //
+    // Keyword mode replaces that guess with an intention: only a speaker
+    // actually addressing Athena by name stops her. Room noise no longer can.
+    // This runs in the engine, so it costs nothing and cannot race — unlike
+    // the orchestrator's own `interruptAgent()`, which is a REST round-trip
+    // measured at over three seconds.
+    //
+    // This governs BARGE-IN ONLY. It does not decide whether Athena may start
+    // a turn, so the floor/permit machinery in classroomController is still
+    // load-bearing and is deliberately left alone.
+    interruption: {
+      enable: true,
+      mode: 'keywords',
+      keywords_config: { trigger_keywords: interruptKeywords(session) },
     },
     advancedFeatures: { enable_rtm: true, enable_tools: true },
     parameters: {
@@ -120,6 +222,12 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
       enable_metrics: true,
     },
   });
+
+  // Applied conditionally rather than passed to the constructor so that
+  // SAL_MODE=off sends no `sal` key at all, rather than an explicit null the
+  // engine would have to interpret.
+  const sal = salConfig();
+  if (sal) agent = agent.withSal(sal);
 
   const hasSarvam =
     Boolean(config.sarvamApiKey) &&

@@ -76,7 +76,6 @@ app — a known wart, noted in its own `.env`.
 | `SARVAM_API_KEY` | orchestrator | optional | also switches Athena's STT+TTS to Hindi |
 | `RESEND_API_KEY` | orchestrator | optional | absent-student packets actually email |
 | `DATABASE_URL` | orchestrator | optional | Postgres persistence; unset = no-op |
-| `WHITEBOARD_*` | orchestrator | optional | dormant, see §4 |
 | `NEXT_LLM_API_KEY` / `NEXT_LLM_URL` | web | optional | only for the custom-LLM ConvoAI route |
 
 `LLM_MODEL` must be one Agora resells: `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-5-nano` or
@@ -123,13 +122,9 @@ into the authoritative scene and rebroadcasts, and remote edits arrive back thro
 Excalidraw's own `version` counter), and writes are suppressed while a remote scene is being
 applied, or applying one would echo straight back as a fresh local edit.
 
-`src/whiteboard/netless.ts` and the `WHITEBOARD_*` config are **dormant, deliberately**. The
-Agora Interactive Whiteboard canvas requires `white-web-sdk`, which needs React 16; this app is
-on React 19. `openWhiteboard` does not create a Netless room — creating one per session would be
-an API call and a failure surface for a canvas nobody renders. `createWhiteboardRoom` and
-`joinPayload` are kept intact so restoring it is a one-line change if Netless ever ships React
-18+ support. `agoraReady` in the public board state reflects that dormant path, not whether the
-Excalidraw board works.
+The old Agora Interactive Whiteboard/Netless integration has been removed. The classroom board
+is Excalidraw rendered locally and synchronized through the orchestrator's SSE scene events, so
+there are no `WHITEBOARD_*` credentials or separate room tokens to configure.
 
 ---
 

@@ -240,19 +240,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       // enforcement path treats it as an uninvited turn and cuts it off after
       // the first two words.
       grantSpeakPermit(session, 'TEACHER_INVOKED');
-      // Best-effort: a Netless outage or missing credentials must not stop the
-      // agent joining. The overlay still opens and renders spoken board cards;
-      // only the collaborative canvas behind them is absent.
-      try {
-        await openWhiteboard(session);
-      } catch (boardError) {
-        request.log.warn({ err: boardError }, 'whiteboard room create failed; overlay opens without canvas');
-        session.whiteboard.open = true;
-        publish(session.sessionId, {
-          kind: 'echosphere:whiteboard',
-          board: publicWhiteboard(session),
-        });
-      }
+      await openWhiteboard(session);
       publish(session.sessionId, { kind: 'echosphere:room-state', state: roomState(session) });
       return reply.send({ agentId, state: 'RUNNING' });
     } catch (error) {
@@ -350,22 +338,12 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     }
     session.whiteboard.annotating = annotating;
     if (annotating) {
-      // Opening the board also creates the Netless room if one does not exist
-      // yet. Without this the teacher could switch annotation on and get an
-      // open-but-empty board, because the room was previously only created
-      // when the agent joined — and annotation does not require an agent.
-      try {
-        await openWhiteboard(session);
-      } catch (boardError) {
-        request.log.warn({ err: boardError }, 'whiteboard room create failed; annotating without canvas');
-        session.whiteboard.open = true;
-      }
+      await openWhiteboard(session);
     }
     broadcastWhiteboard(session);
     return reply.send({
       ok: true,
       annotating,
-      agoraReady: publicWhiteboard(session).agoraReady,
     });
   });
 
@@ -379,16 +357,9 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!participant || participant.leftAt !== undefined) {
       return reply.code(403).send({ error: 'Unknown participant' });
     }
-    try {
-      return reply.send(
-        await joinPayload(session, participant.uid, participant.role === 'teacher'),
-      );
-    } catch (error) {
-      request.log.error({ err: error }, 'whiteboard join failed');
-      return reply.code(502).send({
-        error: error instanceof Error ? error.message : 'Whiteboard join failed',
-      });
-    }
+    return reply.send(
+      await joinPayload(session, participant.uid, participant.role === 'teacher'),
+    );
   });
 
   app.post('/api/sessions/:sessionId/catchup', async (request, reply) => {
@@ -1130,4 +1101,3 @@ function roomState(session: ClassroomSession): RoomState {
     activeScreenShare: session.activeScreenShare,
   };
 }
-

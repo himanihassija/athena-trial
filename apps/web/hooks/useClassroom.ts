@@ -484,9 +484,7 @@ export function useClassroom(
     [sessionId, participantId],
   );
 
-  // The room token is role-scoped, so it is fetched per participant rather than
-  // broadcast with room state. Re-fetched when the board reopens or its room
-  // changes, since a token is bound to one room.
+  // Fetch the participant-scoped local board state when the board opens.
   useEffect(() => {
     if (!participantId || !whiteboard?.open) {
       setWhiteboardJoin(null);
@@ -509,7 +507,7 @@ export function useClassroom(
     return () => {
       cancelled = true;
     };
-  }, [sessionId, participantId, whiteboard?.open, whiteboard?.uuid]);
+  }, [sessionId, participantId, whiteboard?.open]);
 
   const presentWhiteboard = useCallback(
     async (on: boolean) => {

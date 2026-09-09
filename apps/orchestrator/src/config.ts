@@ -45,6 +45,28 @@ export const config = {
   sttLanguage: process.env.STT_LANGUAGE ?? 'en',
   ttsVoiceId: process.env.TTS_VOICE_ID ?? 'English_captivating_female1',
 
+  /**
+   * Selective Attention Locking (SAL) — Agora's own speaker-focus feature,
+   * which runs inside the engine's audio path rather than anywhere in this
+   * codebase.
+   *
+   *   'recognition' — the engine separates the voices it hears and suppresses
+   *     background voices and room noise. This is the multi-speaker mode, and
+   *     the only one appropriate to a classroom.
+   *   'locking' — the engine latches onto ONE speaker and blocks ~95% of other
+   *     human voices. Correct for a 1:1 assistant, actively wrong here: it
+   *     would mute the students.
+   *   'off' — send no SAL config at all, the behaviour before this was added.
+   *
+   * Exposed as an env var because SAL's effect can only be judged in a real
+   * room with real cross-talk; this allows A/B-ing it during a live lesson
+   * without a code change and the dev-server restart that comes with one.
+   */
+  salMode: (process.env.SAL_MODE ?? 'recognition') as
+    | 'recognition'
+    | 'locking'
+    | 'off',
+
   /** Comma-separated browser origins allowed to call this service. */
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
     .split(',')
@@ -75,17 +97,6 @@ export const config = {
   resendApiKey: process.env.RESEND_API_KEY,
 
   /**
-   * Agora Interactive Whiteboard (a separate product from RTC/RTM/ConvoAI, and
-   * one the `agora` CLI cannot enable — it is switched on in Console). The App
-   * Identifier is "<teamUUID>/<appUUID>"; the SDK token signs the room
-   * management REST calls. Optional: `whiteboardConfigured()` gates the feature
-   * so a deployment without these still runs, just without a board.
-   */
-  whiteboardAppIdentifier: process.env.WHITEBOARD_APP_IDENTIFIER ?? '',
-  whiteboardSdkToken: process.env.WHITEBOARD_SDK_TOKEN ?? '',
-  whiteboardRegion: process.env.WHITEBOARD_REGION ?? 'in-mum',
-
-  /**
    * Excalidraw+ MCP, which backs Athena's "draw me a diagram" path.
    *
    * The orchestrator is the MCP client here: it calls `create_diagram` and
@@ -96,7 +107,7 @@ export const config = {
    *
    * Optional, and dormant if unset: `illustrationConfigured()` gates the
    * feature, so a deployment without a key still runs a full lesson, just
-   * without diagrams. Same posture as WHITEBOARD_* above.
+   * without diagrams.
    *
    * The scratch scene is where diagrams are laid out before their elements are
    * copied onto the classroom board. Left blank, one is created per classroom

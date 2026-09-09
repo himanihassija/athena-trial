@@ -153,7 +153,7 @@ export const orchestrator = {
       body: JSON.stringify({ state }),
     }),
 
-  /** Role-scoped room token, so it cannot ride along with broadcast room state. */
+  /** Fetches the participant-scoped local board state. */
   getWhiteboard: (sessionId: string, participantId: string) =>
     request<WhiteboardJoin>(
       `/api/sessions/${sessionId}/whiteboard?participantId=${encodeURIComponent(participantId)}`,

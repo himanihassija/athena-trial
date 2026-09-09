@@ -33,7 +33,6 @@ import {
   type InterventionRecord,
   type WhiteboardPublicState,
 } from '@echosphere/shared-types';
-import { config } from '../config.js';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
 import { createLessonStore } from '../lesson/lessonStore.js';
@@ -159,14 +158,10 @@ export interface ClassroomSession {
   interventionHistory: InterventionRecord[];
 
   /**
-   * Shared board. `uuid` is the Netless room; it stays null when Whiteboard
-   * credentials are absent, in which case the overlay still opens and the
-   * spoken `cards` render without the collaborative canvas behind them.
+   * Shared local Excalidraw board state.
    */
   whiteboard: {
     open: boolean;
-    region: string;
-    uuid: string | null;
     cards: WhiteboardPublicState['cards'];
     /**
      * Presence and scene, mirroring how screen share is modelled: one presenter
@@ -246,8 +241,6 @@ export function createSession(title: string): ClassroomSession {
     interventionHistory: [],
     whiteboard: {
       open: false,
-      region: config.whiteboardRegion,
-      uuid: null,
       cards: [],
       annotating: false,
       presenting: null,
