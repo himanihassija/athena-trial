@@ -1,15 +1,23 @@
 /**
  * Tests for turn-taking enforcement (see classroomController.ts).
  *
- * The case that matters most here is the bug a live session actually hit: a
- * legitimate, permitted answer that ran long — ASR settle + LLM generation +
- * a genuinely long spoken response can easily exceed the permit's TTL — was
- * being cut off mid-sentence because enforcement re-validated the permit's
- * timestamp on every state-change event, including ones that happen well
- * after the turn has already, correctly, begun.
+ * `hasSpeakPermit` used to be a fixed-duration TTL (15s), and the case that
+ * mattered most here was a legitimate answer running long past it — ASR
+ * settle + LLM generation + a genuinely long spoken response — and getting
+ * cut off mid-sentence because enforcement re-validated the permit's
+ * timestamp on every state-change event, even ones well after the turn had
+ * already, correctly, begun. `authorizedTurnInProgress` fixed that half.
  *
- * Time is faked by rewinding `speakPermit.grantedAt` rather than sleeping;
- * these run in milliseconds and still exercise real elapsed-time logic.
+ * The other half was the same bug one step earlier: a reasoning model can
+ * take upwards of 20 seconds just to make its FIRST thinking/speaking
+ * transition, and a fixed TTL cut that off too — before the turn had even
+ * begun, for a permit that was never superseded by anything. A permit is
+ * now valid for as long as it still is the invitation it was: nobody has
+ * spoken again since it was granted. There is no duration left to tune.
+ *
+ * Time is faked by rewinding `speakPermit.grantedAt` and by moving
+ * `floor.lastHumanSpeechAt` directly, rather than sleeping; these run in
+ * milliseconds and still exercise real elapsed-time and event-ordering logic.
  *
  * Run with: node --import tsx scripts/floor.test.ts
  */
@@ -61,6 +69,18 @@ const rewindAuthorisation = (
   session.floor = { ...session.floor, lastHumanSpeechAt: session.floor.lastHumanSpeechAt - ms };
 };
 
+/**
+ * Same idea, for a permit that has not been consumed yet: ages the grant and
+ * the speech that caused it together, so "granted a long time ago" is
+ * simulated without also faking "and someone has spoken since" — moving only
+ * `grantedAt` backward would put it before the speech that caused it, which
+ * cannot happen for real.
+ */
+const rewindPermit = (session: ReturnType<typeof createSession>, ms: number) => {
+  if (session.speakPermit) session.speakPermit.grantedAt -= ms;
+  session.floor = { ...session.floor, lastHumanSpeechAt: session.floor.lastHumanSpeechAt - ms };
+};
+
 await t('no permit: a turn starting is interrupted', async () => {
   const session = createSession('test');
   const result = await handleAgentState(session, 'thinking');
@@ -84,16 +104,61 @@ await t(
     const started = await handleAgentState(session, 'thinking');
     assert.equal(started.interrupted, false);
 
-    // Simulate real-world latency: generation + a long spoken answer running
-    // well past the permit's original TTL, all within one continuous turn.
+    // Once authorized, the standing permit was already consumed (set to
+    // null) — rewinding grantedAt is a no-op on it and this is really just
+    // confirming that: the guard for an in-progress turn is
+    // `authorizedTurnInProgress`, checked before `hasSpeakPermit` is ever
+    // reached, not the permit at all.
     rewind(session, 20_000);
-    assert.equal(hasSpeakPermit(session), false, 'sanity: the permit itself has expired');
+    assert.equal(hasSpeakPermit(session), false, 'sanity: the standing permit was consumed');
 
     const midSpeech = await handleAgentState(session, 'speaking');
     assert.equal(
       midSpeech.interrupted,
       false,
-      'a turn already under way must not be cut off by a stale TTL check',
+      'a turn already under way must not be cut off by a later re-check',
+    );
+  },
+);
+
+await t(
+  'a permit is not cut off by a model that takes a long time to even begin',
+  async () => {
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+    // The turn has not started yet — the engine is still generating the
+    // first token. Rewind the grant, and the speech that caused it, far past
+    // the old 15s TTL; nobody else has spoken since, so this is still
+    // exactly the invitation it was.
+    rewindPermit(session, 60_000);
+    assert.equal(hasSpeakPermit(session), true, 'a slow model is not an uninvited one');
+
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(
+      result.interrupted,
+      false,
+      'a turn that is still the one that was invited must not be cut off for taking a while to start',
+    );
+  },
+);
+
+await t(
+  'a permit goes stale once someone else has spoken since it was granted',
+  async () => {
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+
+    // Someone spoke again — without re-addressing her, which would grant a
+    // fresh permit — so the room has moved on since this invitation.
+    session.floor = { ...session.floor, lastHumanSpeechAt: Date.now() + 1000 };
+    assert.equal(hasSpeakPermit(session), false);
+
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(
+      result.interrupted,
+      true,
+      'a reply this stale is no longer an answer to the most recent thing said',
     );
   },
 );
