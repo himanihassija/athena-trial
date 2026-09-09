@@ -287,7 +287,13 @@ export async function startAgent(session: ClassroomSession): Promise<string> {
     },
     advancedFeatures: { enable_rtm: true, enable_tools: true },
     parameters: {
-      audio_scenario: 'chorus',
+      // Agora documents `aiserver` as "Optimized for interactions between the
+      // user and the conversational AI agent in terms of latency and network
+      // resilience", and it is what `default` maps to. This ran `chorus` —
+      // "Real-time chorus scenario, where users have good network conditions
+      // and require ultra-low latency" — which trades away exactly the network
+      // resilience a room of student laptops on school wifi depends on.
+      audio_scenario: 'aiserver',
       data_channel: 'rtm',
       enable_error_message: true,
       enable_metrics: true,
