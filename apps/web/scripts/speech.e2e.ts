@@ -32,6 +32,36 @@ interface Segment {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The agent segments the MODEL actually produced — the greeting excluded.
+ *
+ * This exists because `agent.length > 0`, the assertion it replaces, could not
+ * fail for the reason it claimed. The greeting is delivered by the engine
+ * straight from `greetingMessage` in the join config, with no LLM call, and it
+ * lands in the transcript as an agent segment like any other. So the old check
+ * passed whenever the agent merely joined the channel — and it did exactly that
+ * through a live fault where the model was returning nothing at all, printing
+ * "ok Athena replied" over a silent classroom.
+ *
+ * The greeting text is NOT hardcoded here: it is configurable per lesson
+ * language (`getGreetingForLanguage` in the orchestrator's prompt.ts), so
+ * matching on "Hi everyone" would silently stop working the moment a lesson ran
+ * in Hindi. It is identified structurally instead — it is always the first
+ * agent segment of a session, since the engine plays it on join before any turn
+ * can occur. Relay re-emissions of one turn are upserted in place by turn id
+ * rather than appended (see `upsertByTurn` in classroomController), so any
+ * later agent segment is a genuinely separate turn rather than a longer copy of
+ * this one; the text comparison is a belt-and-braces guard on top of that.
+ */
+function modelTurns(segments: Segment[]): Segment[] {
+  const agent = segments.filter((s) => s.speaker === 'agent');
+  const greeting = agent[0];
+  if (!greeting) return [];
+  const norm = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+  return agent.filter((s) => s !== greeting && norm(s.text) !== norm(greeting.text));
+}
+
+
 async function main(): Promise<void> {
   const browser = await chromium.launch({
     args: [
@@ -72,12 +102,17 @@ async function main(): Promise<void> {
     if (segments.length > 0) {
       process.stdout.write(`   ${segments.length} segment(s) after ${(i + 1) * 3}s\r`);
     }
-    if (segments.some((s) => s.speaker === 'agent') && segments.length >= 2) break;
+    // Wait for a turn the MODEL produced. This used to break as soon as any
+    // agent segment existed alongside one other segment — which the greeting
+    // plus the first human utterance satisfies, so the poll could exit before a
+    // real reply had any chance to arrive, and then assert on its absence.
+    if (modelTurns(segments).length > 0) break;
   }
   console.log();
 
   const human = segments.filter((s) => s.speaker !== 'agent');
   const agent = segments.filter((s) => s.speaker === 'agent');
+  const replies = modelTurns(segments);
 
   console.log('\n── Transcript');
   for (const s of segments.slice(0, 12)) {
@@ -118,7 +153,21 @@ async function main(): Promise<void> {
   check('speech was transcribed at all', human.length > 0);
   if (addressed) {
     check('the wake phrase was heard', true);
-    check('Athena replied', agent.length > 0);
+    check(
+      'Athena produced a turn the model generated (not just the greeting)',
+      replies.length > 0,
+    );
+    if (replies.length === 0 && agent.length > 0) {
+      console.log(
+        `       only the greeting was heard: "${agent[0]?.text.slice(0, 70)}"`,
+      );
+      console.log(
+        '       the agent joined and said its configured greeting, but the model',
+      );
+      console.log(
+        '       produced no turn — check GET /api/sessions/:id/agent/history.',
+      );
+    }
   } else {
     // The point of a wake-word-free fixture: plain speech must still reach the
     // transcript. If this fails while the addressed fixture passes, something
