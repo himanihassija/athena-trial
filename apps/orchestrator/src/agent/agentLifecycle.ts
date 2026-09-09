@@ -41,6 +41,7 @@ import {
 import { GREETING, buildClassroomInstructions, getGreetingForLanguage } from './prompt.js';
 import { AGENT_UID, type ClassroomSession } from '../state/sessionRegistry.js';
 import { config } from '../config.js';
+import { isReasoningModel, reasoningHeadroom } from '../llm/reasoning.js';
 
 /**
  * Models Agora resells under its own billing presets. The SDK types the
@@ -108,10 +109,28 @@ export function modelResolution(): {
  * never disagree: a deployment that changes LLM_MODEL and forgets a second
  * switch would break in exactly the way this exists to prevent.
  */
+/** How much SPOKEN reply a classroom turn is meant to be worth. */
+const VISIBLE_REPLY_TOKENS = 700;
+
 function llmParams(): Record<string, unknown> {
-  return resellerModel().startsWith('gpt-5')
-    ? { max_completion_tokens: 700 }
-    : { max_tokens: 700, temperature: 0.4, top_p: 0.9 };
+  const model = resellerModel();
+
+  // Two independent axes, deliberately not collapsed into one branch.
+  //
+  // Whether the model burns hidden reasoning tokens decides the SIZE of the cap
+  // — 700 was the whole budget, and a reasoning pass can consume all of it and
+  // return an empty string. Shared with the orchestrator's own LLM calls so the
+  // two can no longer disagree about what counts as a reasoning model.
+  const maxTokens = isReasoningModel(model)
+    ? reasoningHeadroom(VISIBLE_REPLY_TOKENS)
+    : VISIBLE_REPLY_TOKENS;
+
+  // Whether it is GPT-5 decides the NAME of the cap. GPT-5 renamed
+  // `max_tokens` to `max_completion_tokens` and rejects `temperature`/`top_p`
+  // outright — a hard 400 that fails the whole pipeline, not an ignored field.
+  return model.startsWith('gpt-5')
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens, temperature: 0.4, top_p: 0.9 };
 }
 
 /**

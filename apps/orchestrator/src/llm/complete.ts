@@ -5,6 +5,7 @@
  */
 
 import { config } from '../config.js';
+import { isReasoningModel, reasoningHeadroom } from './reasoning.js';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -120,14 +121,6 @@ function resolveProvider(): Provider | null {
   return list.length > 0 ? (list[0] ?? null) : null;
 }
 
-/**
- * Whether a model spends completion budget on hidden reasoning tokens, so its
- * visible reply needs extra headroom to avoid coming back empty.
- */
-function isReasoningModel(model: string): boolean {
-  return /gpt-oss|qwen3|reasoner|thinking/i.test(model);
-}
-
 async function executeProvider(
   provider: Provider,
   messages: ChatMessage[],
@@ -240,7 +233,7 @@ async function executeProvider(
     // reasoning model cannot answer blank.
     const requestedMax = options.maxTokens ?? 700;
     const maxTokens = isReasoningModel(provider.model)
-      ? Math.max(requestedMax + 1500, 2500)
+      ? reasoningHeadroom(requestedMax)
       : requestedMax;
 
     const response = await fetch(provider.url, {
