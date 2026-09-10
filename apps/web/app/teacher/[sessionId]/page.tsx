@@ -41,6 +41,8 @@ import {
   TranscriptFeed,
 } from '@/components/classroom/panels';
 import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
+import { Model3DStage } from '@/components/classroom/Model3DStage';
+import { Model3DPicker } from '@/components/classroom/Model3DPicker';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
 import { ExcalidrawBoard } from '@/components/classroom/ExcalidrawBoardLazy';
 import { AnnotateToggle } from '@/components/classroom/AnnotateToggle';
@@ -124,6 +126,7 @@ export default function TeacherDashboardPage() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   /** Persistent right-hand transcript sidebar, independent of the Menu drawer. */
   const [transcriptPinned, setTranscriptPinned] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   /**
    * Whether Athena's one-time entrance intro has already played. Lives here,
    * not inside ParticipantGrid, because that component unmounts whenever the
@@ -682,7 +685,27 @@ export default function TeacherDashboardPage() {
           >
             {view.activeWhiteboard ? 'Stop Whiteboard' : 'Whiteboard'}
           </button>
-
+          
+          <button
+            type="button"
+            onClick={() => {
+              if (view.activeModel) {
+                void view.presentModel(null);
+              } else {
+                setModelPickerOpen(true);
+              }
+            }}
+            data-active={Boolean(view.activeModel)}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
+            title={
+              view.activeModel
+                ? 'Stop showing the 3D model to the room'
+                : 'Show a 3D model to everyone'
+            }
+          >
+            {view.activeModel ? 'Stop 3D Model' : '3D Models'}
+          </button>
           <AnnotateToggle
             board={view.whiteboard}
             /* This tab can only write once it holds a live board connection. */
@@ -865,7 +888,7 @@ export default function TeacherDashboardPage() {
                       activeScreenShare={view.activeScreenShare}
                       selfUid={identity.uid}
                     />
-                  ) : view.activeWhiteboard ? (
+                                    ) : view.activeWhiteboard ? (
                     <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
                       <ExcalidrawBoard
                         scene={view.boardScene}
@@ -873,8 +896,13 @@ export default function TeacherDashboardPage() {
                         onSceneChange={view.pushBoardScene}
                       />
                     </div>
+                  ) : view.activeModel ? (
+                    <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
+                      <Model3DStage modelId={view.activeModel.modelId} />
+                    </div>
                   ) : (
                     <ParticipantGrid
+                      sessionId={sessionId}
                       participants={view.participants}
                       agentPresent={Boolean(view.room?.agentId)}
                       agentUid={identity.agentUid}
@@ -882,8 +910,6 @@ export default function TeacherDashboardPage() {
                       selfUid={identity.uid}
                       selfMicEnabled={micEnabled}
                       raisedHands={view.raisedHands}
-                      introPlayed={introPlayed}
-                      onIntroEnd={() => setIntroPlayed(true)}
                     />
                   )}
                 </div>
@@ -927,7 +953,15 @@ export default function TeacherDashboardPage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
-
+      
+      <Model3DPicker
+        isOpen={modelPickerOpen}
+        onClose={() => setModelPickerOpen(false)}
+        onSelect={(modelId) => {
+          setModelPickerOpen(false);
+          void view.presentModel(modelId);
+        }}
+      />
       <AbsentStudentPacketModal
         sessionId={sessionId}
         isOpen={showAbsentPacket}

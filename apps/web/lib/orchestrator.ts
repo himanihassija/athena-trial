@@ -120,6 +120,17 @@ export const orchestrator = {
     }),
 
   /**
+   * Short-lived Anam session token for the silent video overlay. Throws
+   * (501) if Anam isn't configured on this deployment — callers should
+   * treat that as "fall back to the Lottie loop," not a hard error.
+   */
+  getAnamToken: (sessionId: string) =>
+    request<{ sessionToken: string }>(`/api/sessions/${sessionId}/anam-token`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  /**
    * Relays one transcript segment from the browser's RTM stream to the
    * orchestrator. Agora's RTM has no server SDK, so the browser is the only
    * place these events can be observed — see the relay note in ClassroomRoom.
@@ -176,6 +187,19 @@ export const orchestrator = {
       `/api/sessions/${sessionId}/whiteboard/annotate`,
       { method: 'POST', body: JSON.stringify({ participantId, annotating }) },
     ),
+
+  // ─── 3D Model Presentation ──────────────────────────────────────────────
+
+  /**
+   * Present (or stop presenting) a 3D model to the whole room — mirrors
+   * presentWhiteboard. Pass a modelId (from lib/models3d.ts) to start, or
+   * null to stop.
+   */
+  presentModel: (sessionId: string, participantId: string, modelId: string | null) =>
+    request<{ ok: boolean }>(`/api/sessions/${sessionId}/model/present`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId, modelId }),
+    }),
 
   askCatchup: (sessionId: string, participantId: string, text: string) =>
     request<CatchupReply>(`/api/sessions/${sessionId}/catchup`, {

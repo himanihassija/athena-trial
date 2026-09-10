@@ -117,4 +117,20 @@ export const config = {
 
   /** Ceiling on one end-to-end illustrate request, tool round trips included. */
   illustrationTimeoutMs: Number(process.env.ILLUSTRATION_TIMEOUT_MS ?? 20_000),
+
+  /**
+   * Anam AI real-time avatar — a silent, muted video overlay for Athena.
+   *
+   * Voice stays entirely on Agora ConvoAI (STT/LLM/TTS, as above); Anam only
+   * renders a lip-flapping loop, nudged by `talk()` when Agora reports Athena
+   * is actually speaking (see agent/anam.ts). It never owns audio: the
+   * client mutes Anam's video element and passes `disableInputAudio: true`
+   * so it never opens the mic either.
+   *
+   * Optional, and dormant if unset: `anamConfigured()` gates the feature, so
+   * a deployment without it still runs — Athena just stays on the existing
+   * Lottie loop. Same graceful-fallback posture as WHITEBOARD_* above.
+   */
+  anamApiKey: process.env.ANAM_API_KEY ?? '',
+  anamPersonaId: process.env.ANAM_PERSONA_ID ?? '',
 } as const;

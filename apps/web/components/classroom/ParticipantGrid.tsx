@@ -3,8 +3,8 @@
 import { useMemo } from 'react';
 import type { PublicParticipant } from '@echosphere/shared-types';
 import { seatColorVar } from '@/lib/seatColor';
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import { initialsOf } from '@/components/classroom/panels';
+import { useAnamAvatar } from '@/hooks/useAnamAvatar';
 
 interface Tile {
   key: string;
@@ -19,50 +19,8 @@ interface Tile {
   agentPresent?: boolean;
 }
 
-/**
- * Athena's avatar visual. Which one shows is decided entirely by the
- * `introPlayed` prop from the parent page — this component holds no state of
- * its own, because it gets unmounted/remounted every time the stage switches
- * to the whiteboard or a screen share and back (see page.tsx's conditional
- * render). Tracking "have I played the intro" locally meant every return to
- * this view looked like a fresh entrance and replayed the video. The parent
- * page only resets `introPlayed` to false at the moment "Bring Athena in" is
- * actually clicked, so it now plays exactly once per real entrance.
- */
-function AthenaAvatarVisual({
-  introPlayed,
-  onIntroEnd,
-}: {
-  introPlayed: boolean;
-  onIntroEnd: () => void;
-}) {
-  if (!introPlayed) {
-    return (
-      <video
-        key="intro"
-        autoPlay
-        playsInline
-        onEnded={onIntroEnd}
-        onError={onIntroEnd}
-        className="h-full w-full object-cover"
-      >
-        <source src="/athena-intro.mp4" type="video/mp4" />
-      </video>
-    );
-  }
-
-  return (
-    <DotLottieReact
-      key="loop"
-      src="/athena-avatar.lottie"
-      loop
-      autoplay
-      className="h-full w-full"
-    />
-  );
-}
-
 export function ParticipantGrid({
+  sessionId,
   participants,
   agentPresent,
   agentUid,
@@ -70,9 +28,9 @@ export function ParticipantGrid({
   selfUid,
   selfMicEnabled,
   raisedHands = [],
-  introPlayed = true,
-  onIntroEnd,
 }: {
+  /** Needed to mint Anam session tokens — see hooks/useAnamAvatar.ts. */
+  sessionId: string;
   participants: PublicParticipant[];
   agentPresent: boolean;
   agentUid?: string;
@@ -81,10 +39,6 @@ export function ParticipantGrid({
   selfMicEnabled: boolean;
   /** participantIds with a raised hand, from useClassroom's `raisedHands`. */
   raisedHands?: string[];
-  /** Whether the one-time entrance intro has already played this session. */
-  introPlayed?: boolean;
-  /** Called when the intro video finishes (or fails to load). */
-  onIntroEnd?: () => void;
 }) {
   const teacher = participants.find((p) => p.role === 'teacher');
   const students = participants.filter((p) => p.role === 'student');
@@ -143,6 +97,16 @@ export function ParticipantGrid({
 
   const rows = Math.max(1, Math.ceil(tiles.length / columns));
 
+  // Anam's silent, muted video overlay for Athena. Voice stays entirely on
+  // Agora ConvoAI (see ClassroomAudio.tsx) — Anam only ever supplies a
+  // lip-flapping loop, nudged by Agora's real speaking state, not a
+  // word-accurate lip sync. See hooks/useAnamAvatar.ts / lib/anam.ts.
+  const { status: anamStatus, videoElementId } = useAnamAvatar(
+    sessionId,
+    agentPresent,
+    tiles.find((t) => t.isAgent)?.speaking ?? false,
+  );
+
   return (
     <div
       className="grid flex-1 gap-3"
@@ -151,102 +115,173 @@ export function ParticipantGrid({
         gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
       }}
     >
-      {tiles.map((tile) => (
-        <div
-          key={tile.key}
-          className="eco-panel relative flex flex-col items-center justify-center gap-3 p-4"
-        >
-          {tile.handRaised && (
-            <span
-              className="eco-pulse absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border"
-              style={{
-                borderColor: 'var(--eco-amber)',
-                background: 'var(--eco-amber-dim)',
-                color: 'var(--eco-amber)',
-              }}
-              aria-label={`${tile.name} raised their hand`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11m0 0V4.5a1.5 1.5 0 0 1 3 0V11m0 0V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6v-2a1.5 1.5 0 0 1 3 0"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-          )}
+      {tiles.map((tile) => {
+        // Athena, once her video is actually live, gets a completely
+        // different tile treatment: full-bleed video filling the whole
+        // card (like a real video-call tile), with her name as a small
+        // overlay label — not the small circle-avatar + name-below layout
+        // every other tile uses. Only this one case changes the outer
+        // card's padding/layout; everything else below is untouched.
+        const isLiveVideoTile = tile.isAgent && anamStatus === 'connected';
 
-          {tile.isAgent ? (
-            tile.agentPresent ? (
-              <span className="relative h-72 w-72 overflow-hidden rounded-full">
-                <AthenaAvatarVisual
-                  introPlayed={introPlayed}
-                  onIntroEnd={() => onIntroEnd?.()}
-                />
+        return (
+          <div
+            key={tile.key}
+              className={
+              isLiveVideoTile
+                ? 'eco-panel relative flex flex-col overflow-hidden p-0'
+                : 'eco-panel relative flex flex-col items-center justify-center gap-3 p-4 transition-shadow'
+            }
+            style={
+              !isLiveVideoTile && !tile.isAgent && tile.speaking
+                ? { boxShadow: `0 0 0 3px ${tile.color}` }
+                : undefined
+            }
+          >
+            {tile.handRaised && (
+              <span
+                className="eco-pulse absolute left-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border"
+                style={{
+                  borderColor: 'var(--eco-amber)',
+                  background: 'var(--eco-amber-dim)',
+                  color: 'var(--eco-amber)',
+                }}
+                aria-label={`${tile.name} raised their hand`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11m0 0V4.5a1.5 1.5 0 0 1 3 0V11m0 0V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6v-2a1.5 1.5 0 0 1 3 0"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </span>
+            )}
+
+            {tile.isAgent ? (
+              isLiveVideoTile ? (
+                // Full-bleed: video fills the entire card. The name label
+                // moves to an overlay pill at the bottom, video-call style.
+                <>
+                  <video
+                    id={videoElementId}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                  <div
+                    className="absolute bottom-3 left-3 z-10 rounded-full px-3 py-1 text-xs font-medium backdrop-blur-sm"
+                    style={{
+                      background: 'color-mix(in srgb, var(--eco-ink) 55%, transparent)',
+                      color: 'var(--eco-cream)',
+                    }}
+                  >
+                    Athena · AI teacher
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Always mounted the moment Athena is present — Anam's
+                      SDK needs this element to exist in the DOM *before* it
+                      can attach the stream to it, even while it's still
+                      invisible during 'connecting'. */}
+                  {tile.agentPresent && (
+                    <video
+                      id={videoElementId}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-0"
+                    />
+                  )}
+
+                  {tile.agentPresent && anamStatus === 'connecting' ? (
+                    <span
+                      className="eco-avatar-speaking relative flex h-16 w-16 items-center justify-center rounded-full text-lg font-semibold"
+                      style={{ background: 'var(--eco-ink-sunken)', color: 'var(--eco-athena)' }}
+                    >
+                      A
+                    </span>
+                  ) : (
+                    // Fallback: Anam not configured on this deployment, or
+                    // its connection errored out. Always the calm idle orb
+                    // — no speaking-glow state, since the live video (once
+                    // connected) is what conveys that instead.
+                    <span
+                      className={`relative flex h-16 w-16 items-center justify-center rounded-full text-lg font-semibold ${
+                        tile.agentPresent ? 'eco-orb-idle' : ''
+                      }`}
+                      style={{
+                        background: tile.agentPresent
+                          ? 'radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--eco-athena) 55%, transparent), transparent 70%), var(--eco-ink-sunken)'
+                          : 'var(--eco-ink-sunken)',
+                        color: 'var(--eco-athena)',
+                        boxShadow: tile.agentPresent
+                          ? '0 0 14px 1px color-mix(in srgb, var(--eco-athena) 35%, transparent)'
+                          : 'none',
+                      }}
+                    >
+                      A
+                    </span>
+                  )}
+                </>
+              )
             ) : (
               <span
-                className="relative flex h-16 w-16 items-center justify-center rounded-full text-lg font-semibold"
-                style={{
-                  background: 'var(--eco-ink-sunken)',
-                  color: 'var(--eco-athena)',
-                }}
+                className={`relative flex h-16 w-16 items-center justify-center rounded-full ${
+                  tile.speaking ? 'eco-avatar-speaking' : ''
+                }`}
+                style={{ background: tile.color, color: tile.color }}
               >
-                A
+                <span className="text-lg font-semibold" style={{ color: 'var(--eco-ink)' }}>
+                  {initialsOf(tile.name)}
+                </span>
               </span>
-            )
-          ) : (
-            <span
-              className={`relative flex h-16 w-16 items-center justify-center rounded-full ${
-                tile.speaking ? 'eco-avatar-speaking' : ''
-              }`}
-              style={{ background: tile.color, color: tile.color }}
-            >
-              <span className="text-lg font-semibold" style={{ color: 'var(--eco-ink)' }}>
-                {initialsOf(tile.name)}
-              </span>
-            </span>
-          )}
+            )}
 
-          <div className="flex flex-col items-center gap-0.5 text-center">
-            <span className="max-w-[8rem] truncate text-sm text-[var(--eco-cream)]">
-              {tile.name}
-              {tile.isSelf ? ' (you)' : ''}
-            </span>
-            <span className="text-xs text-[var(--eco-cream-faint)]">
-              {tile.isAgent
-                ? tile.agentPresent
-                  ? 'AI teacher'
-                  : 'Not started'
-                : tile.role}
-            </span>
+            {!isLiveVideoTile && (
+              <div className="flex flex-col items-center gap-0.5 text-center">
+                <span className="max-w-[8rem] truncate text-sm text-[var(--eco-cream)]">
+                  {tile.name}
+                  {tile.isSelf ? ' (you)' : ''}
+                </span>
+                <span className="text-xs text-[var(--eco-cream-faint)]">
+                  {tile.isAgent
+                    ? tile.agentPresent
+                      ? 'AI teacher'
+                      : 'Not started'
+                    : tile.role}
+                </span>
+              </div>
+            )}
+
+            {tile.isSelf && (
+              <span
+                className="absolute right-3 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full border text-[0.65rem]"
+                style={
+                  selfMicEnabled
+                    ? {
+                        borderColor: 'var(--eco-glow)',
+                        background: 'var(--eco-glow-dim)',
+                        color: 'var(--eco-glow-bright)',
+                      }
+                    : {
+                        borderColor: 'var(--eco-rule)',
+                        color: 'var(--eco-cream-faint)',
+                      }
+                }
+                aria-label={selfMicEnabled ? 'Your mic is on' : 'Your mic is off'}
+                title={selfMicEnabled ? 'Mic on' : 'Mic off'}
+              >
+                {selfMicEnabled ? '●' : '○'}
+              </span>
+            )}
           </div>
-
-          {tile.isSelf && (
-            <span
-              className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border text-[0.65rem]"
-              style={
-                selfMicEnabled
-                  ? {
-                      borderColor: 'var(--eco-glow)',
-                      background: 'var(--eco-glow-dim)',
-                      color: 'var(--eco-glow-bright)',
-                    }
-                  : {
-                      borderColor: 'var(--eco-rule)',
-                      color: 'var(--eco-cream-faint)',
-                    }
-              }
-              aria-label={selfMicEnabled ? 'Your mic is on' : 'Your mic is off'}
-              title={selfMicEnabled ? 'Mic on' : 'Mic off'}
-            >
-              {selfMicEnabled ? '●' : '○'}
-            </span>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

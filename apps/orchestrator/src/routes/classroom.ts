@@ -78,6 +78,8 @@ import {
   type ClassroomSession,
 } from '../state/sessionRegistry.js';
 import { mintTokens } from './tokens.js';
+import { anamConfigured, mintAnamSessionToken } from '../agent/anam.js';
+import { presentModel, stopModel } from '../models/modelSession.js';
 import { config } from '../config.js';
 import {
   UNLIKE_FRACTIONS_TITLE,
@@ -268,7 +270,35 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!session) return;
     await stopAgent(session.sessionId);
     session.agentId = null;
+    publish(session.sessionId, { kind: 'echosphere:room-state', state: roomState(session) });
     return reply.send({ ok: true });
+  });
+
+  // ── Anam avatar (silent video overlay) ────────────────────────────────────
+  //
+  // Any participant may fetch a token — it only drives what they see on
+  // their own screen, not the shared session state, so this doesn't need the
+  // teacher-only guard that agent/start has.
+  app.post('/api/sessions/:sessionId/anam-token', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+
+    if (!anamConfigured()) {
+      return reply
+        .code(501)
+        .send({ error: 'Anam is not configured on this deployment' });
+    }
+
+    try {
+      const sessionToken = await mintAnamSessionToken();
+      return reply.send({ sessionToken });
+    } catch (error) {
+      request.log.error({ err: error }, 'Failed to mint Anam session token');
+      return reply.code(502).send({
+        error:
+          error instanceof Error ? error.message : 'Failed to mint Anam session token',
+      });
+    }
   });
 
   app.get('/api/sessions/:sessionId/agent', async (request, reply) => {
@@ -277,6 +307,28 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send((await agentStatus(session.sessionId)) ?? { agentId: null, status: 'idle' });
   });
 
+    // ── 3D model presentation ──────────────────────────────────────────────────
+
+  app.post('/api/sessions/:sessionId/model/present', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId, modelId } = z
+      .object({ participantId: z.string(), modelId: z.string().nullable() })
+      .parse(request.body);
+
+    if (!isTeacher(session, participantId)) {
+      return reply.code(403).send({ error: 'Only the teacher can present a 3D model' });
+    }
+    const participant = session.participants.get(participantId);
+    if (!participant) return reply.code(403).send({ error: 'Unknown participant' });
+
+    if (modelId) {
+      presentModel(session, participantId, participant.displayName, modelId);
+    } else {
+      stopModel(session, participantId);
+    }
+    return reply.send({ ok: true, activeModel: session.activeModel });
+  });
   app.post('/api/sessions/:sessionId/whiteboard/present', async (request, reply) => {
     const session = requireSession(request, reply);
     if (!session) return;
@@ -1128,6 +1180,7 @@ function roomState(session: ClassroomSession): RoomState {
     whiteboard: publicWhiteboard(session),
     screenShareAllowed: Array.from(session.screenShareAllowed),
     activeScreenShare: session.activeScreenShare,
+    activeModel: session.activeModel,
   };
 }
 
