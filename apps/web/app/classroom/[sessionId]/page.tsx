@@ -473,7 +473,7 @@ export default function ClassroomPage() {
                     />
                   </div>
                 ) : view.activeModel ? (
-                  <Model3DStage modelId={view.activeModel} />
+                  <Model3DStage modelId={view.activeModel.modelId} />
                 ) : (
                   <ParticipantGrid
                     sessionId={sessionId}
