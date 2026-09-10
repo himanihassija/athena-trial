@@ -11,6 +11,7 @@
  */
 
 import type {
+  Participant,
   ProficiencyTag,
   QuizQuestion,
   SpeakDenialReason,
@@ -56,12 +57,14 @@ import {
   quizDirective,
 } from './agent/prompt.js';
 import {
+  QUIZ_DURATION_MS,
   allTargetsAnswered,
   answersFor,
   broadcastQuiz,
   markQuizClosed,
   normaliseAnswer,
   openQuizFor,
+  optionIndicesMentioned,
   recordAnswer,
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
@@ -105,6 +108,13 @@ const DUPLICATE_WINDOW_MS = 4000;
 const PENDING_QUIZ_TTL_MS = 30_000;
 
 /**
+ * Slack allowed when the expiry sweep checks whether a quiz's deadline has
+ * really passed. setTimeout can fire a few milliseconds early, and without this
+ * an on-time sweep would see a positive remainder and re-arm itself forever.
+ */
+const SWEEP_TOLERANCE_MS = 250;
+
+/**
  * The single gate for agent speech. Everything that wants the agent to talk
  * calls this; nothing calls `decideSpeak` directly.
  */
@@ -113,9 +123,15 @@ export function requestFloor(
   trigger: SpeakTrigger,
   topic?: string,
 ): boolean {
+  const lastInterjection =
+    topic === undefined
+      ? undefined
+      : session.lastInterjectionByTopic.get(topic.toLowerCase());
   const decision = decideSpeak(session.floor, session.policy, trigger, {
     hasUnaddressedGap: pendingClassWideGap(session) !== undefined,
     topic,
+    msSinceTopicInterjection:
+      lastInterjection === undefined ? undefined : Date.now() - lastInterjection,
     now: Date.now(),
   });
 
@@ -474,9 +490,43 @@ export function releaseFloor(session: ClassroomSession): void {
   ) {
     return;
   }
+  const wasSpeakingSince =
+    session.floor.state === 'AGENT_SPEAKING' ? session.floor.since : null;
   session.floor = onAgentSpeechEnd(session.floor, Date.now());
   session.activeQuestionerId = null;
   broadcastFloor(session);
+  if (wasSpeakingSince !== null) startQuizCountdowns(session, wasSpeakingSince);
+}
+
+/**
+ * Starts the answer window for any quiz she issued during the turn that just
+ * ended.
+ *
+ * A quiz's deadline is set when its control payload is parsed, which is when
+ * her *text* arrives — but her voice is still reading the four options aloud
+ * for several seconds after that. So the countdown the student sees had already
+ * been running while they were still being told what the options were, and a
+ * 15-second window could be most of the way gone before anyone could answer.
+ * The card's own doc comment claimed the window started "after she has finished
+ * asking"; this is what makes that true.
+ *
+ * Only quizzes nobody has answered yet are moved: if a student got in early,
+ * their window was evidently long enough and extending it would hold the class
+ * on a question that is already done.
+ */
+function startQuizCountdowns(session: ClassroomSession, turnStartedAt: number): void {
+  const now = Date.now();
+  for (const quiz of session.quizzes.values()) {
+    if (quiz.closedAt) continue;
+    if (quiz.createdAt < turnStartedAt) continue;
+    if (session.answers.some((a) => a.quizId === quiz.quizId)) continue;
+    if (quiz.deadline >= now + QUIZ_DURATION_MS) continue;
+    quiz.deadline = now + QUIZ_DURATION_MS;
+    // Re-broadcast so the ring on the student's card restarts against the
+    // deadline the server is actually holding it to.
+    broadcastQuiz(session, quiz);
+    scheduleQuizClose(session, quiz.quizId, quiz.deadline);
+  }
 }
 
 // ─── Transcript ingestion (§3.4, §3.8, §3.9) ─────────────────────────────────
@@ -628,6 +678,12 @@ export async function ingestTranscript(
   const participant = participantByUid(session, uid);
   if (!participant) return; // Unknown uid — not a registered classroom member.
 
+  // Whether the agent was mid-utterance when this segment arrived, captured
+  // before the transition below overwrites it: a student's own speech moves the
+  // floor to OPEN_FLOOR unconditionally, so by the time the echo check runs
+  // there is no longer any record that her audio was still playing.
+  const agentWasSpeaking = session.floor.state === 'AGENT_SPEAKING';
+
   // Floor transition first, so a teacher's barge-in cuts the agent off before
   // any of the slower analysis below runs.
   if (participant.role === 'teacher') {
@@ -675,6 +731,14 @@ export async function ingestTranscript(
   // herself.
   const spokenText = stripSelfEcho(session, text);
   if (spokenText.length === 0) {
+    // Except when the discarded turn was somebody answering the quiz. Athena
+    // reads all four options aloud, so "Option B" is a literal substring of her
+    // own sentence and the echo filter — correctly, by its own rules — threw
+    // away the exact phrasing she just told the class to answer with. Between
+    // that and the 15-second deadline there was a five-second slot in which a
+    // spoken answer could count at all, which is why answering out loud looked
+    // like it did nothing.
+    maybeRescueSpokenQuizAnswer(session, participant, text, agentWasSpeaking);
     broadcastFloor(session);
     return;
   }
@@ -1220,16 +1284,34 @@ export function applyControl(
   return {};
 }
 
-/** Arms the countdown-expiry sweep for a freshly issued quiz. */
-function scheduleQuizClose(
+/**
+ * Arms the countdown-expiry sweep for a freshly issued quiz.
+ *
+ * The timer re-checks the deadline when it fires rather than closing outright,
+ * because a quiz's deadline can be pushed out after its timer was armed — see
+ * `startQuizCountdowns`. Without the re-check, the sweep armed against the
+ * deadline set while she was still reading the options would close the question
+ * the moment the students' window actually opened.
+ *
+ * `sweepExpiredQuiz` itself stays an unconditional close, which is what the
+ * teacher-facing paths and the quiz-set machinery expect of it.
+ */
+export function scheduleQuizClose(
   session: ClassroomSession,
   quizId: string,
   deadline: number,
 ): void {
-  setTimeout(
-    () => sweepExpiredQuiz(session, quizId),
-    Math.max(0, deadline - Date.now()),
-  );
+  setTimeout(() => {
+    const quiz = session.quizzes.get(quizId);
+    if (!quiz || quiz.closedAt) return;
+    // Timers can fire a shade early; the tolerance stops an on-time firing from
+    // re-arming itself in a tight loop.
+    if (quiz.deadline - Date.now() > SWEEP_TOLERANCE_MS) {
+      scheduleQuizClose(session, quizId, quiz.deadline);
+      return;
+    }
+    sweepExpiredQuiz(session, quizId);
+  }, Math.max(0, deadline - Date.now()));
 }
 
 /**
@@ -1277,6 +1359,43 @@ function takePendingQuiz(session: ClassroomSession) {
 }
 
 /**
+ * Scores a quiz answer out of a turn the self-echo filter discarded.
+ *
+ * Narrow on purpose. The turn stays out of the transcript and out of the gap
+ * detector — if it really was Athena's voice coming back through a mic, none of
+ * that should change — and the only thing rescued is the answer itself.
+ *
+ * The discriminator is how many options the utterance names. Athena says all
+ * four in one breath when she asks the question; a student says one. So an
+ * utterance naming exactly one option, arriving when she is not currently
+ * speaking, is a student answering, and an utterance naming several is her list
+ * echoing back and is left alone.
+ */
+function maybeRescueSpokenQuizAnswer(
+  session: ClassroomSession,
+  participant: Participant,
+  rawText: string,
+  agentWasSpeaking: boolean,
+): void {
+  if (participant.role !== 'student') return;
+  // While her audio is still playing, an echo is the far likelier explanation,
+  // and the answer window has not started yet anyway — see startQuizCountdowns.
+  // This must be the state as it was when the segment arrived: `session.floor`
+  // has already been moved to OPEN_FLOOR by this very segment.
+  if (agentWasSpeaking) return;
+
+  const quiz = openQuizFor(session, participant.participantId);
+  if (!quiz?.options || quiz.options.length === 0) return;
+
+  if (optionIndicesMentioned(rawText, quiz).size !== 1) return;
+
+  const resolved = normaliseAnswer(rawText, quiz);
+  if (!quiz.options.includes(resolved)) return;
+
+  submitQuizAnswer(session, quiz.quizId, participant.participantId, resolved, 'voice');
+}
+
+/**
  * Scores a spoken quiz answer (§3.6).
  *
  * Only counts when the utterance resolves to an actual option — otherwise every
@@ -1311,6 +1430,11 @@ export async function considerSilenceInterjection(
 
   if (!requestFloor(session, 'GAP_DETECTED_IN_SILENCE', gap.topic)) return false;
 
+  // Stamped before the turn rather than after it, so the cooldown covers the
+  // turn itself. `think` resolves when the request is accepted, not when she
+  // has finished talking, and the tick runs every second — stamping afterwards
+  // would leave the whole of her answer inside the eligible window.
+  session.lastInterjectionByTopic.set(gap.topic.toLowerCase(), Date.now());
   markGapAddressed(session, gap.gapId);
   const ok = await think(
     session.sessionId,
@@ -1675,20 +1799,39 @@ export function submitQuizAnswer(
   const result = recordAnswer(session, quizId, participantId, answer, via);
   if ('error' in result) return { ok: false, detail: result.error };
 
+  // Whether the answer actually landed on one of the four options, as opposed
+  // to being the blank the expiry sweep submits for someone who never answered.
+  // Open-response questions have no options and are always treated as a real
+  // attempt, which is what they were before this distinction existed.
+  const options = result.quiz.options;
+  const attempted =
+    options === undefined ||
+    options.length === 0 ||
+    options.includes(result.answer.answer);
+
   publishTo(session.sessionId, participantId, {
     kind: 'echosphere:quiz-result',
     quizId,
     participantId,
     correct: result.answer.correct,
+    // Only when it resolved to an option — the card highlights it, and there is
+    // nothing to highlight for a blank.
+    ...(attempted && result.answer.answer ? { answer: result.answer.answer } : {}),
   });
   publishToTeachers(session.sessionId, {
     kind: 'echosphere:quiz-result',
     quizId,
     participantId,
     correct: result.answer.correct,
+    ...(attempted && result.answer.answer ? { answer: result.answer.answer } : {}),
   });
 
-  if (!result.answer.correct) {
+  // A non-answer still counts against the student's mastery stats above, but it
+  // is not evidence of a misconception and must not build a learning gap.
+  // Every quiz that timed out used to manufacture one — enough of them at once
+  // to cross the class-wide threshold — which sent Athena off to explain a
+  // topic nobody had actually got wrong, and did it again after the next one.
+  if (!result.answer.correct && attempted) {
     recordWrongAnswer(session, result.quiz, participantId, result.answer.answer);
   }
 

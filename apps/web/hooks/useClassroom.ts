@@ -271,7 +271,15 @@ export function useClassroom(
       case 'echosphere:quiz-issued':
         setQuizzes((prev) =>
           prev.some((q) => q.quiz.quizId === event.quiz.quizId)
-            ? prev
+            ? // Re-issued rather than new: the server pushed the deadline out
+              // once the agent finished reading the options aloud, so the
+              // countdown restarts against the window it is really holding us
+              // to. Everything already on the card is kept.
+              prev.map((q) =>
+                q.quiz.quizId === event.quiz.quizId
+                  ? { ...q, quiz: { ...q.quiz, deadline: event.quiz.deadline } }
+                  : q,
+              )
             : [...prev, { quiz: event.quiz, results: {} }],
         );
         break;
@@ -290,15 +298,20 @@ export function useClassroom(
         setQuizzes((prev) =>
           prev.map((q) => {
             if (q.quiz.quizId !== event.quizId) return q;
+            const mine = event.participantId === participantId;
             return {
               ...q,
               results: { ...q.results, [event.participantId]: event.correct },
-              myResult:
-                event.participantId === participantId
-                  ? event.correct
-                    ? 'correct'
-                    : 'incorrect'
-                  : q.myResult,
+              myResult: mine
+                ? event.correct
+                  ? 'correct'
+                  : 'incorrect'
+                : q.myResult,
+              // An answer spoken out loud is scored on the server, so this is
+              // the only way it ever reaches the card. Without it a student who
+              // said the right answer saw nothing of theirs marked and then
+              // watched the correct option light up on its own.
+              myAnswer: mine && event.answer !== undefined ? event.answer : q.myAnswer,
             };
           }),
         );

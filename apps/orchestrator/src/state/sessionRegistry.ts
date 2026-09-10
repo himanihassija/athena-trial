@@ -229,6 +229,13 @@ export interface ClassroomSession {
   answers: QuizAnswer[];
   gaps: Map<string, LearningGap>;
 
+  /**
+   * When the agent last interjected unprompted about a given topic, keyed by
+   * lowercased topic. Read by `requestFloor` to enforce
+   * `topicInterjectionCooldownMs`; see that field for why it is needed.
+   */
+  lastInterjectionByTopic: Map<string, number>;
+
   lesson: LessonStore;
   suppressedInterventions: Array<{ timestamp: number; text: string; reason: string; score: number }>;
   restraintMeterState: 'listening' | 'ready' | 'held-back' | 'speaking';
@@ -318,6 +325,7 @@ export function createSession(
     quizzes: new Map(),
     answers: [],
     gaps: new Map(),
+    lastInterjectionByTopic: new Map(),
     lesson: createLessonStore(sessionId),
     suppressedInterventions: [],
     restraintMeterState: 'listening',

@@ -630,6 +630,7 @@ const DENIAL_LABEL: Record<string, string> = {
   AGENT_ALREADY_SPEAKING: 'blocked — already speaking',
   TOPIC_DISABLED: 'blocked — topic disabled',
   SILENCE_GAP_TOO_SHORT: 'blocked — no natural pause yet',
+  TOPIC_RECENTLY_ADDRESSED: 'held back — she just covered this',
   NO_SESSION: 'blocked — session not found',
 };
 

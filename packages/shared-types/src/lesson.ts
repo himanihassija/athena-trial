@@ -54,6 +54,21 @@ export interface TranscriptSegment {
 
 export type QuizDifficulty = 'easy' | 'medium' | 'hard';
 
+/**
+ * How long a question accepts answers, once its countdown actually starts.
+ *
+ * The value is unchanged at 15s. What changed is when it starts: the deadline
+ * used to be set the moment the question text arrived, which is *before* the
+ * agent has finished reading the four options aloud, so a good part of the
+ * window was spent listening to the question. It now starts when she stops
+ * speaking — see `startQuizCountdowns` — which is what the student's card
+ * always claimed it did.
+ *
+ * The card does not read this constant; it measures each question's window from
+ * the deadline it is sent, so the two cannot drift.
+ */
+export const QUIZ_DURATION_MS = 15_000;
+
 export interface QuizQuestion {
   quizId: string;
   sessionId: string;
@@ -116,6 +131,16 @@ export interface GapEvidence {
   participantId: string;
   text: string;
   at: number;
+  /**
+   * True when this signal is the agent's own report on the control channel
+   * rather than something a student did.
+   *
+   * It matters because new evidence re-opens a gap the agent has already
+   * addressed, and the agent re-reports a gap in the very turn where she
+   * explains it — so without this flag her own explanation re-opened the gap
+   * and the silence tick had her explain it again, once a second, forever.
+   */
+  selfReported?: boolean;
 }
 
 export type GapSeverity = 'low' | 'medium' | 'high';

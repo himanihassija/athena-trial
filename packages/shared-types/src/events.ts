@@ -48,6 +48,17 @@ export type ClassroomEvent =
       quizId: string;
       participantId: string;
       correct: boolean;
+      /**
+       * The option the answer resolved to, so a spoken answer shows up on the
+       * card as the chosen one. Without it the overlay only ever highlighted a
+       * tap, and a student who said the right answer out loud watched the card
+       * reveal the correct option with nothing of theirs marked — which reads
+       * as the quiz having picked an option by itself.
+       *
+       * Absent when the answer resolved to nothing (a blank auto-submitted at
+       * expiry), because there is no option to highlight.
+       */
+      answer?: string;
     }
   /** Teacher-only: a new or updated learning gap. */
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }

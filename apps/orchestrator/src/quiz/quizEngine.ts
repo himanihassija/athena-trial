@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  QUIZ_DURATION_MS,
   toPublicQuiz,
   type ProficiencyTag,
   type QuizAnswer,
@@ -33,11 +34,14 @@ const LETTERS = ['A', 'B', 'C', 'D'];
 const NUMBER_WORDS = ['one', 'two', 'three', 'four'];
 
 /**
- * How long a question accepts answers before it auto-closes. Starts when the
- * card is broadcast — which is after the agent has finished asking it aloud —
- * so students get the full window to answer, not a slice of it.
+ * How long a question accepts answers before it auto-closes.
+ *
+ * Re-exported from shared-types so the student's card and the server hold the
+ * same number; see `QUIZ_DURATION_MS` there. The window is started for real by
+ * `startQuizCountdowns` when the agent stops speaking, so it is not spent
+ * listening to the options being read out.
  */
-export const QUIZ_DURATION_MS = 15_000;
+export { QUIZ_DURATION_MS };
 
 /**
  * Turns a control-channel quiz payload into a recorded question.
@@ -245,6 +249,43 @@ export function normaliseAnswer(raw: string, quiz: QuizQuestion): string {
   }
 
   return trimmed;
+}
+
+/**
+ * Which of a quiz's options an utterance refers to, by index.
+ *
+ * Used to tell a student answering from the agent reading the list out. She
+ * says every option in one breath, so her utterance names four; a student names
+ * one. `normaliseAnswer` cannot answer this — it returns the first match and is
+ * indifferent to how many there were.
+ *
+ * Matching deliberately mirrors `normaliseAnswer`, so an utterance this counts
+ * as naming exactly one option is one that resolves to that same option.
+ */
+export function optionIndicesMentioned(
+  raw: string,
+  quiz: QuizQuestion,
+): Set<number> {
+  const options = quiz.options ?? [];
+  const spoken = raw.trim().toLowerCase();
+  const found = new Set<number>();
+  if (options.length === 0 || spoken.length === 0) return found;
+
+  for (let i = 0; i < options.length; i += 1) {
+    const option = (options[i] ?? '').toLowerCase();
+    if (option.length > 0 && spoken.includes(option)) {
+      found.add(i);
+      continue;
+    }
+    const letter = (LETTERS[i] ?? '').toLowerCase();
+    if (
+      new RegExp(`\\b(option\\s+|answer\\s+)?${letter}\\b`).test(spoken) ||
+      new RegExp(`\\b(option\\s+|answer\\s+)?${NUMBER_WORDS[i]}\\b`).test(spoken)
+    ) {
+      found.add(i);
+    }
+  }
+  return found;
 }
 
 /**
