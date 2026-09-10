@@ -76,6 +76,7 @@ import {
   forgetIllustrations,
   generateIllustration,
   placeBeside,
+  type IllustrationContext,
 } from './board/boardAgent.js';
 import { parseVoiceBoardCommand } from './whiteboard/voice.js';
 import { recordHeldBackDoubt } from './workspace/workspaceManager.js';
@@ -986,6 +987,61 @@ export function releaseIllustrationState(sessionId: string): void {
 }
 
 /**
+ * How many recent lines of classroom speech the diagram model is shown.
+ *
+ * Enough to resolve what the topic phrase is pointing at, and no more. Every
+ * line here is spent from the same per-minute token budget the rest of the
+ * lesson draws on, and a transcript long enough to bury the topic makes the
+ * diagram worse, not better.
+ */
+const ILLUSTRATION_TRANSCRIPT_LINES = 12;
+
+/** Longest a single quoted line may be before it is cut. */
+const ILLUSTRATION_LINE_CHARS = 220;
+
+/**
+ * Assembles what the lesson can tell the diagram model about the topic.
+ *
+ * The board agent used to be handed `Topic: <phrase>` and nothing else, which
+ * is not enough to draw from: "flow of synthesis" does not say whether the
+ * subject is photosynthesis, protein synthesis or an organic prep, and asked to
+ * draw it anyway the model restates the phrase it was given. Everything here is
+ * already in memory — no extra network call, and `retrieveSync` is synchronous
+ * by design — so this costs a few hundred prompt tokens and nothing else.
+ */
+function illustrationContext(
+  session: ClassroomSession,
+  topic: string,
+): IllustrationContext {
+  const transcript = session.transcript
+    .slice(-ILLUSTRATION_TRANSCRIPT_LINES)
+    .map((segment) => {
+      const who =
+        segment.speaker === 'agent'
+          ? 'Athena'
+          : session.participants.get(segment.participantId ?? '')?.displayName ??
+            segment.speaker;
+      return `${who}: ${segment.text.slice(0, ILLUSTRATION_LINE_CHARS)}`;
+    });
+
+  // Ranked against the topic rather than the transcript: the teacher's uploaded
+  // material is the most authoritative statement of what this class means by a
+  // word, and the topic is the thing being drawn.
+  const material = session.lesson.isEmpty()
+    ? []
+    : session.lesson
+        .retrieveSync(topic, 2)
+        .map((hit) => hit.chunk.text.slice(0, 400));
+
+  return {
+    lessonTitle: session.title,
+    language: session.language,
+    transcript,
+    material,
+  };
+}
+
+/**
  * Draws a diagram and puts it on the board, without blocking the turn.
  *
  * Deliberately not awaited by `applyControl`. Generation is a model call plus
@@ -1002,12 +1058,41 @@ async function runIllustration(
   session: ClassroomSession,
   topic: string,
 ): Promise<void> {
-  const drawn = await generateIllustration(session.sessionId, topic);
-  if (drawn.length === 0) return;
+  const result = await generateIllustration(
+    session.sessionId,
+    topic,
+    illustrationContext(session, topic),
+  );
+
+  if (!result.ok) {
+    // One line, always, whether it worked or not. A diagram that never appears
+    // used to leave nothing behind but a bare `console.error` on some paths and
+    // silence on others, so there was no way to tell a model failure from an
+    // Excalidraw failure after the fact — which is exactly the question worth
+    // asking when only half of them are landing.
+    console.error(
+      `[illustrate] FAILED stage=${result.stage} ms=${result.ms} topic="${topic}" — ${result.detail}`,
+    );
+    if (session.endedAt === null) {
+      publish(session.sessionId, {
+        kind: 'echosphere:illustration-failed',
+        topic,
+        stage: result.stage,
+        detail: result.detail,
+        at: Date.now(),
+      });
+    }
+    return;
+  }
+
+  console.log(
+    `[illustrate] ok kind=${result.kind} elements=${result.elements.length} ms=${result.ms} topic="${topic}"`,
+  );
+
   // The session can end while Excalidraw is still drawing.
   if (session.endedAt !== null) return;
 
-  const elements = placeBeside(session.whiteboard.scene, drawn);
+  const elements = placeBeside(session.whiteboard.scene, result.elements);
   mergeSceneElements(session, elements);
 
   // A diagram nobody can see is not worth the round trip: if the board was

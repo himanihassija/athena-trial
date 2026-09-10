@@ -15,6 +15,17 @@ export interface ChatMessage {
 export interface CompleteOptions {
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Model to use instead of the primary provider's configured default.
+   *
+   * Applied to the FIRST provider only, never to the fallbacks. A model name
+   * belongs to the vendor that serves it — "qwen/qwen3.8-27b" means nothing to
+   * Anthropic — so pushing an override down the whole chain would turn one
+   * misconfigured value into a total outage instead of a single failed call.
+   * Scoped this way, a name the primary rejects simply falls through to the
+   * next provider on its own default, which is exactly today's behaviour.
+   */
+  model?: string;
 }
 
 interface OpenAiCompatibleProvider {
@@ -113,6 +124,81 @@ function resolveProviders(): Provider[] {
   }
 
   return providers;
+}
+
+/**
+ * How many times one rate-limited request is retried before giving up.
+ *
+ * Two, because the limit being worked around is a per-minute token budget that
+ * other calls in the same lesson are also drawing on: the first retry can lose
+ * a race with them, and a second is usually enough. More than that and the room
+ * is waiting on a picture for longer than the picture is worth.
+ */
+const RATE_LIMIT_RETRIES = 2;
+
+/**
+ * The longest a rate-limited request will wait before giving up on the answer.
+ *
+ * A classroom is the constraint, not the quota: a diagram that lands after the
+ * teacher has moved on is worse than no diagram, and this whole path is meant
+ * to fail soft. Eight seconds is what a per-minute token limit actually asks
+ * for at the top of its range — measured against the live key, requests were
+ * refused with waits from 75ms up to 5.79s — while still refusing outright the
+ * multi-minute waits a daily quota asks for.
+ *
+ * Safe to wait this long because every caller of `tryComplete` is a background
+ * task: a reading suggestion, a report, a diagram that is explicitly not
+ * awaited by the turn that asked for it. The live spoken conversation does not
+ * come through here at all — it runs on the model Agora resells.
+ */
+const RATE_LIMIT_MAX_WAIT_MS = 8_000;
+
+/**
+ * How long to wait before retrying a 429, or `null` if it should not be
+ * retried at all.
+ *
+ * Providers say how long to wait in two different places and neither is
+ * guaranteed: the standard `retry-after` header (in seconds), and — for Groq,
+ * which is what this deployment runs — only inside the error message, as
+ * "Please try again in 4.4925s" or "in 75ms". Both are read, the header first,
+ * and anything unparseable falls back to a short fixed pause rather than
+ * abandoning an answer over a missing header.
+ *
+ * Exported for the unit suite: every branch here is reachable only from a live
+ * 429, which is not something a test can conjure on demand.
+ */
+export function retryDelayMs(response: Response, body: string): number | null {
+  const header = response.headers.get('retry-after');
+  const fromHeader = header ? Number(header) * 1000 : Number.NaN;
+  if (Number.isFinite(fromHeader) && fromHeader >= 0) {
+    return fromHeader <= RATE_LIMIT_MAX_WAIT_MS ? Math.max(fromHeader, 50) : null;
+  }
+
+  // The duration is captured as a whole before its parts are read, so that the
+  // numbers further along the message — "Limit 8000, Used 7197" — cannot be
+  // mistaken for one. Groq writes short waits as "4.4925s" or "75ms" and long
+  // ones in compound form as "3m30s", and reading only the first component of
+  // that would turn a three-minute wait into a three-millisecond one.
+  const span = /try again in\s+((?:[\d.]+\s*(?:ms|h|m|s)\s*)+)/i.exec(body);
+  if (span?.[1]) {
+    const unitMs: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+    let total = 0;
+    let matched = false;
+    for (const part of span[1].matchAll(/([\d.]+)\s*(ms|h|m|s)/gi)) {
+      const value = Number(part[1]);
+      const unit = unitMs[part[2]?.toLowerCase() ?? ''];
+      if (!Number.isFinite(value) || unit === undefined) continue;
+      total += value * unit;
+      matched = true;
+    }
+    if (matched) {
+      return total <= RATE_LIMIT_MAX_WAIT_MS ? Math.max(total, 50) : null;
+    }
+  }
+
+  // A 429 with no usable hint. One short pause is worth trying; the retry
+  // ceiling stops this becoming an unbounded loop.
+  return 500;
 }
 
 /** Determines primary provider. */
@@ -236,19 +322,46 @@ async function executeProvider(
       ? reasoningHeadroom(requestedMax)
       : requestedMax;
 
-    const response = await fetch(provider.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...provider.headers,
-      },
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        temperature: options.temperature ?? 0.4,
-        max_tokens: maxTokens,
-      }),
-    });
+    const send = (): Promise<Response> =>
+      fetch(provider.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...provider.headers,
+        },
+        body: JSON.stringify({
+          model: provider.model,
+          messages,
+          temperature: options.temperature ?? 0.4,
+          max_tokens: maxTokens,
+        }),
+      });
+
+    let response = await send();
+
+    // A 429 here is very often a per-minute quota that has already almost
+    // cleared. Groq's free tier allows 8000 tokens a minute and a reasoning
+    // model reserves `reasoningHeadroom` of them per call, so a lesson that
+    // runs gap detection, a reading suggestion and a diagram close together
+    // trips the limit routinely — and measured against the real key, the wait
+    // it asks for is usually under a second. Without this, that answer is
+    // simply lost: the provider chain falls through, `tryComplete` returns
+    // null, and the caller degrades silently.
+    //
+    // Deliberately bounded. Waiting is only ever right for a limit that clears
+    // on its own, so a request for longer than `RATE_LIMIT_MAX_WAIT_MS` is
+    // treated as "not worth a lesson's time" and given up on immediately.
+    for (let attempt = 0; response.status === 429 && attempt < RATE_LIMIT_RETRIES; attempt += 1) {
+      const body = await response.text().catch(() => '');
+      const wait = retryDelayMs(response, body);
+      if (wait === null) {
+        console.error(`[llm] rate limited, not retryable: ${body.slice(0, 300)}`);
+        return null;
+      }
+      console.warn(`[llm] rate limited, retrying in ${wait}ms (attempt ${attempt + 1})`);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      response = await send();
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -278,9 +391,15 @@ export async function tryComplete(
   const providers = resolveProviders();
   if (providers.length === 0) return null;
 
-  for (const provider of providers) {
+  for (const [index, provider] of providers.entries()) {
+    // See `CompleteOptions.model`: the override belongs to the primary vendor
+    // and is not carried down the fallback chain.
+    const target =
+      index === 0 && options.model?.trim()
+        ? { ...provider, model: options.model.trim() }
+        : provider;
     try {
-      const result = await executeProvider(provider, messages, options);
+      const result = await executeProvider(target, messages, options);
       if (result && result.trim().length > 0) {
         return result;
       }

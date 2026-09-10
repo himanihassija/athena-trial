@@ -43,6 +43,23 @@ export interface QuizCardState {
   results: Record<string, boolean>;
 }
 
+/**
+ * A diagram Athena was asked for that never reached the board.
+ *
+ * Kept as its own list rather than folded into `blockedAttempts`, because the
+ * two mean opposite things: a blocked attempt is the floor rules working, and
+ * this is a feature failing. Surfacing it at all is the point — the spoken half
+ * of the turn still happens, so without a notice the only evidence is a board
+ * that stays empty.
+ */
+export interface IllustrationFailure {
+  /** Unique per entry, for React's list key. Same reasoning as BlockedAttempt. */
+  id: string;
+  topic: string;
+  stage: 'spec' | 'excalidraw' | 'empty';
+  at: number;
+}
+
 export interface BlockedAttempt {
   /**
    * Unique per entry, for React's list key. The timestamp and reason are not
@@ -81,6 +98,7 @@ export interface ClassroomView {
   quizzes: QuizCardState[];
   gaps: LearningGap[];
   blockedAttempts: BlockedAttempt[];
+  illustrationFailures: IllustrationFailure[];
   ended: boolean;
   connected: boolean;
   recordAnswer: (quizId: string, answer: string) => void;
@@ -129,6 +147,8 @@ export function useClassroom(
   const [blockedAttempts, setBlockedAttempts] = useState<BlockedAttempt[]>([]);
   // Distinguishes entries that share a timestamp and a reason.
   const blockedSeq = useRef(0);
+  const [illustrationFailures, setIllustrationFailures] = useState<IllustrationFailure[]>([]);
+  const illustrationSeq = useRef(0);
   const [ended, setEnded] = useState(false);
   const [connected, setConnected] = useState(false);
   const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
@@ -210,6 +230,15 @@ export function useClassroom(
         const id = `${event.at}-${event.reason}-${blockedSeq.current}`;
         setBlockedAttempts((prev) =>
           [...prev, { id, reason: event.reason, at: event.at }].slice(-12),
+        );
+        break;
+      }
+
+      case 'echosphere:illustration-failed': {
+        illustrationSeq.current += 1;
+        const id = `${event.at}-${event.stage}-${illustrationSeq.current}`;
+        setIllustrationFailures((prev) =>
+          [...prev, { id, topic: event.topic, stage: event.stage, at: event.at }].slice(-12),
         );
         break;
       }
@@ -605,6 +634,7 @@ export function useClassroom(
     quizzes,
     gaps,
     blockedAttempts,
+    illustrationFailures,
     ended,
     connected,
     recordAnswer,

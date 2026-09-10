@@ -34,6 +34,7 @@ import { TeacherControlPanel } from '@/components/classroom/TeacherControlPanel'
 import {
   AgentAbsentNotice,
   BlockedAttempts,
+  IllustrationFailures,
   FloorIndicator,
   GapPanel,
   QuizCards,
@@ -449,6 +450,7 @@ export default function TeacherDashboardPage() {
             language={lang}
           />
           <BlockedAttempts attempts={view.blockedAttempts} language={lang} />
+          <IllustrationFailures failures={view.illustrationFailures} language={lang} />
         </div>
       ),
     },

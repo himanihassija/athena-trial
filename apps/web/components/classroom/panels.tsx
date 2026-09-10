@@ -15,7 +15,11 @@ import type {
   TranscriptSegment,
   LanguageCode,
 } from '@echosphere/shared-types';
-import type { BlockedAttempt, QuizCardState } from '@/hooks/useClassroom';
+import type {
+  BlockedAttempt,
+  IllustrationFailure,
+  QuizCardState,
+} from '@/hooks/useClassroom';
 import { seatColorVar } from '@/lib/seatColor';
 import { t, type TranslationKey } from '@/lib/i18n';
 
@@ -628,6 +632,47 @@ const DENIAL_LABEL: Record<string, string> = {
   SILENCE_GAP_TOO_SHORT: 'blocked — no natural pause yet',
   NO_SESSION: 'blocked — session not found',
 };
+
+const DRAWING_STAGE_LABEL: Record<IllustrationFailure['stage'], TranslationKey> = {
+  spec: 'drawingFailedSpec',
+  excalidraw: 'drawingFailedExcalidraw',
+  empty: 'drawingFailedEmpty',
+};
+
+/**
+ * Diagrams that were asked for and never arrived.
+ *
+ * Deliberately shown to the teacher rather than logged only. Athena says the
+ * explanation out loud whether or not the picture lands, so a silent failure
+ * leaves the teacher watching an empty board with no way to tell that anything
+ * was attempted — and no way to tell a bad half from a broken half when only
+ * some of the requests are working.
+ */
+export function IllustrationFailures({
+  failures,
+  language = 'en',
+}: {
+  failures: IllustrationFailure[];
+  language?: LanguageCode;
+}) {
+  if (failures.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-1">
+      <h2 className="eco-label">{t('drawingFailed', language)}</h2>
+      <ul className="eco-numerals flex flex-col gap-0.5 text-xs text-[var(--eco-cream-dim)]">
+        {failures
+          .slice(-5)
+          .reverse()
+          .map((failure) => (
+            <li key={failure.id}>
+              {new Date(failure.at).toLocaleTimeString()} · &ldquo;{failure.topic}&rdquo; —{' '}
+              {t(DRAWING_STAGE_LABEL[failure.stage], language)}
+            </li>
+          ))}
+      </ul>
+    </section>
+  );
+}
 
 export function BlockedAttempts({
   attempts,

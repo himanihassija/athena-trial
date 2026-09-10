@@ -69,6 +69,23 @@ export type ClassroomEvent =
   | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
   /** A student answered every question in a quiz set correctly. Sent only to that student. */
   | { kind: 'echosphere:quiz-set-perfect'; topic: string }
+  /**
+   * Athena was asked to draw something and could not.
+   *
+   * Worth its own event because the spoken half of that turn still happened:
+   * she says "here's a diagram", the picture never lands, and without this the
+   * room is left looking at an empty board with nothing anywhere saying why.
+   * `stage` says how far the attempt got — `spec` is the model failing to
+   * decide what to draw, `excalidraw` is the drawing service refusing or timing
+   * out, `empty` is a scene that came back with nothing new on it.
+   */
+  | {
+      kind: 'echosphere:illustration-failed';
+      topic: string;
+      stage: 'spec' | 'excalidraw' | 'empty';
+      detail: string;
+      at: number;
+    }
   | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
   /** Someone began presenting the board, the way a screen share starts. */
   | { kind: 'echosphere:whiteboard-started'; presenter: ActiveWhiteboard }
