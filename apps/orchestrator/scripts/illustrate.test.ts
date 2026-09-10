@@ -26,10 +26,14 @@ import {
   wantsDrawing,
 } from './../src/agent/prompt.ts';
 import {
+  describeContext,
   findElements,
   parseDiagramSpec,
+  parseIllustrationPlan,
   placeBeside,
 } from './../src/board/boardAgent.ts';
+import { parseDrawingShapes, renderDrawing } from './../src/board/shapes.ts';
+import { retryDelayMs } from './../src/llm/complete.ts';
 import {
   isDuplicateIllustration,
   releaseIllustrationState,
@@ -374,4 +378,256 @@ t('nothing to place is not an error', () => {
   assert.deepEqual(placeBeside([box('t1', 0, 200)], []), []);
 });
 
-console.log(`\n${pass} passing`);
+/* ------------------------------------------------------------ plan kinds */
+
+/*
+ * The picture kind is chosen by the model, and the branch that renders it is
+ * the one that cannot be exercised live on demand — a topic that produced a
+ * drawing yesterday can produce a diagram today. These pin both branches, and
+ * more importantly pin the fallback: a drawing reply this build cannot render
+ * must degrade to the flowchart it would have produced before drawings
+ * existed, never to nothing.
+ */
+
+t('reads a drawing plan', () => {
+  const plan = parseIllustrationPlan(
+    JSON.stringify({
+      kind: 'drawing',
+      title: 'Three quarters',
+      shapes: [{ type: 'partitioned-circle', parts: 4, shaded: 3, caption: '3/4' }],
+    }),
+  );
+  assert.equal(plan?.kind, 'drawing');
+  assert.equal(plan?.kind === 'drawing' ? plan.shapes.length : 0, 1);
+});
+
+t('reads a diagram plan, with or without the kind field', () => {
+  assert.equal(parseIllustrationPlan(goodSpec)?.kind, 'diagram', 'an older reply has no kind');
+  assert.equal(
+    parseIllustrationPlan(JSON.stringify({ kind: 'diagram', ...JSON.parse(goodSpec) }))?.kind,
+    'diagram',
+  );
+});
+
+t('a drawing whose shapes are all unrecognised falls back to the diagram', () => {
+  // The safety property: an unknown shape name must never cost a picture that
+  // the previous build would have drawn.
+  const plan = parseIllustrationPlan(
+    JSON.stringify({
+      kind: 'drawing',
+      title: 'Water cycle',
+      shapes: [{ type: 'holographic-cube', parts: 4 }],
+      nodes: [{ id: 'a', label: 'Evaporation' }, { id: 'b', label: 'Condensation' }],
+      edges: [{ from: 'a', to: 'b' }],
+    }),
+  );
+  assert.equal(plan?.kind, 'diagram', 'must degrade to boxes, not to nothing');
+});
+
+t('a drawing with nothing usable at all is refused', () => {
+  assert.equal(
+    parseIllustrationPlan(JSON.stringify({ kind: 'drawing', shapes: [{ type: 'nope' }] })),
+    null,
+  );
+});
+
+/* -------------------------------------------------------- shape validation */
+
+t('refuses a fraction shading more parts than exist', () => {
+  // 5/4 of a circle is not a picture, it is a bug that would render as a full
+  // circle and quietly teach the wrong thing.
+  assert.equal(parseDrawingShapes([{ type: 'partitioned-circle', parts: 4, shaded: 5 }]).length, 0);
+  assert.equal(parseDrawingShapes([{ type: 'partitioned-circle', parts: 4, shaded: -1 }]).length, 0);
+});
+
+t('accepts a whole shaded and a none shaded', () => {
+  assert.equal(parseDrawingShapes([{ type: 'partitioned-bar', parts: 4, shaded: 4 }]).length, 1);
+  assert.equal(parseDrawingShapes([{ type: 'partitioned-bar', parts: 4, shaded: 0 }]).length, 1);
+});
+
+t('refuses a partition into fewer than two parts', () => {
+  assert.equal(parseDrawingShapes([{ type: 'partitioned-circle', parts: 1, shaded: 1 }]).length, 0);
+});
+
+t('refuses a bar chart with a single bar and a number line that runs backwards', () => {
+  assert.equal(parseDrawingShapes([{ type: 'bar-chart', bars: [{ label: 'a', value: 1 }] }]).length, 0);
+  assert.equal(parseDrawingShapes([{ type: 'number-line', from: 5, to: 1 }]).length, 0);
+});
+
+t('caps a drawing at four shapes', () => {
+  const many = Array.from({ length: 9 }, () => ({ type: 'partitioned-bar', parts: 2, shaded: 1 }));
+  assert.equal(parseDrawingShapes(many).length, 4);
+});
+
+/* ------------------------------------------------------------- geometry */
+
+/*
+ * The whole reason the geometry is computed here rather than by the model is
+ * that "equal parts" is an arithmetic claim. These check the arithmetic.
+ */
+
+const isFilled = (el: Record<string, unknown>): boolean =>
+  el.backgroundColor !== 'transparent' && el.backgroundColor !== undefined;
+
+t('a quarter-shaded circle draws the right number of each piece', () => {
+  const els = renderDrawing([{ type: 'partitioned-circle', parts: 4, shaded: 3 }]) as Array<
+    Record<string, unknown>
+  >;
+  const wedges = els.filter((el) => el.type === 'line' && Array.isArray(el.points) && (el.points as unknown[]).length > 3);
+  const dividers = els.filter((el) => el.type === 'line' && Array.isArray(el.points) && (el.points as unknown[]).length === 2);
+  assert.equal(wedges.length, 3, 'three shaded wedges');
+  assert.equal(dividers.length, 4, 'a divider on every boundary, shaded or not');
+  assert.equal(els.filter((el) => el.type === 'ellipse').length, 1, 'one outline');
+  assert.equal(els.filter((el) => el.type === 'text').length, 1, 'one caption');
+});
+
+t('the wedges of a circle really are equal', () => {
+  for (const parts of [2, 3, 4, 5, 8]) {
+    const els = renderDrawing([{ type: 'partitioned-circle', parts, shaded: parts }]) as Array<
+      Record<string, unknown>
+    >;
+    const wedges = els.filter(
+      (el) => el.type === 'line' && Array.isArray(el.points) && (el.points as unknown[]).length > 3,
+    );
+    assert.equal(wedges.length, parts);
+
+    // Each wedge's arc must subtend exactly one part of a full turn.
+    for (const w of wedges) {
+      const pts = w.points as Array<[number, number]>;
+      const first = pts[1] as [number, number];
+      const last = pts[pts.length - 2] as [number, number];
+      const a0 = Math.atan2(first[1], first[0]);
+      const a1 = Math.atan2(last[1], last[0]);
+      let swept = a1 - a0;
+      while (swept <= 0) swept += Math.PI * 2;
+      assert.ok(
+        Math.abs(swept - (Math.PI * 2) / parts) < 0.02,
+        `a ${parts}-part wedge swept ${swept.toFixed(3)} rad, expected ${((Math.PI * 2) / parts).toFixed(3)}`,
+      );
+    }
+  }
+});
+
+t('a partitioned bar divides its width exactly', () => {
+  const els = renderDrawing([{ type: 'partitioned-bar', parts: 4, shaded: 3 }]) as Array<
+    Record<string, unknown>
+  >;
+  const cells = els.filter((el) => el.type === 'rectangle');
+  assert.equal(cells.length, 4);
+  const widths = new Set(cells.map((c) => c.width));
+  assert.equal(widths.size, 1, 'every cell must be the same width');
+  assert.equal(cells.filter(isFilled).length, 3, 'exactly three filled');
+  // And they must tile: no gaps, no overlap.
+  const total = cells.reduce((sum, c) => sum + Number(c.width), 0);
+  const left = Math.min(...cells.map((c) => Number(c.x)));
+  const right = Math.max(...cells.map((c) => Number(c.x) + Number(c.width)));
+  assert.ok(Math.abs(total - (right - left)) < 0.5, 'cells must tile the bar exactly');
+});
+
+t('two shapes are laid out side by side, not on top of each other', () => {
+  const els = renderDrawing([
+    { type: 'partitioned-bar', parts: 2, shaded: 1 },
+    { type: 'partitioned-bar', parts: 3, shaded: 2 },
+  ]) as Array<Record<string, unknown>>;
+  const rects = els.filter((el) => el.type === 'rectangle');
+  const firstRight = Math.max(...rects.slice(0, 2).map((r) => Number(r.x) + Number(r.width)));
+  const secondLeft = Math.min(...rects.slice(2).map((r) => Number(r.x)));
+  assert.ok(secondLeft > firstRight, 'the second picture must start clear of the first');
+});
+
+t('a number line cannot emit hundreds of ticks', () => {
+  const els = renderDrawing([{ type: 'number-line', from: 0, to: 1000, step: 1 }]);
+  assert.ok(els.length < 60, `a careless step produced ${els.length} elements`);
+});
+
+t('every skeleton carries the fields edit_scene_content requires', () => {
+  const els = renderDrawing([
+    { type: 'partitioned-circle', parts: 4, shaded: 3 },
+    { type: 'bar-chart', bars: [{ label: 'Cats', value: 12 }, { label: 'Dogs', value: 7 }] },
+    { type: 'number-line', from: 0, to: 1, step: 0.25, marks: [0.75] },
+    { type: 'note', text: 'Three quarters' },
+  ]) as Array<Record<string, unknown>>;
+  assert.ok(els.length > 0);
+  for (const el of els) {
+    for (const field of ['type', 'x', 'y', 'width', 'height']) {
+      assert.ok(field in el, `a skeleton is missing "${field}": ${JSON.stringify(el).slice(0, 120)}`);
+    }
+    // The guide is explicit that ids must not appear in an `add` payload.
+    assert.equal('id' in el, false, 'skeletons must not carry ids');
+    assert.ok(Number.isFinite(el.x) && Number.isFinite(el.y), 'coordinates must be real numbers');
+  }
+});
+
+/* -------------------------------------------------------------- context */
+
+/*
+ * Context is the fix for a topic phrase that does not carry its own meaning.
+ * These pin that it reaches the prompt at all, which is otherwise invisible
+ * until a live lesson draws the wrong thing.
+ */
+
+t('the topic still stands alone when there is no context', () => {
+  assert.equal(describeContext('the water cycle', undefined), 'Topic: the water cycle');
+});
+
+t('lesson, material and talk all reach the prompt', () => {
+  const described = describeContext('flow of synthesis', {
+    lessonTitle: 'Organic Chemistry — Class 12',
+    language: 'en',
+    transcript: ['Mrs Rao: today we are looking at aspirin synthesis'],
+    material: ['Aspirin is prepared from salicylic acid and acetic anhydride.'],
+  });
+  assert.ok(described.includes('flow of synthesis'));
+  assert.ok(described.includes('Organic Chemistry'), 'the lesson title disambiguates the topic');
+  assert.ok(described.includes('aspirin synthesis'), 'what the class just said must be included');
+  assert.ok(described.includes('salicylic acid'), 'the teacher’s own material must be included');
+});
+
+t('English is not restated as a language instruction, but another language is', () => {
+  assert.ok(!describeContext('x', { language: 'en' }).includes('language'));
+  assert.ok(describeContext('x', { language: 'hi' }).includes('language: hi'));
+});
+
+/* ---------------------------------------------------------- rate limits */
+
+/*
+ * Measured against the real Groq key, a free-tier 429 asks for a wait well
+ * under a second and the answer is simply lost without a retry — which was the
+ * single largest cause of a diagram never appearing. None of this is reachable
+ * from a test without a live 429, hence the pure helper.
+ */
+
+const res = (headers: Record<string, string> = {}): Response =>
+  new Response('', { status: 429, headers });
+
+t('waits the time Groq asks for, in either unit', () => {
+  assert.equal(retryDelayMs(res(), 'Please try again in 4.4925s. Need more tokens?'), 4492.5);
+  assert.equal(retryDelayMs(res(), 'Please try again in 75ms.'), 75);
+});
+
+t('prefers the retry-after header when there is one', () => {
+  assert.equal(retryDelayMs(res({ 'retry-after': '2' }), 'try again in 30s'), 2000);
+});
+
+t('refuses to wait out a limit that will not clear soon', () => {
+  assert.equal(retryDelayMs(res(), 'Please try again in 3m30s'), null, 'minutes are not worth a lesson');
+  assert.equal(retryDelayMs(res({ 'retry-after': '600' }), ''), null);
+});
+
+t('waits out the longest refusal seen from the live key', () => {
+  // Copied verbatim from a real 429 during a test run. A ceiling below this
+  // threw the answer away for the sake of six seconds.
+  assert.equal(
+    retryDelayMs(
+      res(),
+      'Rate limit reached for model `openai/gpt-oss-120b` ... Limit 8000, Used 7662, Requested 1110. Please try again in 5.79s. Need more tokens?',
+    ),
+    5790,
+  );
+});
+
+t('still retries once when the provider gives no hint at all', () => {
+  assert.equal(retryDelayMs(res(), 'rate limited'), 500);
+});
+
+console.log(`\n${pass} passing (including drawings, geometry, context and rate limits)`);

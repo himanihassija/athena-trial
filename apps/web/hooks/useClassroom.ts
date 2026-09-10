@@ -29,6 +29,7 @@ import type {
   ActiveWhiteboard,
   ActiveModel,
   BoardElement,
+  BoardFile,
   WhiteboardJoin,
   WhiteboardPublicState,
 } from '@echosphere/shared-types';
@@ -42,6 +43,23 @@ export interface QuizCardState {
   myResult?: 'correct' | 'incorrect';
   /** participantId -> correct, teacher view only. */
   results: Record<string, boolean>;
+}
+
+/**
+ * A diagram Athena was asked for that never reached the board.
+ *
+ * Kept as its own list rather than folded into `blockedAttempts`, because the
+ * two mean opposite things: a blocked attempt is the floor rules working, and
+ * this is a feature failing. Surfacing it at all is the point — the spoken half
+ * of the turn still happens, so without a notice the only evidence is a board
+ * that stays empty.
+ */
+export interface IllustrationFailure {
+  /** Unique per entry, for React's list key. Same reasoning as BlockedAttempt. */
+  id: string;
+  topic: string;
+  stage: 'spec' | 'excalidraw' | 'empty';
+  at: number;
 }
 
 export interface BlockedAttempt {
@@ -82,6 +100,7 @@ export interface ClassroomView {
   quizzes: QuizCardState[];
   gaps: LearningGap[];
   blockedAttempts: BlockedAttempt[];
+  illustrationFailures: IllustrationFailure[];
   ended: boolean;
   connected: boolean;
   recordAnswer: (quizId: string, answer: string) => void;
@@ -96,8 +115,10 @@ export interface ClassroomView {
   /** Non-null while someone is presenting the board, mirroring activeScreenShare. */
   activeWhiteboard: ActiveWhiteboard | null;
   boardScene: BoardElement[];
+  /** Bytes for the image elements in `boardScene`, keyed by their `fileId`. */
+  boardFiles: BoardFile[];
   presentWhiteboard: (on: boolean) => Promise<void>;
-  pushBoardScene: (elements: BoardElement[]) => void;
+  pushBoardScene: (elements: BoardElement[], files: BoardFile[]) => void;
   workspace: MiroWorkspaceState | null;
   targetedReadings: TargetedReadingItem[];
   catchupSlots: CatchupAvailabilitySlot[];
@@ -133,6 +154,8 @@ export function useClassroom(
   const [blockedAttempts, setBlockedAttempts] = useState<BlockedAttempt[]>([]);
   // Distinguishes entries that share a timestamp and a reason.
   const blockedSeq = useRef(0);
+  const [illustrationFailures, setIllustrationFailures] = useState<IllustrationFailure[]>([]);
+  const illustrationSeq = useRef(0);
   const [ended, setEnded] = useState(false);
   const [connected, setConnected] = useState(false);
   const [suppressedInterventions, setSuppressedInterventions] = useState<SuppressedIntervention[]>([]);
@@ -142,6 +165,7 @@ export function useClassroom(
   const [whiteboard, setWhiteboard] = useState<WhiteboardPublicState | null>(null);
   const [activeWhiteboard, setActiveWhiteboard] = useState<ActiveWhiteboard | null>(null);
   const [boardScene, setBoardScene] = useState<BoardElement[]>([]);
+  const [boardFiles, setBoardFiles] = useState<BoardFile[]>([]);
   const [whiteboardJoin, setWhiteboardJoin] = useState<WhiteboardJoin | null>(null);
   const [whiteboardJoinError, setWhiteboardJoinError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<MiroWorkspaceState | null>(null);
@@ -169,6 +193,7 @@ export function useClassroom(
           setWhiteboard(event.state.whiteboard);
           setActiveWhiteboard(event.state.whiteboard.presenting ?? null);
           setBoardScene(event.state.whiteboard.scene ?? []);
+          setBoardFiles(event.state.whiteboard.files ?? []);
         }
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
@@ -220,21 +245,52 @@ export function useClassroom(
         break;
       }
 
+      case 'echosphere:illustration-failed': {
+        illustrationSeq.current += 1;
+        const id = `${event.at}-${event.stage}-${illustrationSeq.current}`;
+        setIllustrationFailures((prev) =>
+          [...prev, { id, topic: event.topic, stage: event.stage, at: event.at }].slice(-12),
+        );
+        break;
+      }
+
       case 'echosphere:transcript':
         setTranscript((prev) => {
-          // The server already de-duplicates, but a reconnect can replay a
-          // segment the client still holds.
-          if (prev.some((s) => s.segmentId === event.segment.segmentId)) {
-            return prev;
+          const i = prev.findIndex((s) => s.segmentId === event.segment.segmentId);
+          if (i === -1) {
+            return [...prev, event.segment].slice(-MAX_TRANSCRIPT);
           }
-          return [...prev, event.segment].slice(-MAX_TRANSCRIPT);
+          // Same segmentId reaching here twice means one of two different
+          // things, and only one of them is a no-op. A reconnect can replay
+          // an event the client still holds unchanged — nothing to do. But
+          // the server also deliberately republishes the SAME segmentId with
+          // longer text as a turn grows across relays (`republishTurn` in
+          // classroomController.ts, upsertByTurn's whole reason to exist),
+          // which used to be silently dropped here: this checked existence,
+          // not content, so "And" — the first fragment of "And yep, that's
+          // it, could you take it forward?" — stayed on screen forever while
+          // the server's own transcript store had the completed sentence.
+          // Replacing in place rather than appending is what keeps a
+          // corrected turn from also showing up as a second, duplicate line.
+          if (prev[i].text === event.segment.text) return prev;
+          const next = [...prev];
+          next[i] = event.segment;
+          return next;
         });
         break;
 
       case 'echosphere:quiz-issued':
         setQuizzes((prev) =>
           prev.some((q) => q.quiz.quizId === event.quiz.quizId)
-            ? prev
+            ? // Re-issued rather than new: the server pushed the deadline out
+              // once the agent finished reading the options aloud, so the
+              // countdown restarts against the window it is really holding us
+              // to. Everything already on the card is kept.
+              prev.map((q) =>
+                q.quiz.quizId === event.quiz.quizId
+                  ? { ...q, quiz: { ...q.quiz, deadline: event.quiz.deadline } }
+                  : q,
+              )
             : [...prev, { quiz: event.quiz, results: {} }],
         );
         break;
@@ -253,15 +309,20 @@ export function useClassroom(
         setQuizzes((prev) =>
           prev.map((q) => {
             if (q.quiz.quizId !== event.quizId) return q;
+            const mine = event.participantId === participantId;
             return {
               ...q,
               results: { ...q.results, [event.participantId]: event.correct },
-              myResult:
-                event.participantId === participantId
-                  ? event.correct
-                    ? 'correct'
-                    : 'incorrect'
-                  : q.myResult,
+              myResult: mine
+                ? event.correct
+                  ? 'correct'
+                  : 'incorrect'
+                : q.myResult,
+              // An answer spoken out loud is scored on the server, so this is
+              // the only way it ever reaches the card. Without it a student who
+              // said the right answer saw nothing of theirs marked and then
+              // watched the correct option light up on its own.
+              myAnswer: mine && event.answer !== undefined ? event.answer : q.myAnswer,
             };
           }),
         );
@@ -341,6 +402,15 @@ export function useClassroom(
         // rewound the stroke to its first point every tick, which is why a drag
         // rendered as a single dot. The author already has these elements.
         if (event.by === participantId) break;
+        // Files carry no version — an id is minted per insert and its bytes
+        // never change — so first copy wins and repeats are ignored.
+        if (event.files?.length) {
+          setBoardFiles((prev) => {
+            const known = new Set(prev.map((f) => f.id));
+            const added = event.files!.filter((f) => !known.has(f.id));
+            return added.length > 0 ? [...prev, ...added] : prev;
+          });
+        }
         // Merged the same way the orchestrator does, by element version, so a
         // client that missed a message cannot drop strokes it never saw.
         setBoardScene((prev) => {
@@ -534,9 +604,11 @@ export function useClassroom(
   );
 
   const pushBoardScene = useCallback(
-    (elements: BoardElement[]) => {
+    (elements: BoardElement[], files: BoardFile[]) => {
       if (!participantId) return;
-      void orchestrator.pushBoardScene(sessionId, participantId, elements).catch(() => undefined);
+      void orchestrator
+        .pushBoardScene(sessionId, participantId, elements, files)
+        .catch(() => undefined);
     },
     [sessionId, participantId],
   );
@@ -617,6 +689,7 @@ export function useClassroom(
     quizzes,
     gaps,
     blockedAttempts,
+    illustrationFailures,
     ended,
     connected,
     recordAnswer,
@@ -630,6 +703,7 @@ export function useClassroom(
     setAnnotating,
     activeWhiteboard,
     boardScene,
+    boardFiles,
     presentWhiteboard,
     pushBoardScene,
     workspace,

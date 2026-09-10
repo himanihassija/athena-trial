@@ -43,6 +43,7 @@ import { answerCatchup, catchupHistory } from '../catchup/answer.js';
 import {
   broadcastWhiteboard,
   mergeSceneElements,
+  mergeSceneFiles,
   joinPayload,
   openWhiteboard,
   publicWhiteboard,
@@ -389,32 +390,61 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true, presenting: session.whiteboard.presenting });
   });
 
-  app.post('/api/sessions/:sessionId/whiteboard/scene', async (request, reply) => {
-    const session = requireSession(request, reply);
-    if (!session) return;
-    const { participantId, elements } = z
-      .object({
-        participantId: z.string(),
-        // Excalidraw owns the element shape and changes it between versions, so
-        // it is passed through rather than modelled. Only id and version are
-        // read, and the cap keeps one client from posting an unbounded scene.
-        elements: z
-          .array(z.object({ id: z.string(), version: z.number() }).passthrough())
-          .max(5000),
-      })
-      .parse(request.body);
-    if (!isTeacher(session, participantId)) {
-      return reply.code(403).send({ error: 'Only the teacher can draw' });
-    }
+  app.post(
+    '/api/sessions/:sessionId/whiteboard/scene',
+    {
+      /**
+       * An inserted photo travels on this route as base64 in a data URL, so the
+       * 1 MiB Fastify default rejects an ordinary phone picture outright. Raised
+       * here rather than on the whole server: no other route needs to accept a
+       * body this size, and `mergeSceneFiles` caps what is actually retained.
+       */
+      bodyLimit: 12 * 1024 * 1024,
+    },
+    async (request, reply) => {
+      const session = requireSession(request, reply);
+      if (!session) return;
+      const { participantId, elements, files } = z
+        .object({
+          participantId: z.string(),
+          // Excalidraw owns the element shape and changes it between versions, so
+          // it is passed through rather than modelled. Only id and version are
+          // read, and the cap keeps one client from posting an unbounded scene.
+          elements: z
+            .array(z.object({ id: z.string(), version: z.number() }).passthrough())
+            .max(5000),
+          // The bytes behind any `image` element in that batch. Sent once per
+          // file, not per tick, so this is normally absent.
+          files: z
+            .array(
+              z.object({
+                id: z.string(),
+                dataURL: z.string(),
+                mimeType: z.string(),
+                created: z.number(),
+              }),
+            )
+            .max(50)
+            .optional(),
+        })
+        .parse(request.body);
+      if (!isTeacher(session, participantId)) {
+        return reply.code(403).send({ error: 'Only the teacher can draw' });
+      }
 
-    mergeSceneElements(session, elements);
-    publish(session.sessionId, {
-      kind: 'echosphere:whiteboard-scene',
-      elements,
-      by: participantId,
-    });
-    return reply.send({ ok: true, count: session.whiteboard.scene.length });
-  });
+      mergeSceneElements(session, elements);
+      // Only the genuinely new ones go back out; re-broadcasting a photo every
+      // time its element moved would put megabytes on the bus per drag.
+      const addedFiles = mergeSceneFiles(session, files ?? []);
+      publish(session.sessionId, {
+        kind: 'echosphere:whiteboard-scene',
+        elements,
+        ...(addedFiles.length > 0 ? { files: addedFiles } : {}),
+        by: participantId,
+      });
+      return reply.send({ ok: true, count: session.whiteboard.scene.length });
+    },
+  );
 
   app.post('/api/sessions/:sessionId/whiteboard/annotate', async (request, reply) => {
     const session = requireSession(request, reply);

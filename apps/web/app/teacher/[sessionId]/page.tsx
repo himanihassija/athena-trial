@@ -34,6 +34,7 @@ import { TeacherControlPanel } from '@/components/classroom/TeacherControlPanel'
 import {
   AgentAbsentNotice,
   BlockedAttempts,
+  IllustrationFailures,
   FloorIndicator,
   GapPanel,
   QuizCards,
@@ -452,6 +453,7 @@ export default function TeacherDashboardPage() {
             language={lang}
           />
           <BlockedAttempts attempts={view.blockedAttempts} language={lang} />
+          <IllustrationFailures failures={view.illustrationFailures} language={lang} />
         </div>
       ),
     },
@@ -892,6 +894,7 @@ export default function TeacherDashboardPage() {
                     <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
                       <ExcalidrawBoard
                         scene={view.boardScene}
+                        files={view.boardFiles}
                         canDraw
                         onSceneChange={view.pushBoardScene}
                       />

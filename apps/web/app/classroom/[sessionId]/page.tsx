@@ -467,6 +467,7 @@ export default function ClassroomPage() {
                         orchestrator rejects a student scene post regardless. */}
                     <ExcalidrawBoard
                       scene={view.boardScene}
+                      files={view.boardFiles}
                       canDraw={false}
                       onSceneChange={() => undefined}
                     />

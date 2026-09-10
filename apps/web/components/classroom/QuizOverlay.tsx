@@ -1,13 +1,16 @@
 /**
  * The student's live quiz card — PS31 §3.6.
  *
- * When Athena asks a question, the orchestrator broadcasts it with a `deadline`
- * (15s from when the card appears, which is *after* she has finished asking, so
- * the window is not eaten by her speaking). This renders it as a centered
- * takeover with a countdown, students tap an answer, and it reveals the correct
- * option once everyone answers or the timer runs out. Athena still reads the
- * question and options aloud in parallel — this is the visual half of the same
- * moment, not a replacement for it.
+ * When Athena asks a question, the orchestrator broadcasts it with a `deadline`.
+ * The card appears as soon as she reports the question, but the countdown does
+ * not start until she stops speaking — the server re-broadcasts the quiz with a
+ * pushed-out deadline at that point, so the window is not spent listening to
+ * the four options being read out. This renders it as a centered takeover with
+ * a countdown, students tap an answer *or say it out loud*, and it reveals the
+ * correct option once everyone answers or the timer runs out.
+ *
+ * A spoken answer is scored on the server and comes back on `quiz-result`, so
+ * it shows here as the chosen option exactly like a tap does.
  *
  * The teacher keeps the sidebar `QuizCards` (live results, history); only
  * students get this overlay, and only while a question is actually open.
@@ -23,8 +26,14 @@ const LETTERS = ['A', 'B', 'C', 'D'];
 /** How long the revealed answer stays on screen before the overlay dismisses. */
 const REVEAL_LINGER_MS = 4500;
 
-/** Display window for the ring; the server `deadline` is the real authority. */
-const WINDOW_MS = 15_000;
+/**
+ * Fallback span for the ring, used only until the real window is measured on
+ * the first render of a card. The ring is otherwise drawn against however long
+ * this question's window actually is — see `windowMs` below — rather than a
+ * number copied from the server, which is what used to let the ring empty while
+ * the server was still accepting answers.
+ */
+const FALLBACK_WINDOW_MS = 15_000;
 
 export interface QuizOverlayProps {
   quizzes: QuizCardState[];
@@ -48,6 +57,23 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
   const pending = card !== undefined && card.quiz.quizId !== dismissedId;
   const activeId = pending && card ? card.quiz.quizId : null;
 
+  // How long this question's answer window is, measured from the deadline the
+  // server sent rather than assumed. Re-measured whenever the deadline changes,
+  // which it does once when Athena stops reading the options aloud and the
+  // countdown actually starts — so the ring restarts full instead of resuming
+  // part-drained.
+  const deadlineKey = card ? `${card.quiz.quizId}:${card.quiz.deadline}` : '';
+  const [window_, setWindow] = useState<{ key: string; ms: number } | null>(null);
+  useEffect(() => {
+    if (!card || !deadlineKey) return;
+    setWindow({
+      key: deadlineKey,
+      ms: Math.max(1000, card.quiz.deadline - Date.now()),
+    });
+    // Keyed on the deadline, so this re-runs exactly when the window changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadlineKey]);
+
   // Keep `now` live. Re-seeded whenever a new card becomes active, so the next
   // question's countdown never renders off a stale timestamp from the gap
   // between questions.
@@ -67,6 +93,9 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
   }, [card?.correctAnswer, card?.quiz.quizId]);
 
   if (!pending || !card) return null;
+
+  const WINDOW_MS =
+    window_ && window_.key === deadlineKey ? window_.ms : FALLBACK_WINDOW_MS;
 
   const { quiz, myAnswer, myResult, correctAnswer } = card;
   const revealed = Boolean(correctAnswer);
@@ -94,7 +123,7 @@ export function QuizOverlay({ quizzes, onAnswer }: QuizOverlayProps) {
         ? 'Not quite.'
         : 'Answer revealed.'
     : myAnswer !== undefined
-      ? `Locked in: ${myLetter}`
+      ? `Locked in: ${myLetter}`.trimEnd()
       : expired
         ? 'Time’s up.'
         : 'Tap an answer — or say it out loud.';

@@ -33,6 +33,32 @@ import type { BoardElement } from '@echosphere/shared-types';
 import { config } from '../config.js';
 import { tryComplete } from '../llm/complete.js';
 import { excalidrawConfigured, withExcalidraw, type ToolCaller } from './excalidrawMcp.js';
+import { parseDrawingShapes, renderDrawing, type DrawingShape } from './shapes.js';
+
+/**
+ * What the lesson was about when the diagram was asked for.
+ *
+ * Every field is optional and the whole object may be omitted: a diagram must
+ * still be drawable from a bare topic, because the live script and the tests
+ * call it that way.
+ *
+ * This exists because the spec step used to be sent the topic and nothing else
+ * — `Topic: flow of synthesis` — and that is genuinely not enough information
+ * to draw from. It does not say whether the synthesis is photosynthesis,
+ * protein synthesis or an organic prep, and a model with no way to tell picks
+ * the safest output available to it, which is to restate the phrase it was
+ * given. That is the failure this is here to remove.
+ */
+export interface IllustrationContext {
+  /** The lesson's title, the coarsest signal of what subject this is. */
+  lessonTitle?: string;
+  /** Classroom language, so labels are not silently drawn in English. */
+  language?: string;
+  /** Recent classroom speech, oldest first — what "this" and "it" refer to. */
+  transcript?: string[];
+  /** Excerpts from the teacher's own uploaded material, if any matched. */
+  material?: string[];
+}
 
 /** Whether both halves of this feature — a model and Excalidraw+ — are present. */
 export function illustrationConfigured(): boolean {
@@ -75,17 +101,62 @@ export interface DiagramSpec {
   edges: Array<{ from: string; to: string; label?: string }>;
 }
 
-const SPEC_SYSTEM = `You turn a lesson topic into a small diagram specification for a classroom whiteboard.
+const SPEC_SYSTEM = `You turn a lesson topic into a picture for a classroom whiteboard.
 
-Reply with ONLY a JSON object, no prose and no code fence:
-{"title":"...","nodes":[{"id":"n1","label":"..."}],"edges":[{"from":"n1","to":"n2","label":"..."}]}
+First decide WHICH KIND of picture the topic needs, then reply with ONLY a JSON object — no prose, no code fence.
 
-Rules:
+KIND 1 — "diagram". Boxes joined by arrows. Use for anything with structure: a process with steps, a hierarchy, a cycle, a comparison, parts making up a whole.
+{"kind":"diagram","title":"...","nodes":[{"id":"n1","label":"..."}],"edges":[{"from":"n1","to":"n2","label":"..."}]}
 - Between three and eight nodes. A student reads this off a shared board while a lesson continues around them, so a few clearly-labelled boxes beat a complete map of the subject.
 - Labels are real words from the topic, at most four words each. Never placeholders.
 - Every edge's "from" and "to" must be ids that exist in "nodes".
 - "label" on an edge is optional and should be one or two words when present.
-- Prefer the shape the topic actually has: a sequence for a process, a tree for a hierarchy, a cycle for something that repeats.`;
+- Prefer the shape the topic actually has: a sequence for a process, a tree for a hierarchy, a cycle for something that repeats.
+
+KIND 2 — "drawing". An actual picture, not boxes. Use when the topic IS a visual object and a flowchart would be absurd: a fraction, a proportion, a share of a whole, a quantity comparison, a position on a scale.
+{"kind":"drawing","title":"...","shapes":[ ... ]}
+Every shape must be one of exactly these, with exactly these fields:
+- {"type":"partitioned-circle","parts":4,"shaded":3,"caption":"3/4"} — a circle cut into equal wedges, some filled. The way to draw a fraction.
+- {"type":"partitioned-bar","parts":4,"shaded":3,"caption":"3/4"} — the same idea as a bar. Better when comparing two fractions: use two of these.
+- {"type":"bar-chart","bars":[{"label":"Cats","value":12},{"label":"Dogs","value":7}],"caption":"..."} — comparing quantities.
+- {"type":"number-line","from":0,"to":1,"step":0.25,"marks":[0.75],"caption":"..."} — a value's position on a scale.
+- {"type":"note","text":"..."} — a short standalone caption beside the others.
+At most four shapes. "shaded" must be between 0 and "parts".
+
+Choosing between them:
+- "how photosynthesis works", "stages of mitosis", "how a bill becomes law" -> diagram.
+- "three quarters", "3/4 of a circle shaded", "which is bigger, 2/3 or 3/5", "where 0.75 sits between 0 and 1" -> drawing.
+- If the topic names a thing a student would DRAW rather than a process they would follow, it is a drawing.
+
+Whichever kind you choose: the labels and numbers must come from the topic and the lesson context you are given. Never emit the topic phrase itself as a node label — a box reading "flow of synthesis" teaches nobody anything. If the context does not tell you what the topic means, draw the most standard textbook version of it and use real domain words.`;
+
+/**
+ * Renders the lesson context as the user half of the spec request.
+ *
+ * Deliberately labelled section by section rather than pasted in as one blob:
+ * the model has to be able to tell the teacher's own material apart from
+ * whatever was last said out loud, because the two disagree often enough — a
+ * class discussing an aside is not a class changing subject.
+ */
+export function describeContext(
+  topic: string,
+  context: IllustrationContext | undefined,
+): string {
+  const parts = [`Topic: ${topic}`];
+  if (!context) return parts.join('\n');
+
+  if (context.lessonTitle?.trim()) parts.push(`Lesson: ${context.lessonTitle.trim()}`);
+  if (context.language?.trim() && context.language.trim() !== 'en') {
+    parts.push(`Write every label in this language: ${context.language.trim()}`);
+  }
+  if (context.material?.length) {
+    parts.push(`\nFrom the teacher's lesson material:\n${context.material.join('\n')}`);
+  }
+  if (context.transcript?.length) {
+    parts.push(`\nWhat the class has just been saying:\n${context.transcript.join('\n')}`);
+  }
+  return parts.join('\n');
+}
 
 /**
  * Asks the model for a diagram specification.
@@ -152,6 +223,52 @@ export function parseDiagramSpec(raw: string | null): DiagramSpec | null {
 }
 
 /**
+ * What the model decided to draw: boxes and arrows, or an actual picture.
+ */
+export type IllustrationPlan =
+  | ({ kind: 'diagram' } & DiagramSpec)
+  | { kind: 'drawing'; title: string; shapes: DrawingShape[] };
+
+/**
+ * Reads whichever of the two picture kinds the model replied with.
+ *
+ * The drawing branch is tried first and the diagram branch is the fallback,
+ * which is the safety property that matters here: a reply claiming to be a
+ * drawing but carrying shapes this build does not understand is not drawn as a
+ * broken picture and is not thrown away either — if it also carries usable
+ * nodes it becomes a flowchart, exactly as it would have before this branch
+ * existed. Nothing that worked before can start failing because of a shape name
+ * that did not validate.
+ */
+export function parseIllustrationPlan(raw: string | null): IllustrationPlan | null {
+  if (!raw) return null;
+
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try {
+      const value = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+      if (value && typeof value === 'object' && value.kind === 'drawing') {
+        const shapes = parseDrawingShapes(value.shapes);
+        if (shapes.length > 0) {
+          const title =
+            typeof value.title === 'string' && value.title.trim()
+              ? value.title.trim()
+              : 'Drawing';
+          return { kind: 'drawing', title, shapes };
+        }
+      }
+    } catch {
+      // Fall through to the diagram parser, which has its own tolerance for
+      // fenced and prose-prefixed replies.
+    }
+  }
+
+  const spec = parseDiagramSpec(raw);
+  return spec ? { kind: 'diagram', ...spec } : null;
+}
+
+/**
  * Forces a node id into the shape `create_diagram` accepts.
  *
  * Its schema pins ids to `^[A-Za-z0-9_.:-]+$`, and a model told to invent ids
@@ -165,22 +282,46 @@ function safeNodeId(raw: string, index: number): string {
 }
 
 /**
- * Generates a diagram for `topic` and returns the elements to add to the board.
+ * Which step an illustrate request got to.
  *
- * Returns an empty array on every failure — no key, no model, a timeout, a tool
- * error, a model that drew nothing. A lesson continues without the picture; it
- * must never stop because of one.
+ * This exists because the previous return type could not tell four different
+ * outcomes apart. "No diagram appeared" was `[]` whether the model had never
+ * answered, Excalidraw had rejected the write, or the scene read had come back
+ * with nothing new — and since the only record was a `console.error`, a teacher
+ * watching a board stay empty had no way to know which, or even that anything
+ * had been attempted. Athena, meanwhile, had already said out loud that she was
+ * drawing.
+ */
+export type IllustrationStage = 'spec' | 'excalidraw' | 'empty';
+
+export type IllustrationResult =
+  | { ok: true; elements: BoardElement[]; kind: 'diagram' | 'drawing'; ms: number }
+  | { ok: false; stage: IllustrationStage; detail: string; ms: number };
+
+/**
+ * Generates a picture for `topic` and returns the elements to add to the board.
+ *
+ * Never throws and never blocks a lesson: every failure comes back as an
+ * `ok: false` result naming the step that failed, and the caller decides
+ * whether that is worth telling anyone about. A lesson continues without the
+ * picture; it must never stop because of one.
  */
 export async function generateIllustration(
   sessionId: string,
   topic: string,
-): Promise<BoardElement[]> {
-  if (!illustrationConfigured()) return [];
+  context?: IllustrationContext,
+): Promise<IllustrationResult> {
+  const started = Date.now();
   const clean = topic.trim();
-  if (!clean) return [];
+  if (!illustrationConfigured()) {
+    return { ok: false, stage: 'spec', detail: 'Excalidraw is not configured', ms: 0 };
+  }
+  if (!clean) {
+    return { ok: false, stage: 'spec', detail: 'empty topic', ms: 0 };
+  }
 
   const state = stateFor(sessionId);
-  const run = state.queue.then(() => illustrate(state, clean));
+  const run = state.queue.then(() => illustrate(state, clean, context, started));
   // The chain must survive a rejection, or one failure wedges the session.
   state.queue = run.catch(() => undefined);
   return run;
@@ -189,19 +330,28 @@ export async function generateIllustration(
 async function illustrate(
   state: IllustrationState,
   topic: string,
-): Promise<BoardElement[]> {
-  const spec = parseDiagramSpec(
+  context: IllustrationContext | undefined,
+  started: number,
+): Promise<IllustrationResult> {
+  const since = (): number => Date.now() - started;
+
+  const plan = parseIllustrationPlan(
     await tryComplete(
       [
         { role: 'system', content: SPEC_SYSTEM },
-        { role: 'user', content: `Topic: ${topic}` },
+        { role: 'user', content: describeContext(topic, context) },
       ],
-      { temperature: 0.3, maxTokens: 700 },
+      {
+        temperature: 0.3,
+        maxTokens: 900,
+        // Blank unless BOARD_LLM_MODEL is set, in which case this is the only
+        // completion in the orchestrator that moves. See config.boardLlmModel.
+        model: config.boardLlmModel.trim() || undefined,
+      },
     ),
   );
-  if (!spec) {
-    console.error(`[illustrate] no usable diagram spec for "${topic}"`);
-    return [];
+  if (!plan) {
+    return { ok: false, stage: 'spec', detail: 'the model did not return a usable picture', ms: since() };
   }
 
   const elements = await withExcalidraw(async (call) => {
@@ -209,32 +359,58 @@ async function illustrate(
     if (!sceneId) throw new Error('no scratch scene available');
     state.sceneId = sceneId;
 
-    // Excalidraw's docs ask for the matching format guide before the first
-    // scene write. It is cheap and it is what makes create_diagram's own
-    // schema authoritative rather than guessed at.
-    await call('read_diagram_format', {}).catch(() => undefined);
+    if (plan.kind === 'drawing') {
+      // Excalidraw asks for the guide matching the task before the first write,
+      // and for a freeform composition that is the freeform one rather than the
+      // diagram one.
+      await call('read_freeform_format', {}).catch(() => undefined);
 
-    await call('create_diagram', {
-      sceneId,
-      title: spec.title,
-      // The classroom board is wider than it is tall, and it sits beside a
-      // participant strip, so a left-to-right diagram fits without scrolling.
-      direction: 'RIGHT',
-      nodes: spec.nodes.map((n) => ({ id: n.id, label: n.label })),
-      edges: spec.edges.map((e) => ({ from: e.from, to: e.to, label: e.label })),
-    });
+      // `add` is a JSON array *string*, not an array — the tool's own schema
+      // says so, and passing a real array is rejected.
+      await call('edit_scene_content', {
+        sceneId,
+        add: JSON.stringify(renderDrawing(plan.shapes)),
+      });
+    } else {
+      // Excalidraw's docs ask for the matching format guide before the first
+      // scene write. It is cheap and it is what makes create_diagram's own
+      // schema authoritative rather than guessed at.
+      await call('read_diagram_format', {}).catch(() => undefined);
+
+      await call('create_diagram', {
+        sceneId,
+        title: plan.title,
+        // The classroom board is wider than it is tall, and it sits beside a
+        // participant strip, so a left-to-right diagram fits without scrolling.
+        direction: 'RIGHT',
+        nodes: plan.nodes.map((n) => ({ id: n.id, label: n.label })),
+        edges: plan.edges.map((e) => ({ from: e.from, to: e.to, label: e.label })),
+      });
+    }
 
     return findElements(await call('get_scene_content', { sceneId }));
   });
 
-  if (!elements) return [];
+  if (!elements) {
+    return {
+      ok: false,
+      stage: 'excalidraw',
+      detail: 'Excalidraw refused the request or timed out',
+      ms: since(),
+    };
+  }
 
   const fresh = elements.filter((el) => !state.seen.has(el.id));
   for (const el of fresh) state.seen.add(el.id);
   if (fresh.length === 0) {
-    console.error(`[illustrate] scene read returned no new elements for "${topic}"`);
+    return {
+      ok: false,
+      stage: 'empty',
+      detail: 'the scene came back with nothing new on it',
+      ms: since(),
+    };
   }
-  return fresh;
+  return { ok: true, elements: fresh, kind: plan.kind, ms: since() };
 }
 
 /**

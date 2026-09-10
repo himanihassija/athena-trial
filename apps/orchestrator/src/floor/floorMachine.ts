@@ -25,6 +25,15 @@ export interface FloorInputs {
   hasUnaddressedGap: boolean;
   /** Topic the agent wants to speak about, checked against disabled topics. */
   topic?: string;
+  /**
+   * How long ago the agent last interjected unprompted about this same topic,
+   * in ms, or undefined if she never has.
+   *
+   * Supplied by the caller rather than tracked in the snapshot because it is
+   * per-topic and the snapshot is a single room-wide state. See
+   * `topicInterjectionCooldownMs`.
+   */
+  msSinceTopicInterjection?: number;
   now: number;
 }
 
@@ -96,6 +105,17 @@ export function decideSpeak(
     const silenceMs = inputs.now - floor.lastHumanSpeechAt;
     if (silenceMs < policy.silenceGapThresholdMs) {
       return { allowed: false, reason: 'SILENCE_GAP_TOO_SHORT' };
+    }
+    // She already said this. The silence rule cannot catch it: her own voice is
+    // not human speech, so the room reads as silent the instant she stops and
+    // the same topic is eligible again on the very next tick — which is a
+    // one-second repeat loop for as long as the gap stays open. This is the
+    // backstop that bounds it no matter which signal re-opened the gap.
+    if (
+      inputs.msSinceTopicInterjection !== undefined &&
+      inputs.msSinceTopicInterjection < policy.topicInterjectionCooldownMs
+    ) {
+      return { allowed: false, reason: 'TOPIC_RECENTLY_ADDRESSED' };
     }
     return { allowed: true, trigger };
   }

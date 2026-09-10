@@ -45,6 +45,11 @@ export type SpeakDenialReason =
   | 'AGENT_ALREADY_SPEAKING'
   | 'TOPIC_DISABLED'
   | 'SILENCE_GAP_TOO_SHORT'
+  /**
+   * She already interjected about this topic moments ago. Distinct from
+   * SILENCE_GAP_TOO_SHORT so the teacher panel can say which restraint fired.
+   */
+  | 'TOPIC_RECENTLY_ADDRESSED'
   | 'NO_SESSION';
 
 export type SpeakDecision =
@@ -76,6 +81,16 @@ export interface AgentPolicy {
   disabledTopics: string[];
   /** Silence required before an unprompted gap-driven interjection, in ms. */
   silenceGapThresholdMs: number;
+  /**
+   * How long the agent must leave a topic alone after interjecting about it
+   * before she may interject about it again, in ms.
+   *
+   * The silence threshold alone cannot bound repetition: her own speech is not
+   * human speech, so the moment she stops, the room reads as silent again and
+   * the same gap is eligible on the very next tick. This is the rule that makes
+   * "she said this already" a reason to stay quiet.
+   */
+  topicInterjectionCooldownMs: number;
   /** Phrase that counts as directly addressing the agent (§3.3, Phase 1 hardcoded). */
   wakePhrase: string;
   /** When false, the agent will not interject on its own at all — only when invoked. */
@@ -97,6 +112,7 @@ export const DEFAULT_AGENT_POLICY: AgentPolicy = {
   verbosity: 'normal',
   disabledTopics: [],
   silenceGapThresholdMs: 3500,
+  topicInterjectionCooldownMs: 120_000,
   wakePhrase: 'hey athena',
   proactiveInterjectionsEnabled: true,
   studentsMayInvoke: false,

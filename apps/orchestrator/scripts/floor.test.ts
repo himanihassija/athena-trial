@@ -15,6 +15,16 @@
  * now valid for as long as it still is the invitation it was: nobody has
  * spoken again since it was granted. There is no duration left to tune.
  *
+ * That event-based check then needed one more refinement, also found live:
+ * a turn commonly relays more than once, and `lastHumanSpeechAt` refreshes on
+ * every relay because the silence-gap detector needs it to — so a permit
+ * granted off the first relay of an address read every later relay of that
+ * SAME utterance as new speech and revoked itself within about a second.
+ * `lastHumanSpeechTurnId`, tracked alongside grantSpeakPermit's own optional
+ * turnId, lets `hasSpeakPermit` tell "this turn relaying again" apart from
+ * "someone genuinely spoke" without slowing that refresh down for anything
+ * else that depends on it.
+ *
  * Time is faked by rewinding `speakPermit.grantedAt` and by moving
  * `floor.lastHumanSpeechAt` directly, rather than sleeping; these run in
  * milliseconds and still exercise real elapsed-time and event-ordering logic.
@@ -24,12 +34,14 @@
 
 import assert from 'node:assert/strict';
 import {
+  applyControl,
   clearSpeakPermit,
   grantSpeakPermit,
   handleAgentState,
   hasSpeakPermit,
   ingestTranscript,
   onTurnSettled,
+  releaseFloor,
 } from './../src/classroomController.ts';
 import { addParticipant, createSession } from './../src/state/sessionRegistry.ts';
 
@@ -75,9 +87,14 @@ const rewindAuthorisation = (
  * simulated without also faking "and someone has spoken since" — moving only
  * `grantedAt` backward would put it before the speech that caused it, which
  * cannot happen for real.
+ *
+ * `lastSettledHumanSpeech` is what `hasSpeakPermit` actually reads;
+ * `floor.lastHumanSpeechAt` moves too so the floor stays coherent for
+ * everything else that reads it.
  */
 const rewindPermit = (session: ReturnType<typeof createSession>, ms: number) => {
   if (session.speakPermit) session.speakPermit.grantedAt -= ms;
+  if (session.lastSettledHumanSpeech) session.lastSettledHumanSpeech.at -= ms;
   session.floor = { ...session.floor, lastHumanSpeechAt: session.floor.lastHumanSpeechAt - ms };
 };
 
@@ -151,7 +168,7 @@ await t(
 
     // Someone spoke again — without re-addressing her, which would grant a
     // fresh permit — so the room has moved on since this invitation.
-    session.floor = { ...session.floor, lastHumanSpeechAt: Date.now() + 1000 };
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 7 };
     assert.equal(hasSpeakPermit(session), false);
 
     const result = await handleAgentState(session, 'thinking');
@@ -159,6 +176,100 @@ await t(
       result.interrupted,
       true,
       'a reply this stale is no longer an answer to the most recent thing said',
+    );
+  },
+);
+
+await t(
+  'a permit survives a later relay of the SAME utterance that earned it',
+  async () => {
+    // The exact live regression: "Athena, can you hear me?" relays more than
+    // once as the recogniser settles on a final version. Each relay bumps
+    // lastHumanSpeechAt — the silence-gap detector needs that — which used to
+    // read as someone new speaking and revoke the permit within about a
+    // second, on the very address that granted it.
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 42);
+
+    // A later relay of turnId 42 settles again: the timestamp moves forward,
+    // same as any speech would, but it is still turnId 42.
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 42 };
+
+    assert.equal(
+      hasSpeakPermit(session),
+      true,
+      'a relay of the turn that earned the permit is not new speech',
+    );
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(result.interrupted, false);
+  },
+);
+
+await t(
+  'the live regression, end to end: an address relayed twice is still answered',
+  async () => {
+    // Drives the real ingest path rather than setting state by hand, because
+    // the bug lived in the interaction between them: the same turn arriving
+    // twice, each arrival refreshing floor.lastHumanSpeechAt, against a
+    // permit granted on the first arrival. Reproduced live as a permit
+    // granted and revoked inside one second.
+    const session = createSession('t');
+    const teacher = addParticipant(session, { displayName: 'Ms Rao', role: 'teacher' });
+
+    await ingestTranscript(session, {
+      uid: teacher.uid,
+      text: 'Athena, can you hear me?',
+      isFinal: true,
+      turnId: 4,
+    });
+    assert.equal(session.speakPermit?.reason, 'DIRECTLY_ADDRESSED');
+    // Held from BEFORE the relay, because that is the grant the sanity check
+    // below is about. Reading `grantedAt` afterwards instead compares the
+    // timestamp against a grant the relay itself has just re-issued a
+    // fraction of a millisecond earlier, which only passes when both land in
+    // the same tick — a flake, and not the property being asserted.
+    const firstGrantedAt = session.speakPermit?.grantedAt ?? 0;
+
+    // The same turn again, restated slightly longer — what upsertByTurn
+    // treats as 'updated', and what the recogniser genuinely does.
+    await ingestTranscript(session, {
+      uid: teacher.uid,
+      text: 'Athena, can you hear me? Yes.',
+      isFinal: true,
+      turnId: 4,
+    });
+
+    assert.ok(
+      session.floor.lastHumanSpeechAt >= firstGrantedAt,
+      'sanity: the shared floor timestamp did move past the grant, as it should',
+    );
+    assert.equal(
+      hasSpeakPermit(session),
+      true,
+      'the same turn relaying again is not somebody else speaking',
+    );
+
+    const turn = await handleAgentState(session, 'thinking');
+    assert.equal(turn.interrupted, false, 'she must be allowed to answer');
+  },
+);
+
+await t(
+  'a permit still goes stale when a genuinely different turn is spoken',
+  async () => {
+    // The other half of the same fix: it must not become impossible to
+    // revoke a permit. A DIFFERENT turnId is unambiguously new speech.
+    const session = createSession('test');
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 42);
+
+    session.lastSettledHumanSpeech = { at: Date.now() + 1000, turnId: 43 };
+
+    assert.equal(hasSpeakPermit(session), false);
+    const result = await handleAgentState(session, 'thinking');
+    assert.equal(
+      result.interrupted,
+      true,
+      'a different turn is not an echo of the one that earned the permit',
     );
   },
 );
@@ -685,5 +796,168 @@ await t('a muted agent is still cut off mid-answer', async () => {
   assert.equal(muted.reason, 'AGENT_MUTED');
 });
 
+
+// ─── The live stall: "Waiting on Athena" with no answer ever coming ──────────
+//
+// Reproduced from an orchestrator log in which a direct address was granted a
+// permit and the very next agent turns were refused:
+//
+//   [floor] granted DIRECTLY_ADDRESSED to teacher in session 5612
+//   [floor] interrupted an un-permitted turn in session 5612: AGENT_UNINVITED
+//   [floor] interrupted an un-permitted turn in session 5612: AGENT_UNINVITED
+//
+// Two independent defects put the room in that state, and both are covered
+// below: enforcement adjudicating a turn before the transcript that invites it
+// can arrive, and the floor having no way back out of STUDENT_QUESTION_PENDING.
+
+await t(
+  'a turn the engine starts before the transcript lands is not cut off for it',
+  async () => {
+    // The engine hears the wake word itself and begins answering within a few
+    // hundred ms; the browser holds the same sentence for TURN_SETTLE_MS before
+    // relaying it. For that window enforcement sees a turn with no permit --
+    // and used to interrupt it.
+    const session = createSession('t');
+    addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+
+    const adjudication = handleAgentState(session, 'thinking');
+
+    // The address arrives while that decision is still open.
+    setTimeout(() => grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 9), 300);
+
+    const result = await adjudication;
+    assert.equal(
+      result.interrupted,
+      false,
+      'she was answering a question she had in fact just been asked',
+    );
+    assert.equal(session.authorizedTurnInProgress, true);
+  },
+);
+
+await t(
+  'an interrupt already in flight does not wipe a permit granted behind it',
+  async () => {
+    // The other half. interruptAgent is a round trip to Agora -- 1.4s in the
+    // log above -- and the revocation used to run on the far side of it, so a
+    // permit granted during those seconds was destroyed by a decision taken
+    // before it existed. The `think` that followed then had nothing to present
+    // and was cut off in turn.
+    const session = createSession('t');
+    addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+
+    // Nobody has addressed her, so this turn is genuinely uninvited and the
+    // grace below will lapse without finding a permit.
+    const adjudication = handleAgentState(session, 'thinking');
+    const refused = await adjudication;
+    assert.equal(refused.interrupted, true);
+
+    // ...and the address lands immediately afterwards, as it does live.
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 11);
+    assert.equal(
+      hasSpeakPermit(session),
+      true,
+      'a refusal must not reach forward and revoke the next invitation',
+    );
+
+    const next = await handleAgentState(session, 'thinking');
+    assert.equal(next.interrupted, false, 'the driven answer must be allowed through');
+  },
+);
+
+await t('a directly-addressed answer moves the floor off "waiting"', async () => {
+  // STUDENT_QUESTION_PENDING is what the room renders as "Waiting on Athena".
+  // Only requestFloor used to claim the floor for her, which covers the turns
+  // the orchestrator starts -- a directly-addressed turn is started by the
+  // engine, so the lamp stayed amber right through her answer.
+  const session = createSession('t');
+  const teacher = addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+
+  await ingestTranscript(session, {
+    uid: teacher.uid,
+    text: 'Athena, can you hear me?',
+    isFinal: true,
+    turnId: 3,
+  });
+  assert.equal(session.floor.state, 'STUDENT_QUESTION_PENDING');
+
+  await handleAgentState(session, 'thinking');
+  assert.equal(session.floor.state, 'AGENT_SPEAKING', 'her answer holds the floor');
+
+  releaseFloor(session);
+  assert.equal(session.floor.state, 'OPEN_FLOOR');
+});
+
+await t('a question that will never be answered stops saying "waiting"', async () => {
+  // The refusal path: she was cut off, muted, or the floor closed under her.
+  // releaseFloor only handled AGENT_SPEAKING, so a pending question nothing
+  // would ever answer left the indicator amber until the next person spoke.
+  const session = createSession('t');
+  const teacher = addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+
+  await ingestTranscript(session, {
+    uid: teacher.uid,
+    text: 'Athena, can you hear me?',
+    isFinal: true,
+    turnId: 5,
+  });
+  assert.equal(session.floor.state, 'STUDENT_QUESTION_PENDING');
+
+  clearSpeakPermit(session);
+  session.policy.muted = true;
+  const muted = await handleAgentState(session, 'thinking');
+
+  assert.equal(muted.interrupted, true);
+  assert.equal(
+    session.floor.state,
+    'OPEN_FLOOR',
+    'the room must not be left waiting on an answer that is not coming',
+  );
+});
+
+// ─── The board she said she had written on ──────────────────────────────────
+
+await t('a board write on a turn somebody asked for lands with annotate off', async () => {
+  // Live: "I've put the example on the board: 3/4 = 3 parts out of 4 equal
+  // parts" -- and the board was empty. The payload was dropped here because
+  // annotate mode was off, silently, while the spoken half of the same turn
+  // went out as normal.
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+  assert.equal(session.whiteboard.annotating, false, 'annotate mode is off by default');
+
+  grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', 21);
+  await handleAgentState(session, 'thinking');
+
+  applyControl(session, { board: { action: 'write', text: '3/4 = 3 parts out of 4' } });
+
+  assert.equal(session.whiteboard.cards.length, 1, 'what she said she wrote is on the board');
+  assert.equal(session.whiteboard.cards[0]?.text, '3/4 = 3 parts out of 4');
+  assert.equal(session.whiteboard.open, true, 'and the board is showing');
+});
+
+await t('a board write she volunteered is still gated on annotate mode', async () => {
+  // The case the gate was built for: she judges something board-worthy while
+  // the teacher is teaching, and writes onto a board nobody asked her to touch.
+  const session = createSession('t');
+  addParticipant(session, { displayName: 'Rao', role: 'teacher' });
+
+  session.lastAuthorisedTurnTrigger = 'GAP_DETECTED_IN_SILENCE';
+  applyControl(session, { board: { action: 'write', text: 'A denominator is...' } });
+  assert.equal(session.whiteboard.cards.length, 0, 'unasked-for writing stays gated');
+
+  session.whiteboard.annotating = true;
+  applyControl(session, { board: { action: 'write', text: 'A denominator is...' } });
+  assert.equal(session.whiteboard.cards.length, 1, 'and lands once the teacher turns it on');
+});
+
+await t('board control is never gated, however the turn began', async () => {
+  const session = createSession('t');
+  session.lastAuthorisedTurnTrigger = 'GAP_DETECTED_IN_SILENCE';
+  applyControl(session, { board: { action: 'show' } });
+  assert.equal(session.whiteboard.open, true);
+  applyControl(session, { board: { action: 'hide' } });
+  assert.equal(session.whiteboard.open, false);
+});
 
 console.log(`\n${pass} passing`);

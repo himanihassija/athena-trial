@@ -6,7 +6,7 @@ import type {
   WhiteboardPublicState,
 } from '@echosphere/shared-types';
 import { publish } from '../state/eventBus.js';
-import type { BoardElement } from '@echosphere/shared-types';
+import type { BoardElement, BoardFile } from '@echosphere/shared-types';
 import type { ClassroomSession } from '../state/sessionRegistry.js';
 
 export function publicWhiteboard(session: ClassroomSession): WhiteboardPublicState {
@@ -16,6 +16,7 @@ export function publicWhiteboard(session: ClassroomSession): WhiteboardPublicSta
     annotating: board.annotating,
     presenting: board.presenting,
     scene: board.scene,
+    files: board.files,
     cards: board.cards,
   };
 }
@@ -50,6 +51,7 @@ export function applyBoardCommand(
   } else if (full.action === 'clear') {
     session.whiteboard.cards = [];
     session.whiteboard.scene = [];
+    session.whiteboard.files = [];
     session.whiteboard.open = true;
     publish(session.sessionId, {
       kind: 'echosphere:whiteboard-scene',
@@ -119,6 +121,47 @@ export function mergeSceneElements(
     if (!existing || el.version >= existing.version) byId.set(el.id, el);
   }
   session.whiteboard.scene = [...byId.values()];
+}
+
+/**
+ * A single image, in bytes. Big enough for a photo off a phone, small enough
+ * that one paste cannot exhaust the orchestrator's memory.
+ */
+const MAX_FILE_BYTES = 6 * 1024 * 1024;
+
+/** Ceiling on everything the board is holding, across all its images. */
+const MAX_TOTAL_FILE_BYTES = 30 * 1024 * 1024;
+
+/**
+ * Folds newly referenced image bytes into the board.
+ *
+ * Files are immutable once created — Excalidraw mints a fresh `fileId` for a
+ * fresh insert — so unlike elements there is no version to reconcile: the first
+ * copy of an id wins and later ones are ignored. Returns only the files that
+ * were actually new, since those are the ones worth putting on the bus; the
+ * rest every client already has.
+ */
+export function mergeSceneFiles(
+  session: ClassroomSession,
+  incoming: BoardFile[],
+): BoardFile[] {
+  const known = new Set(session.whiteboard.files.map((f) => f.id));
+  let total = session.whiteboard.files.reduce((n, f) => n + f.dataURL.length, 0);
+  const added: BoardFile[] = [];
+
+  for (const file of incoming) {
+    if (known.has(file.id)) continue;
+    if (file.dataURL.length > MAX_FILE_BYTES) continue;
+    if (total + file.dataURL.length > MAX_TOTAL_FILE_BYTES) break;
+    known.add(file.id);
+    total += file.dataURL.length;
+    added.push(file);
+  }
+
+  if (added.length > 0) {
+    session.whiteboard.files = [...session.whiteboard.files, ...added];
+  }
+  return added;
 }
 
 /**

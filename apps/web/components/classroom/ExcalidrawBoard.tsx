@@ -15,13 +15,18 @@
  *  - Applying a remote scene re-triggers `onChange`. Without a guard that would
  *    echo straight back to the server as a fresh local edit, so writes are
  *    suppressed while a remote update is being applied.
+ *  - A scene is not just elements. Excalidraw keeps the bytes of an inserted
+ *    image in a separate `files` map and leaves the element holding only a
+ *    `fileId`, so elements-only sync hands the far side a picture frame with no
+ *    picture in it. Files travel alongside, on their own schedule — see the
+ *    flush loop.
  */
 
 'use client';
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BoardElement } from '@echosphere/shared-types';
+import type { BoardElement, BoardFile } from '@echosphere/shared-types';
 
 // Excalidraw ships its stylesheet separately and renders unstyled without it —
 // icons at natural SVG size, toolbar labels as loose text, no layout. Imported
@@ -35,12 +40,78 @@ const SYNC_INTERVAL_MS = 100;
 export interface ExcalidrawBoardProps {
   /** The scene as the orchestrator currently holds it. */
   scene: BoardElement[];
+  /** Bytes for the `image` elements in `scene`, keyed by their `fileId`. */
+  files: BoardFile[];
   /** False for students, who watch rather than draw. */
   canDraw: boolean;
-  onSceneChange: (elements: BoardElement[]) => void;
+  onSceneChange: (elements: BoardElement[], files: BoardFile[]) => void;
 }
 
-export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoardProps) {
+/**
+ * What a watching canvas is allowed to be shown.
+ *
+ * Excalidraw decides once, on first sight of an element id, whether an
+ * `embeddable`'s link is one it will render, and caches that answer for the
+ * life of the canvas — the guard is `has(element.id)`, so it never looks at the
+ * link again, and there is no public API to clear it. The only thing that
+ * overwrites a cached "no" is the link editor popup, which runs solely in the
+ * browser where a human typed the URL.
+ *
+ * That is a problem here because the Web Embed tool creates the element the
+ * moment the box is dragged out, before any URL exists, and this board puts
+ * every intermediate state on the wire within 100ms. A student met the element
+ * as `link: null`, recorded "not embeddable" against its id, and went on
+ * drawing an empty outlined box for the rest of the lesson — while the teacher,
+ * whose link editor set the flag directly, watched the video.
+ *
+ * Withholding a half-built embed until it carries a link makes the viewer's
+ * first sight of it the finished element, which is the one thing Excalidraw
+ * will act on. Viewers only: the teacher is the one authoring that box and has
+ * to see it while it is still empty.
+ */
+function viewable(scene: BoardElement[], canDraw: boolean): BoardElement[] {
+  if (canDraw) return scene;
+  return scene.filter((el) => el.type !== 'embeddable' || Boolean(el.link));
+}
+
+/** Excalidraw wants its files as a map keyed by id; the wire carries a list. */
+function filesRecord(files: BoardFile[]): Record<string, BoardFile> {
+  return Object.fromEntries(files.map((f) => [f.id, f]));
+}
+
+/**
+ * The bytes behind image elements now on the canvas that have not been sent.
+ *
+ * Driven off the live scene rather than the outgoing element batch, because the
+ * two are not in step: Excalidraw creates an `image` element immediately and
+ * fills in its file once the read finishes, so at the moment the element is
+ * posted the bytes may not exist yet, and nothing guarantees the element
+ * changes again once they do.
+ */
+function unsentFiles(
+  elements: readonly BoardElement[],
+  files: Record<string, BoardFile>,
+  sent: Set<string>,
+): BoardFile[] {
+  const out: BoardFile[] = [];
+  const seen = new Set<string>();
+  for (const el of elements) {
+    const fileId = (el as { fileId?: string }).fileId;
+    if (!fileId || sent.has(fileId) || seen.has(fileId)) continue;
+    seen.add(fileId);
+    const file = files[fileId];
+    if (!file?.dataURL) continue;
+    out.push({
+      id: file.id,
+      dataURL: file.dataURL,
+      mimeType: file.mimeType,
+      created: file.created,
+    });
+  }
+  return out;
+}
+
+export function ExcalidrawBoard({ scene, files, canDraw, onSceneChange }: ExcalidrawBoardProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Excalidraw's API type is not exported in a usable form.
   const apiRef = useRef<any>(null);
 
@@ -70,7 +141,8 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
    * through a state initialiser rather than a ref, because reading a ref
    * during render is impure.
    */
-  const [initialElements] = useState(() => scene);
+  const [initialElements] = useState(() => viewable(scene, canDraw));
+  const [initialFiles] = useState(() => filesRecord(files));
   const applyingRemote = useRef(false);
   /**
    * True between pointer-down and pointer-up. Applying a remote scene mid-drag
@@ -90,11 +162,28 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   const pending = useRef(new Map<string, BoardElement>());
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /**
+   * The local canvas as `onChange` last reported it, elements and files.
+   *
+   * The flush loop needs both, and it cannot work from the element batch alone:
+   * an `image` element is created and posted while its bytes are still being
+   * read off disk, so at the moment its version changes there is nothing to
+   * send, and there is no promise the version will change again afterwards.
+   * Checking the live scene each tick instead means the bytes go out on the
+   * first tick after they exist, whatever the element did.
+   */
+  const localElements = useRef<readonly BoardElement[]>([]);
+  const localFiles = useRef<Record<string, BoardFile>>({});
+  /** File ids already on the wire. A file never changes, so once is enough. */
+  const sentFileIds = useRef(new Set<string>());
+  /** File ids already handed to this canvas, to keep `addFiles` off the hot path. */
+  const appliedFileIds = useRef(new Set<string>());
+
   // Latest scene, readable from callbacks without making them depend on it.
-  const sceneRef = useRef(scene);
+  const sceneRef = useRef(viewable(scene, canDraw));
   useEffect(() => {
-    sceneRef.current = scene;
-  }, [scene]);
+    sceneRef.current = viewable(scene, canDraw);
+  }, [scene, canDraw]);
 
   const onSceneChangeRef = useRef(onSceneChange);
   useEffect(() => {
@@ -105,12 +194,18 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
   // change events, and only the latest state of each element matters.
   useEffect(() => {
     timer.current = setInterval(() => {
-      if (pending.current.size === 0) return;
+      const files = unsentFiles(
+        localElements.current,
+        localFiles.current,
+        sentFileIds.current,
+      );
+      if (pending.current.size === 0 && files.length === 0) return;
       const batch = [...pending.current.values()];
       pending.current = new Map();
       // Recorded as sent only once it actually goes out.
       for (const el of batch) lastSentVersions.current.set(el.id, el.version);
-      onSceneChangeRef.current(batch);
+      for (const file of files) sentFileIds.current.add(file.id);
+      onSceneChangeRef.current(batch, files);
     }, SYNC_INTERVAL_MS);
     return () => {
       if (timer.current) clearInterval(timer.current);
@@ -134,8 +229,16 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
     }
   }, []);
 
-  const handleChange = useCallback((elements: readonly unknown[]) => {
+  // Excalidraw's third argument is the scene's binary files. Reading only the
+  // first is what left every shared photo as a grey placeholder.
+  const handleChange = useCallback((
+    elements: readonly unknown[],
+    _appState: unknown,
+    files: Record<string, BoardFile> | undefined,
+  ) => {
     if (applyingRemote.current || !canDraw) return;
+    localElements.current = elements as readonly BoardElement[];
+    if (files) localFiles.current = files;
     const changed: BoardElement[] = [];
     for (const raw of elements) {
       const el = raw as BoardElement;
@@ -155,9 +258,19 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
       missedRemote.current = true;
       return;
     }
+    const visible = viewable(scene, canDraw);
     applyingRemote.current = true;
     try {
-      api.updateScene({ elements: scene });
+      // Bytes first: an image element whose file is missing is drawn as a grey
+      // placeholder, and `addFiles` is what clears that. It is idempotent and
+      // skips ids the canvas already holds, but the set keeps a scene tick from
+      // walking every file on the board.
+      const incoming = files.filter((f) => !appliedFileIds.current.has(f.id));
+      if (incoming.length > 0) {
+        for (const f of incoming) appliedFileIds.current.add(f.id);
+        api.addFiles(incoming);
+      }
+      api.updateScene({ elements: visible });
       for (const el of scene) lastSentVersions.current.set(el.id, el.version);
 
       // A scene that lands while Excalidraw is still initialising is applied
@@ -166,10 +279,10 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
       // remaining sliver where it arrives just after. Only for viewers, whose
       // canvas should always be exactly the shared scene — re-asserting it for
       // someone who can draw would undo their own deletions.
-      if (!canDraw && scene.length > 0) {
+      if (!canDraw && visible.length > 0) {
         requestAnimationFrame(() => {
           const live = api.getSceneElements?.() ?? [];
-          if (live.length >= scene.length) return;
+          if (live.length >= visible.length) return;
           applyingRemote.current = true;
           api.updateScene({ elements: sceneRef.current });
           requestAnimationFrame(() => {
@@ -183,7 +296,7 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
         applyingRemote.current = false;
       });
     }
-  }, [scene, api, canDraw]);
+  }, [scene, files, api, canDraw]);
 
   return (
     <div className="absolute inset-0">
@@ -191,6 +304,7 @@ export function ExcalidrawBoard({ scene, canDraw, onSceneChange }: ExcalidrawBoa
         apiRef={apiRef}
         onReady={setApi}
         initialElements={initialElements}
+        initialFiles={initialFiles}
         canDraw={canDraw}
         onChange={handleChange}
         onPointerDown={handlePointerDown}
@@ -214,6 +328,7 @@ function ExcalidrawCanvas({
   apiRef,
   onReady,
   initialElements,
+  initialFiles,
   canDraw,
   onChange,
   onPointerDown,
@@ -224,8 +339,13 @@ function ExcalidrawCanvas({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see apiRef.
   onReady: (api: any) => void;
   initialElements: BoardElement[];
+  initialFiles: Record<string, BoardFile>;
   canDraw: boolean;
-  onChange: (elements: readonly unknown[]) => void;
+  onChange: (
+    elements: readonly unknown[],
+    appState: unknown,
+    files: Record<string, BoardFile> | undefined,
+  ) => void;
   onPointerDown: () => void;
   onPointerUp: () => void;
 }) {
@@ -244,6 +364,9 @@ function ExcalidrawCanvas({
        */
       initialData={{
         elements: initialElements as never,
+        // Handed over with the elements, so a student joining a lesson that
+        // already has a photo on the board sees the photo and not a placeholder.
+        files: initialFiles as never,
         // A late joiner's viewport is wherever Excalidraw starts, which need
         // not be where the writing is.
         scrollToContent: true,

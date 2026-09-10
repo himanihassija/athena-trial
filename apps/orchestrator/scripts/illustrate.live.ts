@@ -32,16 +32,17 @@ if (!illustrationConfigured()) {
 }
 
 console.log(`asking for: "${topic}"`);
-const started = Date.now();
-const elements = await generateIllustration('illustrate-live', topic);
-const took = Date.now() - started;
+const result = await generateIllustration('illustrate-live', topic);
 
-if (elements.length === 0) {
-  console.error(`\nFAIL: no elements after ${took}ms. The reason is logged above.`);
+if (!result.ok) {
+  console.error(
+    `\nFAIL: stage=${result.stage} after ${result.ms}ms — ${result.detail}`,
+  );
   process.exit(1);
 }
 
-console.log(`\nok: ${elements.length} elements in ${took}ms`);
+const elements = result.elements;
+console.log(`\nok: ${elements.length} elements in ${result.ms}ms, kind=${result.kind}`);
 
 const kinds = new Map<string, number>();
 for (const el of elements) {
@@ -69,7 +70,11 @@ console.log(`placement: leftmost x=${leftmost} (must clear 400)`);
 
 // A second request must not re-return the first diagram's elements.
 console.log('\nsecond request on the same session, to prove the diff...');
-const again = await generateIllustration('illustrate-live', `${topic} in more detail`);
+const secondResult = await generateIllustration('illustrate-live', `${topic} in more detail`);
+const again = secondResult.ok ? secondResult.elements : [];
+if (!secondResult.ok) {
+  console.log(`  second request failed: stage=${secondResult.stage} — ${secondResult.detail}`);
+}
 const overlap = again.filter((el) => elements.some((first) => first.id === el.id));
 console.log(`  ${again.length} new elements, ${overlap.length} repeated from the first (must be 0)`);
 

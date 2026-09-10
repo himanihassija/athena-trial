@@ -21,6 +21,7 @@ import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
 import type {
   ActiveWhiteboard,
   BoardElement,
+  BoardFile,
   WhiteboardCommand,
   WhiteboardPublicState,
 } from './whiteboard.js';
@@ -48,6 +49,17 @@ export type ClassroomEvent =
       quizId: string;
       participantId: string;
       correct: boolean;
+      /**
+       * The option the answer resolved to, so a spoken answer shows up on the
+       * card as the chosen one. Without it the overlay only ever highlighted a
+       * tap, and a student who said the right answer out loud watched the card
+       * reveal the correct option with nothing of theirs marked — which reads
+       * as the quiz having picked an option by itself.
+       *
+       * Absent when the answer resolved to nothing (a blank auto-submitted at
+       * expiry), because there is no option to highlight.
+       */
+      answer?: string;
     }
   /** Teacher-only: a new or updated learning gap. */
   | { kind: 'echosphere:gap-detected'; gap: LearningGap }
@@ -71,6 +83,23 @@ export type ClassroomEvent =
   | { kind: 'echosphere:intervention-suppressed'; timestamp: number; text: string; reason: string; score: number }
   /** A student answered every question in a quiz set correctly. Sent only to that student. */
   | { kind: 'echosphere:quiz-set-perfect'; topic: string }
+  /**
+   * Athena was asked to draw something and could not.
+   *
+   * Worth its own event because the spoken half of that turn still happened:
+   * she says "here's a diagram", the picture never lands, and without this the
+   * room is left looking at an empty board with nothing anywhere saying why.
+   * `stage` says how far the attempt got — `spec` is the model failing to
+   * decide what to draw, `excalidraw` is the drawing service refusing or timing
+   * out, `empty` is a scene that came back with nothing new on it.
+   */
+  | {
+      kind: 'echosphere:illustration-failed';
+      topic: string;
+      stage: 'spec' | 'excalidraw' | 'empty';
+      detail: string;
+      at: number;
+    }
   | { kind: 'echosphere:whiteboard'; board: WhiteboardPublicState }
   /** Someone began presenting the board, the way a screen share starts. */
   | { kind: 'echosphere:whiteboard-started'; presenter: ActiveWhiteboard }
@@ -80,7 +109,17 @@ export type ClassroomEvent =
    * scene — a stroke is a stream of small edits and resending everything would
    * saturate the bus.
    */
-  | { kind: 'echosphere:whiteboard-scene'; elements: BoardElement[]; by: string }
+  | {
+      kind: 'echosphere:whiteboard-scene';
+      elements: BoardElement[];
+      /**
+       * Bytes for any newly referenced `image` element. Sent once per file
+       * rather than on every scene tick — a photo is megabytes and the elements
+       * around it are bytes.
+       */
+      files?: BoardFile[];
+      by: string;
+    }
   | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand }
   | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
   | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }

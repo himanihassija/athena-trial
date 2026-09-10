@@ -38,6 +38,23 @@ const TEXT_MERGE_THRESHOLD = 0.34;
 const INTERRUPT_STUDENT_THRESHOLD = 2;
 
 /**
+ * How long the agent's own report of a gap is ignored as a reason to re-open a
+ * gap she has already addressed.
+ *
+ * The prompt asks her to report a gap whenever two or more students show the
+ * same confusion, and the turn where she *explains* that gap satisfies that
+ * instruction — so she re-reported the gap she had just been sent to address.
+ * That cleared `addressedAt`, the silence tick found it pending again, and she
+ * explained it again, roughly once a second, which is what put four near
+ * identical "least common denominator" interjections in a row on screen.
+ *
+ * A student doing something new still re-opens the gap immediately; only her
+ * own echo of it has to wait. The window is long enough to cover the turn she
+ * is in the middle of and the relays that follow it.
+ */
+const SELF_REPORT_REOPEN_COOLDOWN_MS = 90_000;
+
+/**
  * Phrases that mark a question as confusion rather than curiosity. Deliberately
  * conservative: a false positive here can make the agent interject over a
  * perfectly clear lesson, which is the failure mode the plan warns about.
@@ -98,6 +115,7 @@ export function recordReportedGap(
       participantId,
       text: `Athena reported confusion about ${topic}`,
       at: Date.now(),
+      selfReported: true,
     });
   }
   return update;
@@ -146,8 +164,18 @@ function record(
   }
   // New evidence means the gap is live again even if the agent already spoke to
   // it once — otherwise a misconception addressed early can never be re-raised.
+  //
+  // Except when the "new" evidence is the agent's own report of the same gap
+  // arriving right after she addressed it. That is her echoing the thing she
+  // was just sent to explain, not a student showing fresh confusion, and
+  // treating it as new evidence is what made her repeat herself on a loop.
+  // After the cooldown a self-report counts again, so a misconception that
+  // genuinely resurfaces later is still re-raised.
   if (gap.addressedAt !== undefined && evidence.at > gap.addressedAt) {
-    gap.addressedAt = undefined;
+    const isSelfEcho =
+      evidence.selfReported === true &&
+      evidence.at - gap.addressedAt < SELF_REPORT_REOPEN_COOLDOWN_MS;
+    if (!isSelfEcho) gap.addressedAt = undefined;
   }
 
   session.gaps.set(gap.gapId, gap);

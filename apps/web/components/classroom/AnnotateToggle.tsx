@@ -4,9 +4,11 @@
  * Two things it has to communicate, because both are invisible otherwise:
  *
  * 1. Whether annotation is ON. Athena judges what is board-worthy on every
- *    turn, but only writes while this is on — without the gate she would write
- *    whenever a definition happened to come up, on a board nobody asked her to
- *    touch.
+ *    turn, and this governs the writes she VOLUNTEERS — without the gate she
+ *    would write whenever a definition happened to come up, on a board nobody
+ *    asked her to touch. It does not gate a write on a turn somebody asked
+ *    for: gating those made her narrate a board she had not been allowed to
+ *    write on, which is a worse failure than an unwanted line.
  * 2. Whether anything can actually execute a write. The Whiteboard REST API has
  *    no content-insertion endpoint, so board writes run in the teacher's own
  *    browser. If that tab is closed or backgrounded the board silently stops

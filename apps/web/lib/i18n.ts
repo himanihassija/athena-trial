@@ -69,6 +69,13 @@ export const TRANSLATIONS = {
     athenaAddressedThis: 'Athena has addressed this.',
     quizTheseStudents: 'Quiz these students',
     aiHeldBack: 'AI held back',
+    // Only defined for `en`: `t()` falls back to the English string for any
+    // language that does not carry a key, so this needs no invented
+    // translations to be safe to add.
+    drawingFailed: 'Diagram not drawn',
+    drawingFailedSpec: 'could not decide what to draw',
+    drawingFailedExcalidraw: 'the drawing service did not respond',
+    drawingFailedEmpty: 'came back empty',
 
     // Tabs & Tools
     tabClassroom: 'Classroom',

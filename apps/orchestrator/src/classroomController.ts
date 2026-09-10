@@ -11,6 +11,7 @@
  */
 
 import type {
+  Participant,
   ProficiencyTag,
   QuizQuestion,
   SpeakDenialReason,
@@ -56,12 +57,14 @@ import {
   quizDirective,
 } from './agent/prompt.js';
 import {
+  QUIZ_DURATION_MS,
   allTargetsAnswered,
   answersFor,
   broadcastQuiz,
   markQuizClosed,
   normaliseAnswer,
   openQuizFor,
+  optionIndicesMentioned,
   recordAnswer,
   recordQuizFromControl,
 } from './quiz/quizEngine.js';
@@ -76,6 +79,7 @@ import {
   forgetIllustrations,
   generateIllustration,
   placeBeside,
+  type IllustrationContext,
 } from './board/boardAgent.js';
 import { parseVoiceBoardCommand } from './whiteboard/voice.js';
 import { recordHeldBackDoubt } from './workspace/workspaceManager.js';
@@ -104,6 +108,13 @@ const DUPLICATE_WINDOW_MS = 4000;
 const PENDING_QUIZ_TTL_MS = 30_000;
 
 /**
+ * Slack allowed when the expiry sweep checks whether a quiz's deadline has
+ * really passed. setTimeout can fire a few milliseconds early, and without this
+ * an on-time sweep would see a positive remainder and re-arm itself forever.
+ */
+const SWEEP_TOLERANCE_MS = 250;
+
+/**
  * The single gate for agent speech. Everything that wants the agent to talk
  * calls this; nothing calls `decideSpeak` directly.
  */
@@ -112,9 +123,15 @@ export function requestFloor(
   trigger: SpeakTrigger,
   topic?: string,
 ): boolean {
+  const lastInterjection =
+    topic === undefined
+      ? undefined
+      : session.lastInterjectionByTopic.get(topic.toLowerCase());
   const decision = decideSpeak(session.floor, session.policy, trigger, {
     hasUnaddressedGap: pendingClassWideGap(session) !== undefined,
     topic,
+    msSinceTopicInterjection:
+      lastInterjection === undefined ? undefined : Date.now() - lastInterjection,
     now: Date.now(),
   });
 
@@ -164,8 +181,16 @@ const TURN_CONTINUATION_MS = 8_000;
 export function grantSpeakPermit(
   session: ClassroomSession,
   reason: SpeakTrigger,
+  /**
+   * The turnId of the spoken address that earned this permit, when there is
+   * one — omitted for a teacher-command grant (`/agent/start`'s greeting,
+   * FORCE_AGENT_SPEAK) that has no transcript turn to point to. Threaded
+   * through so `hasSpeakPermit` can tell a later relay of this SAME
+   * utterance apart from someone genuinely speaking again.
+   */
+  turnId?: number,
 ): void {
-  session.speakPermit = { grantedAt: Date.now(), reason };
+  session.speakPermit = { grantedAt: Date.now(), reason, turnId };
 }
 
 /**
@@ -191,13 +216,41 @@ export function grantSpeakPermit(
  * this mirrors it for one that has not started yet. Anything that should
  * revoke an invitation outright already does, explicitly and immediately,
  * by calling `clearSpeakPermit` — mute, teacher barge-in, the floor closing
- * to students, a quiz that never landed. This only has to catch a stale
+ * to students, a quiz that never landed.
+ *
+ * "Has anyone spoken again" turned out to need one more qualification, found
+ * live: a turn commonly relays more than once — the recogniser settling on a
+ * final version, or simply arriving twice — and `lastHumanSpeechAt` refreshes
+ * on every relay, finished or not, because the silence-gap detector and the
+ * floor indicator both need it to (a teacher mid-sentence must never read as
+ * silent). A permit granted off the FIRST relay of an address then read every
+ * later relay of that SAME utterance as fresh evidence someone else had
+ * spoken, and revoked itself — measured live, within about a second of being
+ * granted, on the very address that granted it. The fix is not to slow that
+ * refresh down (`lastHumanSpeechAt`'s other consumers depend on it staying
+ * fast); it is to also ask WHICH turn the latest speech belongs to.
+ * `lastHumanSpeechTurnId`, tracked in parallel, answers that: if it names the
+ * same turn the permit itself was granted for, the timestamp moving on is not
+ * new speech, it is an echo of the old, and does not count. This only has to
+ * catch a stale
  * invitation nobody explicitly revoked, not stand in for those calls.
  */
 export function hasSpeakPermit(session: ClassroomSession): boolean {
   const permit = session.speakPermit;
   if (!permit) return false;
-  return session.floor.lastHumanSpeechAt <= permit.grantedAt;
+  const settled = session.lastSettledHumanSpeech;
+  // Nothing has finished being said since the grant. Note this reads
+  // `lastSettledHumanSpeech`, not `floor.lastHumanSpeechAt`: an interim
+  // fragment of the sentence still being spoken bumps the latter — by
+  // design, the silence detector needs it to — and must not read as
+  // somebody else having spoken.
+  if (!settled || settled.at <= permit.grantedAt) return true;
+  // Something did settle after the grant — but if it is the SAME turn that
+  // earned this permit, restated or relayed again, it is an echo of the old,
+  // not new speech, and must not count against it. A permit with no turnId
+  // (a teacher-command grant, which points at no transcript turn) has no
+  // such exception: it goes stale the instant anything else is said.
+  return permit.turnId !== undefined && settled.turnId === permit.turnId;
 }
 
 /**
@@ -292,8 +345,33 @@ export async function handleAgentState(
     sinceAuthorised <= TURN_CONTINUATION_MS &&
     (state === 'speaking' || nobodySpokeSinceAuthorisation);
 
-  if (session.policy.muted || (!hasSpeakPermit(session) && !continuingAuthorisedTurn)) {
-    await interruptAgent(session.sessionId).catch(() => undefined);
+  let permitted = hasSpeakPermit(session) || continuingAuthorisedTurn;
+
+  // The invitation for this very turn may not have arrived yet. See
+  // `awaitPermitInFlight` — this is the window in which Athena was cut off for
+  // answering a question she had, in fact, just been asked.
+  if (!permitted && !session.policy.muted) {
+    permitted = await awaitPermitInFlight(session);
+    // Another relay of the same state change adjudicated it while we waited.
+    // It has already done everything below; doing it again would consume a
+    // second permit for one turn.
+    if (session.authorizedTurnInProgress) return { interrupted: false };
+  }
+
+  if (session.policy.muted || !permitted) {
+    // Revoked BEFORE the interrupt, not after.
+    //
+    // `interruptAgent` is a round trip to Agora — measured at 1.4s in a live
+    // session — and this function used to clear the permit on the far side of
+    // that await. A permit granted during those 1.4s (which is exactly what
+    // happens when the transcript of the address lands a moment after the
+    // engine has already started answering it) was therefore wiped by a
+    // decision taken before it existed. The `think` that followed then had no
+    // permit, was cut off in turn, and the floor was left reading
+    // "Waiting on Athena" with no answer ever coming.
+    //
+    // Every mutation here is a consequence of the decision made above, so it
+    // belongs with that decision, in the same synchronous step.
     releaseFloor(session);
     clearSpeakPermit(session);
     // Report why the interrupt actually fired.
@@ -318,6 +396,7 @@ export async function handleAgentState(
       at: Date.now(),
     });
     setRestraintMeter(session, 'held-back', RESTRAINT_HELD_BACK_MS);
+    await interruptAgent(session.sessionId).catch(() => undefined);
     return { interrupted: true, reason };
   }
 
@@ -326,16 +405,128 @@ export async function handleAgentState(
   // invitation meant for this one.
   session.authorizedTurnInProgress = true;
   session.lastAuthorisedTurnAt = Date.now();
+  // Kept past the permit's own lifetime, for the things that must know whether
+  // anyone asked for this turn. A continuation carries the trigger of the turn
+  // it continues, so it is only overwritten when a fresh permit is consumed.
+  if (session.speakPermit) {
+    session.lastAuthorisedTurnTrigger = session.speakPermit.reason;
+  }
   session.speakPermit = null;
+  claimFloorForAgent(session);
   setRestraintMeter(session, 'speaking');
   return { interrupted: false };
 }
 
+/**
+ * How long to wait for an invitation that is probably already on its way.
+ *
+ * The engine hears the wake word itself and starts answering within a few
+ * hundred milliseconds. The orchestrator learns the same thing far later: the
+ * browser holds each spoken turn for `TURN_SETTLE_MS` before relaying it, so
+ * that a sentence is posted once, complete, rather than as a dozen growing
+ * fragments. For that window the agent is legitimately answering a question
+ * the orchestrator has not been told about yet, and enforcement — which knows
+ * only that no permit exists — cut her off for it.
+ *
+ * Comfortably longer than the relay's settle plus a round trip, so the
+ * transcript has had its chance to land. Waiting is only ever entered for a
+ * turn that would otherwise be interrupted outright, and never when the agent
+ * is muted, so the mute veto keeps its immediacy.
+ */
+const PERMIT_GRACE_MS = 1_500;
+const PERMIT_GRACE_POLL_MS = 100;
+
+/**
+ * True once this turn turns out to have been invited after all.
+ *
+ * Polls rather than waits on an event because the grant happens in a different
+ * request — the transcript POST — and the two share nothing but the session.
+ */
+async function awaitPermitInFlight(session: ClassroomSession): Promise<boolean> {
+  const deadline = Date.now() + PERMIT_GRACE_MS;
+  while (Date.now() < deadline) {
+    // Deliberately NOT unref'd, unlike `onTurnSettled`'s timer: this one is
+    // awaited inside a request that is holding a decision open, so letting the
+    // process exit out from under it would leave that decision unmade.
+    await new Promise((resolve) => setTimeout(resolve, PERMIT_GRACE_POLL_MS));
+    // A mute or a barge-in arriving mid-wait settles the question immediately.
+    if (session.policy.muted) return false;
+    if (session.endedAt !== null) return false;
+    if (session.authorizedTurnInProgress) return true;
+    if (hasSpeakPermit(session)) return true;
+  }
+  return false;
+}
+
+/**
+ * Marks the floor as Athena's for the turn she has just been cleared to give.
+ *
+ * Only `requestFloor` used to do this, which covers the turns the orchestrator
+ * starts. A directly-addressed turn is started by the engine, so the floor sat
+ * in `STUDENT_QUESTION_PENDING` — the state the room reads as "Waiting on
+ * Athena" — for the whole of her answer and beyond, since `releaseFloor` had
+ * nothing to release. Now every authorised turn passes through the same two
+ * states, whoever started it.
+ */
+function claimFloorForAgent(session: ClassroomSession): void {
+  if (session.floor.state === 'AGENT_SPEAKING') return;
+  session.floor = onAgentSpeechStart(session.floor, Date.now());
+  broadcastFloor(session);
+}
+
+/**
+ * Hands the floor back after an agent turn ends — or after one is refused.
+ *
+ * `STUDENT_QUESTION_PENDING` is released as well as `AGENT_SPEAKING`. A
+ * question that will never be answered — she was interrupted, muted, or the
+ * floor closed under her — otherwise left the room's floor indicator showing
+ * "Waiting on Athena" indefinitely, with nothing but the next person to speak
+ * able to clear it.
+ */
 export function releaseFloor(session: ClassroomSession): void {
-  if (session.floor.state !== 'AGENT_SPEAKING') return;
+  if (
+    session.floor.state !== 'AGENT_SPEAKING' &&
+    session.floor.state !== 'STUDENT_QUESTION_PENDING'
+  ) {
+    return;
+  }
+  const wasSpeakingSince =
+    session.floor.state === 'AGENT_SPEAKING' ? session.floor.since : null;
   session.floor = onAgentSpeechEnd(session.floor, Date.now());
   session.activeQuestionerId = null;
   broadcastFloor(session);
+  if (wasSpeakingSince !== null) startQuizCountdowns(session, wasSpeakingSince);
+}
+
+/**
+ * Starts the answer window for any quiz she issued during the turn that just
+ * ended.
+ *
+ * A quiz's deadline is set when its control payload is parsed, which is when
+ * her *text* arrives — but her voice is still reading the four options aloud
+ * for several seconds after that. So the countdown the student sees had already
+ * been running while they were still being told what the options were, and a
+ * 15-second window could be most of the way gone before anyone could answer.
+ * The card's own doc comment claimed the window started "after she has finished
+ * asking"; this is what makes that true.
+ *
+ * Only quizzes nobody has answered yet are moved: if a student got in early,
+ * their window was evidently long enough and extending it would hold the class
+ * on a question that is already done.
+ */
+function startQuizCountdowns(session: ClassroomSession, turnStartedAt: number): void {
+  const now = Date.now();
+  for (const quiz of session.quizzes.values()) {
+    if (quiz.closedAt) continue;
+    if (quiz.createdAt < turnStartedAt) continue;
+    if (session.answers.some((a) => a.quizId === quiz.quizId)) continue;
+    if (quiz.deadline >= now + QUIZ_DURATION_MS) continue;
+    quiz.deadline = now + QUIZ_DURATION_MS;
+    // Re-broadcast so the ring on the student's card restarts against the
+    // deadline the server is actually holding it to.
+    broadcastQuiz(session, quiz);
+    scheduleQuizClose(session, quiz.quizId, quiz.deadline);
+  }
 }
 
 // ─── Transcript ingestion (§3.4, §3.8, §3.9) ─────────────────────────────────
@@ -487,6 +678,12 @@ export async function ingestTranscript(
   const participant = participantByUid(session, uid);
   if (!participant) return; // Unknown uid — not a registered classroom member.
 
+  // Whether the agent was mid-utterance when this segment arrived, captured
+  // before the transition below overwrites it: a student's own speech moves the
+  // floor to OPEN_FLOOR unconditionally, so by the time the echo check runs
+  // there is no longer any record that her audio was still playing.
+  const agentWasSpeaking = session.floor.state === 'AGENT_SPEAKING';
+
   // Floor transition first, so a teacher's barge-in cuts the agent off before
   // any of the slower analysis below runs.
   if (participant.role === 'teacher') {
@@ -534,9 +731,23 @@ export async function ingestTranscript(
   // herself.
   const spokenText = stripSelfEcho(session, text);
   if (spokenText.length === 0) {
+    // Except when the discarded turn was somebody answering the quiz. Athena
+    // reads all four options aloud, so "Option B" is a literal substring of her
+    // own sentence and the echo filter — correctly, by its own rules — threw
+    // away the exact phrasing she just told the class to answer with. Between
+    // that and the 15-second deadline there was a five-second slot in which a
+    // spoken answer could count at all, which is why answering out loud looked
+    // like it did nothing.
+    maybeRescueSpokenQuizAnswer(session, participant, text, agentWasSpeaking);
     broadcastFloor(session);
     return;
   }
+
+  // Real, settled, human speech — final, and not Athena's own voice coming
+  // back through a mic. This is the only thing `hasSpeakPermit` counts as
+  // somebody having spoken; see `lastSettledHumanSpeech`'s doc comment for
+  // why `floor.lastHumanSpeechAt` cannot be used for that question.
+  session.lastSettledHumanSpeech = { at: now, turnId };
 
   if (!alreadyStored) {
     const segment = appendTranscript(session, {
@@ -600,8 +811,10 @@ export async function ingestTranscript(
   } else if (addressed) {
     session.activeQuestionerId = participant.participantId;
     // The permit that makes the answer legitimate; without it the enforcement
-    // path cuts her off.
-    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED');
+    // path cuts her off. Carries turnId so a later relay of THIS utterance —
+    // the recogniser settling on a final version, or arriving twice — cannot
+    // read as someone else speaking and invalidate the very permit it earned.
+    grantSpeakPermit(session, 'DIRECTLY_ADDRESSED', turnId);
     session.floor = onAddressedAgent(session.floor, participant.participantId, now);
     console.info(
       `[floor] granted DIRECTLY_ADDRESSED to ${participant.role} in session ${session.sessionId}`,
@@ -838,6 +1051,61 @@ export function releaseIllustrationState(sessionId: string): void {
 }
 
 /**
+ * How many recent lines of classroom speech the diagram model is shown.
+ *
+ * Enough to resolve what the topic phrase is pointing at, and no more. Every
+ * line here is spent from the same per-minute token budget the rest of the
+ * lesson draws on, and a transcript long enough to bury the topic makes the
+ * diagram worse, not better.
+ */
+const ILLUSTRATION_TRANSCRIPT_LINES = 12;
+
+/** Longest a single quoted line may be before it is cut. */
+const ILLUSTRATION_LINE_CHARS = 220;
+
+/**
+ * Assembles what the lesson can tell the diagram model about the topic.
+ *
+ * The board agent used to be handed `Topic: <phrase>` and nothing else, which
+ * is not enough to draw from: "flow of synthesis" does not say whether the
+ * subject is photosynthesis, protein synthesis or an organic prep, and asked to
+ * draw it anyway the model restates the phrase it was given. Everything here is
+ * already in memory — no extra network call, and `retrieveSync` is synchronous
+ * by design — so this costs a few hundred prompt tokens and nothing else.
+ */
+function illustrationContext(
+  session: ClassroomSession,
+  topic: string,
+): IllustrationContext {
+  const transcript = session.transcript
+    .slice(-ILLUSTRATION_TRANSCRIPT_LINES)
+    .map((segment) => {
+      const who =
+        segment.speaker === 'agent'
+          ? 'Athena'
+          : session.participants.get(segment.participantId ?? '')?.displayName ??
+            segment.speaker;
+      return `${who}: ${segment.text.slice(0, ILLUSTRATION_LINE_CHARS)}`;
+    });
+
+  // Ranked against the topic rather than the transcript: the teacher's uploaded
+  // material is the most authoritative statement of what this class means by a
+  // word, and the topic is the thing being drawn.
+  const material = session.lesson.isEmpty()
+    ? []
+    : session.lesson
+        .retrieveSync(topic, 2)
+        .map((hit) => hit.chunk.text.slice(0, 400));
+
+  return {
+    lessonTitle: session.title,
+    language: session.language,
+    transcript,
+    material,
+  };
+}
+
+/**
  * Draws a diagram and puts it on the board, without blocking the turn.
  *
  * Deliberately not awaited by `applyControl`. Generation is a model call plus
@@ -854,12 +1122,41 @@ async function runIllustration(
   session: ClassroomSession,
   topic: string,
 ): Promise<void> {
-  const drawn = await generateIllustration(session.sessionId, topic);
-  if (drawn.length === 0) return;
+  const result = await generateIllustration(
+    session.sessionId,
+    topic,
+    illustrationContext(session, topic),
+  );
+
+  if (!result.ok) {
+    // One line, always, whether it worked or not. A diagram that never appears
+    // used to leave nothing behind but a bare `console.error` on some paths and
+    // silence on others, so there was no way to tell a model failure from an
+    // Excalidraw failure after the fact — which is exactly the question worth
+    // asking when only half of them are landing.
+    console.error(
+      `[illustrate] FAILED stage=${result.stage} ms=${result.ms} topic="${topic}" — ${result.detail}`,
+    );
+    if (session.endedAt === null) {
+      publish(session.sessionId, {
+        kind: 'echosphere:illustration-failed',
+        topic,
+        stage: result.stage,
+        detail: result.detail,
+        at: Date.now(),
+      });
+    }
+    return;
+  }
+
+  console.log(
+    `[illustrate] ok kind=${result.kind} elements=${result.elements.length} ms=${result.ms} topic="${topic}"`,
+  );
+
   // The session can end while Excalidraw is still drawing.
   if (session.endedAt !== null) return;
 
-  const elements = placeBeside(session.whiteboard.scene, drawn);
+  const elements = placeBeside(session.whiteboard.scene, result.elements);
   mergeSceneElements(session, elements);
 
   // A diagram nobody can see is not worth the round trip: if the board was
@@ -916,12 +1213,31 @@ export function applyControl(
   }
 
   if (control.board) {
-    // Gated on annotate mode: Athena may judge something board-worthy at any
-    // time, but she only writes while the teacher has asked her to. `show`,
-    // `hide` and `clear` are board control rather than content, so they are
-    // allowed through either way.
+    // `show`, `hide` and `clear` are board control rather than content, so they
+    // are allowed through either way.
     const isContent = control.board.action === 'write';
-    if (!isContent || session.whiteboard.annotating) {
+
+    // Annotate mode gates the writes she VOLUNTEERS, which is the case it was
+    // built for: Athena judges something board-worthy while the teacher is
+    // teaching, and without the gate she would write onto a board nobody asked
+    // her to touch every time a definition came up.
+    //
+    // It must not gate a write on a turn somebody asked for. Gating those made
+    // her narrate a board she had not been allowed to write on — "I've put the
+    // example on the board: 3/4 = 3 parts out of 4 equal parts" with the board
+    // untouched — because the payload was dropped here, silently, while the
+    // spoken half of the same turn went out as normal. Nothing told the
+    // teacher, and nothing told her either, so she went on referring to it.
+    //
+    // `GAP_DETECTED_IN_SILENCE` is the only trigger that means nobody asked;
+    // an unauthorised turn has no trigger at all and is treated as asked-for,
+    // since the alternative is to drop it silently all over again. This is the
+    // same call the `illustrate` field above already makes, for the same
+    // reason.
+    const volunteered =
+      session.lastAuthorisedTurnTrigger === 'GAP_DETECTED_IN_SILENCE';
+
+    if (!isContent || !volunteered || session.whiteboard.annotating) {
       applyBoardCommand(session, {
         action: control.board.action,
         text: control.board.text,
@@ -968,16 +1284,34 @@ export function applyControl(
   return {};
 }
 
-/** Arms the countdown-expiry sweep for a freshly issued quiz. */
-function scheduleQuizClose(
+/**
+ * Arms the countdown-expiry sweep for a freshly issued quiz.
+ *
+ * The timer re-checks the deadline when it fires rather than closing outright,
+ * because a quiz's deadline can be pushed out after its timer was armed — see
+ * `startQuizCountdowns`. Without the re-check, the sweep armed against the
+ * deadline set while she was still reading the options would close the question
+ * the moment the students' window actually opened.
+ *
+ * `sweepExpiredQuiz` itself stays an unconditional close, which is what the
+ * teacher-facing paths and the quiz-set machinery expect of it.
+ */
+export function scheduleQuizClose(
   session: ClassroomSession,
   quizId: string,
   deadline: number,
 ): void {
-  setTimeout(
-    () => sweepExpiredQuiz(session, quizId),
-    Math.max(0, deadline - Date.now()),
-  );
+  setTimeout(() => {
+    const quiz = session.quizzes.get(quizId);
+    if (!quiz || quiz.closedAt) return;
+    // Timers can fire a shade early; the tolerance stops an on-time firing from
+    // re-arming itself in a tight loop.
+    if (quiz.deadline - Date.now() > SWEEP_TOLERANCE_MS) {
+      scheduleQuizClose(session, quizId, quiz.deadline);
+      return;
+    }
+    sweepExpiredQuiz(session, quizId);
+  }, Math.max(0, deadline - Date.now()));
 }
 
 /**
@@ -1025,6 +1359,43 @@ function takePendingQuiz(session: ClassroomSession) {
 }
 
 /**
+ * Scores a quiz answer out of a turn the self-echo filter discarded.
+ *
+ * Narrow on purpose. The turn stays out of the transcript and out of the gap
+ * detector — if it really was Athena's voice coming back through a mic, none of
+ * that should change — and the only thing rescued is the answer itself.
+ *
+ * The discriminator is how many options the utterance names. Athena says all
+ * four in one breath when she asks the question; a student says one. So an
+ * utterance naming exactly one option, arriving when she is not currently
+ * speaking, is a student answering, and an utterance naming several is her list
+ * echoing back and is left alone.
+ */
+function maybeRescueSpokenQuizAnswer(
+  session: ClassroomSession,
+  participant: Participant,
+  rawText: string,
+  agentWasSpeaking: boolean,
+): void {
+  if (participant.role !== 'student') return;
+  // While her audio is still playing, an echo is the far likelier explanation,
+  // and the answer window has not started yet anyway — see startQuizCountdowns.
+  // This must be the state as it was when the segment arrived: `session.floor`
+  // has already been moved to OPEN_FLOOR by this very segment.
+  if (agentWasSpeaking) return;
+
+  const quiz = openQuizFor(session, participant.participantId);
+  if (!quiz?.options || quiz.options.length === 0) return;
+
+  if (optionIndicesMentioned(rawText, quiz).size !== 1) return;
+
+  const resolved = normaliseAnswer(rawText, quiz);
+  if (!quiz.options.includes(resolved)) return;
+
+  submitQuizAnswer(session, quiz.quizId, participant.participantId, resolved, 'voice');
+}
+
+/**
  * Scores a spoken quiz answer (§3.6).
  *
  * Only counts when the utterance resolves to an actual option — otherwise every
@@ -1059,6 +1430,11 @@ export async function considerSilenceInterjection(
 
   if (!requestFloor(session, 'GAP_DETECTED_IN_SILENCE', gap.topic)) return false;
 
+  // Stamped before the turn rather than after it, so the cooldown covers the
+  // turn itself. `think` resolves when the request is accepted, not when she
+  // has finished talking, and the tick runs every second — stamping afterwards
+  // would leave the whole of her answer inside the eligible window.
+  session.lastInterjectionByTopic.set(gap.topic.toLowerCase(), Date.now());
   markGapAddressed(session, gap.gapId);
   const ok = await think(
     session.sessionId,
@@ -1423,20 +1799,39 @@ export function submitQuizAnswer(
   const result = recordAnswer(session, quizId, participantId, answer, via);
   if ('error' in result) return { ok: false, detail: result.error };
 
+  // Whether the answer actually landed on one of the four options, as opposed
+  // to being the blank the expiry sweep submits for someone who never answered.
+  // Open-response questions have no options and are always treated as a real
+  // attempt, which is what they were before this distinction existed.
+  const options = result.quiz.options;
+  const attempted =
+    options === undefined ||
+    options.length === 0 ||
+    options.includes(result.answer.answer);
+
   publishTo(session.sessionId, participantId, {
     kind: 'echosphere:quiz-result',
     quizId,
     participantId,
     correct: result.answer.correct,
+    // Only when it resolved to an option — the card highlights it, and there is
+    // nothing to highlight for a blank.
+    ...(attempted && result.answer.answer ? { answer: result.answer.answer } : {}),
   });
   publishToTeachers(session.sessionId, {
     kind: 'echosphere:quiz-result',
     quizId,
     participantId,
     correct: result.answer.correct,
+    ...(attempted && result.answer.answer ? { answer: result.answer.answer } : {}),
   });
 
-  if (!result.answer.correct) {
+  // A non-answer still counts against the student's mastery stats above, but it
+  // is not evidence of a misconception and must not build a learning gap.
+  // Every quiz that timed out used to manufacture one — enough of them at once
+  // to cross the class-wide threshold — which sent Athena off to explain a
+  // topic nobody had actually got wrong, and did it again after the next one.
+  if (!result.answer.correct && attempted) {
     recordWrongAnswer(session, result.quiz, participantId, result.answer.answer);
   }
 
