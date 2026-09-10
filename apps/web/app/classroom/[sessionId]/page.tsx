@@ -23,7 +23,7 @@ import {
   QuizCards,
   TranscriptFeed,
 } from '@/components/classroom/panels';
-import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
+import { ParticipantGrid } from '@/components/classroom/ParticipantGridLazy';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
 import { Model3DStage } from '@/components/classroom/Model3DStage';
 import { ExcalidrawBoard } from '@/components/classroom/ExcalidrawBoardLazy';

@@ -41,7 +41,7 @@ import {
   RosterPanel,
   TranscriptFeed,
 } from '@/components/classroom/panels';
-import { ParticipantGrid } from '@/components/classroom/ParticipantGrid';
+import { ParticipantGrid } from '@/components/classroom/ParticipantGridLazy';
 import { Model3DStage } from '@/components/classroom/Model3DStage';
 import { Model3DPicker } from '@/components/classroom/Model3DPicker';
 import { ScreenShareStage } from '@/components/classroom/ScreenShareStageLazy';
