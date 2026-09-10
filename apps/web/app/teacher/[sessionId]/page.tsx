@@ -871,6 +871,7 @@ export default function TeacherDashboardPage() {
                     <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
                       <ExcalidrawBoard
                         scene={view.boardScene}
+                        files={view.boardFiles}
                         canDraw
                         onSceneChange={view.pushBoardScene}
                       />

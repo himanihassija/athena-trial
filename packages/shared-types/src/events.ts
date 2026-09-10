@@ -21,6 +21,7 @@ import type { LearningGap, QuizQuestion, TranscriptSegment } from './lesson.js';
 import type {
   ActiveWhiteboard,
   BoardElement,
+  BoardFile,
   WhiteboardCommand,
   WhiteboardPublicState,
 } from './whiteboard.js';
@@ -106,7 +107,17 @@ export type ClassroomEvent =
    * scene — a stroke is a stream of small edits and resending everything would
    * saturate the bus.
    */
-  | { kind: 'echosphere:whiteboard-scene'; elements: BoardElement[]; by: string }
+  | {
+      kind: 'echosphere:whiteboard-scene';
+      elements: BoardElement[];
+      /**
+       * Bytes for any newly referenced `image` element. Sent once per file
+       * rather than on every scene tick — a photo is megabytes and the elements
+       * around it are bytes.
+       */
+      files?: BoardFile[];
+      by: string;
+    }
   | { kind: 'echosphere:whiteboard-command'; command: WhiteboardCommand }
   | { kind: 'echosphere:workspace-changed'; workspace: MiroWorkspaceState }
   | { kind: 'echosphere:sticky-note-added'; note: MiroStickyNote }

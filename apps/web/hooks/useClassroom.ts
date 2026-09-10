@@ -28,6 +28,7 @@ import type {
   LanguageCode,
   ActiveWhiteboard,
   BoardElement,
+  BoardFile,
   WhiteboardJoin,
   WhiteboardPublicState,
 } from '@echosphere/shared-types';
@@ -113,8 +114,10 @@ export interface ClassroomView {
   /** Non-null while someone is presenting the board, mirroring activeScreenShare. */
   activeWhiteboard: ActiveWhiteboard | null;
   boardScene: BoardElement[];
+  /** Bytes for the image elements in `boardScene`, keyed by their `fileId`. */
+  boardFiles: BoardFile[];
   presentWhiteboard: (on: boolean) => Promise<void>;
-  pushBoardScene: (elements: BoardElement[]) => void;
+  pushBoardScene: (elements: BoardElement[], files: BoardFile[]) => void;
   workspace: MiroWorkspaceState | null;
   targetedReadings: TargetedReadingItem[];
   catchupSlots: CatchupAvailabilitySlot[];
@@ -158,6 +161,7 @@ export function useClassroom(
   const [whiteboard, setWhiteboard] = useState<WhiteboardPublicState | null>(null);
   const [activeWhiteboard, setActiveWhiteboard] = useState<ActiveWhiteboard | null>(null);
   const [boardScene, setBoardScene] = useState<BoardElement[]>([]);
+  const [boardFiles, setBoardFiles] = useState<BoardFile[]>([]);
   const [whiteboardJoin, setWhiteboardJoin] = useState<WhiteboardJoin | null>(null);
   const [whiteboardJoinError, setWhiteboardJoinError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<MiroWorkspaceState | null>(null);
@@ -184,6 +188,7 @@ export function useClassroom(
           setWhiteboard(event.state.whiteboard);
           setActiveWhiteboard(event.state.whiteboard.presenting ?? null);
           setBoardScene(event.state.whiteboard.scene ?? []);
+          setBoardFiles(event.state.whiteboard.files ?? []);
         }
         if (event.state.workspace) setWorkspace(event.state.workspace);
         if (event.state.targetedReadings) setTargetedReadings(event.state.targetedReadings);
@@ -391,6 +396,15 @@ export function useClassroom(
         // rewound the stroke to its first point every tick, which is why a drag
         // rendered as a single dot. The author already has these elements.
         if (event.by === participantId) break;
+        // Files carry no version — an id is minted per insert and its bytes
+        // never change — so first copy wins and repeats are ignored.
+        if (event.files?.length) {
+          setBoardFiles((prev) => {
+            const known = new Set(prev.map((f) => f.id));
+            const added = event.files!.filter((f) => !known.has(f.id));
+            return added.length > 0 ? [...prev, ...added] : prev;
+          });
+        }
         // Merged the same way the orchestrator does, by element version, so a
         // client that missed a message cannot drop strokes it never saw.
         setBoardScene((prev) => {
@@ -574,9 +588,11 @@ export function useClassroom(
   );
 
   const pushBoardScene = useCallback(
-    (elements: BoardElement[]) => {
+    (elements: BoardElement[], files: BoardFile[]) => {
       if (!participantId) return;
-      void orchestrator.pushBoardScene(sessionId, participantId, elements).catch(() => undefined);
+      void orchestrator
+        .pushBoardScene(sessionId, participantId, elements, files)
+        .catch(() => undefined);
     },
     [sessionId, participantId],
   );
@@ -661,6 +677,7 @@ export function useClassroom(
     setAnnotating,
     activeWhiteboard,
     boardScene,
+    boardFiles,
     presentWhiteboard,
     pushBoardScene,
     workspace,

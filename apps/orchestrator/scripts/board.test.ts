@@ -9,8 +9,13 @@
  */
 
 import assert from 'node:assert/strict';
-import type { BoardElement } from '@echosphere/shared-types';
-import { mergeSceneElements } from './../src/whiteboard/boardSession.ts';
+import type { BoardElement, BoardFile } from '@echosphere/shared-types';
+import {
+  applyBoardCommand,
+  mergeSceneElements,
+  mergeSceneFiles,
+  publicWhiteboard,
+} from './../src/whiteboard/boardSession.ts';
 import { createSession } from './../src/state/sessionRegistry.ts';
 
 let pass = 0;
@@ -72,7 +77,62 @@ t('an equal version still applies, since Excalidraw reuses it on no-op edits', (
 t('the board starts empty and not presenting', () => {
   const s = createSession('t');
   assert.deepEqual(s.whiteboard.scene, []);
+  assert.deepEqual(s.whiteboard.files, []);
   assert.equal(s.whiteboard.presenting, null);
+});
+
+/**
+ * The bytes behind an inserted image.
+ *
+ * An Excalidraw `image` element carries only a `fileId`; the pixels live in a
+ * separate map. The board used to carry elements alone, so a student was handed
+ * a picture frame with no picture and drew Excalidraw's grey placeholder.
+ */
+const file = (id: string, bytes = 10): BoardFile =>
+  ({ id, dataURL: `data:image/png;base64,${'A'.repeat(bytes)}`, mimeType: 'image/png', created: 1 });
+
+t('an image the board has not seen is stored and reported as new', () => {
+  const s = createSession('t');
+  const added = mergeSceneFiles(s, [file('f1')]);
+  assert.equal(s.whiteboard.files.length, 1);
+  assert.deepEqual(added.map((f) => f.id), ['f1'], 'new files are what gets rebroadcast');
+});
+
+t('a file already held is not stored twice, nor put back on the bus', () => {
+  const s = createSession('t');
+  mergeSceneFiles(s, [file('f1')]);
+  const added = mergeSceneFiles(s, [file('f1')]);
+  assert.equal(s.whiteboard.files.length, 1, 'no duplicate');
+  assert.deepEqual(added, [], 'a photo must not be rebroadcast every time its element moves');
+});
+
+t('the first copy of a file id wins, since a file never changes', () => {
+  const s = createSession('t');
+  mergeSceneFiles(s, [file('f1', 10)]);
+  mergeSceneFiles(s, [{ ...file('f1', 10), dataURL: 'data:image/png;base64,ZZZZ' }]);
+  assert.match(s.whiteboard.files[0]!.dataURL, /AAAA/);
+});
+
+t('one absurd file is skipped without blocking the rest of the batch', () => {
+  const s = createSession('t');
+  const added = mergeSceneFiles(s, [file('huge', 7 * 1024 * 1024), file('small')]);
+  assert.deepEqual(added.map((f) => f.id), ['small']);
+});
+
+t('clearing the board drops its images too, so the memory is actually freed', () => {
+  const s = createSession('t');
+  mergeSceneFiles(s, [file('f1')]);
+  applyBoardCommand(s, { action: 'clear', source: 'teacher' });
+  assert.deepEqual(s.whiteboard.files, []);
+});
+
+t('the public state carries the files, so a late joiner gets the pictures', () => {
+  const s = createSession('t');
+  mergeSceneElements(s, [el('img', 1, { type: 'image', fileId: 'f1' })]);
+  mergeSceneFiles(s, [file('f1')]);
+  const pub = publicWhiteboard(s);
+  assert.equal(pub.scene.length, 1);
+  assert.deepEqual(pub.files.map((f) => f.id), ['f1']);
 });
 
 console.log(`\n${pass} passing`);

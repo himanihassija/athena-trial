@@ -18,6 +18,7 @@ import type {
   CatchupMessage,
   ActiveWhiteboard,
   BoardElement,
+  BoardFile,
   WhiteboardJoin,
 } from '@echosphere/shared-types';
 
@@ -220,10 +221,22 @@ export const orchestrator = {
       { method: 'POST', body: JSON.stringify({ participantId, presenting }) },
     ),
 
-  pushBoardScene: (sessionId: string, participantId: string, elements: BoardElement[]) =>
+  pushBoardScene: (
+    sessionId: string,
+    participantId: string,
+    elements: BoardElement[],
+    files: BoardFile[] = [],
+  ) =>
     request<{ ok: true; count: number }>(
       `/api/sessions/${sessionId}/whiteboard/scene`,
-      { method: 'POST', body: JSON.stringify({ participantId, elements }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          participantId,
+          elements,
+          ...(files.length > 0 ? { files } : {}),
+        }),
+      },
     ),
 
   setAnnotating: (sessionId: string, participantId: string, annotating: boolean) =>

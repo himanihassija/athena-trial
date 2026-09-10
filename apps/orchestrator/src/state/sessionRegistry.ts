@@ -255,6 +255,12 @@ export interface ClassroomSession {
     presenting: WhiteboardPublicState['presenting'];
     scene: WhiteboardPublicState['scene'];
     /**
+     * Bytes for the `image` elements in `scene`. Held here rather than derived,
+     * because an Excalidraw image element carries only a `fileId` — without the
+     * map a late joiner is handed a picture frame with no picture in it.
+     */
+    files: WhiteboardPublicState['files'];
+    /**
      * Athena only annotates while the teacher has this on. Without a gate she
      * would write on every turn that happened to contain a definition, which
      * floods a board nobody asked her to touch. Explicit teacher intent is the
@@ -336,6 +342,7 @@ export function createSession(
       annotating: false,
       presenting: null,
       scene: [],
+      files: [],
     },
     raisedHands: new Set(),
     screenShareAllowed: new Set(),
