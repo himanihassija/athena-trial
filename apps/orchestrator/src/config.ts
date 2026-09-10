@@ -72,18 +72,27 @@ export const config = {
    * it ends.
    */
   databaseUrl: process.env.DATABASE_URL,
-  resendApiKey: process.env.RESEND_API_KEY,
 
   /**
-   * Agora Interactive Whiteboard (a separate product from RTC/RTM/ConvoAI, and
-   * one the `agora` CLI cannot enable — it is switched on in Console). The App
-   * Identifier is "<teamUUID>/<appUUID>"; the SDK token signs the room
-   * management REST calls. Optional: `whiteboardConfigured()` gates the feature
-   * so a deployment without these still runs, just without a board.
+   * Supabase project URL, e.g. https://<ref>.supabase.co
+   *
+   * Used only to locate the project's public JWKS endpoint, so teacher tokens
+   * can be verified. No key, secret, or service-role credential is needed or
+   * accepted — see auth/supabaseAuth.ts. Unset means tokens cannot be verified
+   * and every request is treated as anonymous.
    */
-  whiteboardAppIdentifier: process.env.WHITEBOARD_APP_IDENTIFIER ?? '',
-  whiteboardSdkToken: process.env.WHITEBOARD_SDK_TOKEN ?? '',
-  whiteboardRegion: process.env.WHITEBOARD_REGION ?? 'in-mum',
+  supabaseUrl: process.env.SUPABASE_URL ?? '',
+
+  /**
+   * Whether teacher-owned actions refuse anonymous callers.
+   *
+   * Defaults to false so that adding the auth gate to a route is a no-op until
+   * this is deliberately switched on: the deployed app currently has no login
+   * screen, and defaulting this to true would lock every existing user out on
+   * the next deploy. Turn it on once the frontend's sign-in flow is live.
+   */
+  authRequired: process.env.AUTH_REQUIRED === '1',
+  resendApiKey: process.env.RESEND_API_KEY,
 
   /**
    * Excalidraw+ MCP, which backs Athena's "draw me a diagram" path.
@@ -96,7 +105,7 @@ export const config = {
    *
    * Optional, and dormant if unset: `illustrationConfigured()` gates the
    * feature, so a deployment without a key still runs a full lesson, just
-   * without diagrams. Same posture as WHITEBOARD_* above.
+   * without diagrams.
    *
    * The scratch scene is where diagrams are laid out before their elements are
    * copied onto the classroom board. Left blank, one is created per classroom

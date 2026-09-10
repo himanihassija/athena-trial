@@ -28,6 +28,7 @@ import {
   quizQuestions,
   reports,
   sessions,
+  teacherProfiles,
   transcriptSegments,
 } from './../db/schema.js';
 import { generateReport } from './summary.js';
@@ -49,6 +50,34 @@ export async function persistSessionEnd(session: ClassroomSession): Promise<void
   const report = await generateReport(session);
 
   await db.transaction(async (tx) => {
+    // The owner row has to exist before the session references it. Upserted
+    // here rather than at sign-in because the orchestrator has no sign-in
+    // event — Supabase handles that — so the first time this service learns a
+    // teacher exists is when they act, and a lesson ending is the only moment
+    // that reaches the database at all.
+    if (session.owner) {
+      const seenAt = new Date();
+      await tx
+        .insert(teacherProfiles)
+        .values({
+          userId: session.owner.userId,
+          email: session.owner.email,
+          displayName: session.owner.displayName,
+          firstSeenAt: seenAt,
+          lastSeenAt: seenAt,
+        })
+        .onConflictDoUpdate({
+          target: teacherProfiles.userId,
+          // firstSeenAt is deliberately not in the update set — it records the
+          // first sighting and must survive every later one.
+          set: {
+            email: session.owner.email,
+            displayName: session.owner.displayName,
+            lastSeenAt: seenAt,
+          },
+        });
+    }
+
     await tx
       .insert(sessions)
       .values({
@@ -57,10 +86,14 @@ export async function persistSessionEnd(session: ClassroomSession): Promise<void
         title: session.title,
         createdAt: new Date(session.createdAt),
         endedAt: session.endedAt ? new Date(session.endedAt) : new Date(),
+        ownerId: session.owner?.userId ?? null,
       })
       .onConflictDoUpdate({
         target: sessions.sessionId,
-        set: { endedAt: session.endedAt ? new Date(session.endedAt) : new Date() },
+        set: {
+          endedAt: session.endedAt ? new Date(session.endedAt) : new Date(),
+          ownerId: session.owner?.userId ?? null,
+        },
       });
 
     const allParticipants = [...session.participants.values()];

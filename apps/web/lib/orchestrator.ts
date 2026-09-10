@@ -21,6 +21,8 @@ import type {
   WhiteboardJoin,
 } from '@echosphere/shared-types';
 
+import { getAccessToken } from './supabase';
+
 const BASE =
   process.env.NEXT_PUBLIC_ORCHESTRATOR_URL ?? 'http://localhost:8787';
 
@@ -48,10 +50,18 @@ export interface JoinResult {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Attached whenever a teacher happens to be signed in, and simply absent
+  // otherwise — students have no account and must keep working untouched. The
+  // orchestrator treats a missing token as an anonymous caller, so this is
+  // additive: it upgrades a request from anonymous to owned rather than being
+  // a precondition for one.
+  const token = await getAccessToken();
+
   const response = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -77,9 +87,16 @@ export const orchestrator = {
   baseUrl: BASE,
 
   health: () =>
-    request<{ ok: boolean; sessions: number; model: string; stt: string }>(
-      '/health',
-    ),
+    request<{
+      ok: boolean;
+      sessions: number;
+      /** Raw LLM_MODEL env value. */
+      modelConfigured: string;
+      /** What the agent actually runs; differs when LLM_MODEL is unsupported. */
+      modelResolved: string;
+      modelSupported: boolean;
+      stt: string;
+    }>('/health'),
 
   listSessions: () => request<SessionSummary[]>('/api/sessions'),
 
@@ -106,6 +123,44 @@ export const orchestrator = {
       method: 'POST',
       body: JSON.stringify({ participantId }),
     }),
+
+  /**
+   * Clears a leave that should not have stuck — see `leaveBeacon` below and
+   * the route's own comment. Call on every mount; a no-op if nothing needed
+   * undoing.
+   */
+  resume: (sessionId: string, participantId: string) =>
+    request<{ ok: boolean }>(`/api/sessions/${sessionId}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ participantId }),
+    }),
+
+  /**
+   * Tells the server a participant is gone, from a page-unload handler where
+   * a normal `fetch` is not reliable — the browser is free to abandon it the
+   * moment the page starts tearing down. `sendBeacon` is built for exactly
+   * this: the browser guarantees the request is sent even as the page goes
+   * away, at the cost of not being able to read a response, which nothing
+   * here needs anyway.
+   *
+   * Fires on a refresh as well as a real close — the browser cannot tell
+   * them apart from this event alone — so a refresh looks like a departure
+   * for a moment. `resume` above is what undoes that once the page comes
+   * back, which is why every mount calls it unconditionally.
+   */
+  leaveBeacon: (sessionId: string, participantId: string): void => {
+    try {
+      navigator.sendBeacon(
+        `${BASE}/api/sessions/${sessionId}/leave`,
+        new Blob([JSON.stringify({ participantId })], {
+          type: 'application/json',
+        }),
+      );
+    } catch {
+      // Best-effort: a browser without sendBeacon just keeps the old
+      // behaviour of relying on an explicit "Leave" click.
+    }
+  },
 
   startAgent: (sessionId: string, participantId: string) =>
     request<{ agentId: string; state: string }>(
@@ -164,7 +219,7 @@ export const orchestrator = {
       body: JSON.stringify({ state }),
     }),
 
-  /** Role-scoped room token, so it cannot ride along with broadcast room state. */
+  /** Fetches the participant-scoped local board state. */
   getWhiteboard: (sessionId: string, participantId: string) =>
     request<WhiteboardJoin>(
       `/api/sessions/${sessionId}/whiteboard?participantId=${encodeURIComponent(participantId)}`,

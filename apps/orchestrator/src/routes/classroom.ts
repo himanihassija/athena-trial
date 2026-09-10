@@ -35,6 +35,7 @@ import {
   stopAgent,
 } from '../agent/agentLifecycle.js';
 import { rankedGaps } from '../gaps/gapDetector.js';
+import { requireTeacher } from '../auth/supabaseAuth.js';
 import { generateReport } from '../report/summary.js';
 import { persistSessionEnd } from '../report/persist.js';
 import { closeRoom, publish, subscribe } from '../state/eventBus.js';
@@ -74,6 +75,7 @@ import {
   isTeacher,
   listSessions,
   removeParticipant,
+  resumeParticipant,
   toPublicParticipant,
   type ClassroomSession,
 } from '../state/sessionRegistry.js';
@@ -140,6 +142,13 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
   // ── Sessions (§3.1) ───────────────────────────────────────────────────────
 
   app.post('/api/sessions', async (request, reply) => {
+    // Creating a lesson is the one action that establishes ownership, so it is
+    // where the teacher's token is checked. With AUTH_REQUIRED off this still
+    // reads the token when one is present — an authenticated teacher gets an
+    // owned lesson, an anonymous one gets an unowned lesson exactly as before.
+    const auth = await requireTeacher(request, reply);
+    if (!auth.ok) return;
+
     const body = z
       .object({
         title: z.string().min(1).max(140).optional(),
@@ -151,7 +160,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       (body.seed === 'unlike-fractions'
         ? UNLIKE_FRACTIONS_TITLE
         : 'Untitled lesson');
-    const session = createSession(title);
+    const session = createSession(title, auth.teacher);
     if (body.seed === 'unlike-fractions') {
       seedUnlikeFractionsLesson(session.lesson);
     }
@@ -222,6 +231,34 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true });
   });
 
+  /**
+   * Undoes a leave that should not have stuck.
+   *
+   * The browser cannot tell a tab closing for good from a page refresh, so
+   * the client sends a leave beacon on both — without this, closing a tab
+   * was the only thing that ever cleared a participant, and anyone who
+   * instead just refreshed, or navigated away and back without an explicit
+   * "Leave" click, kept showing as present in every other participant's
+   * roster and transcript attribution indefinitely, because nothing ever
+   * told the server they had not really gone.
+   *
+   * Called on every mount, not only ones the client can prove followed a
+   * refresh — `resumeParticipant` is a no-op for a participant who was never
+   * marked left, so this is safe unconditionally.
+   */
+  app.post('/api/sessions/:sessionId/resume', async (request, reply) => {
+    const session = requireSession(request, reply);
+    if (!session) return;
+    const { participantId } = z
+      .object({ participantId: z.string() })
+      .parse(request.body);
+    if (!resumeParticipant(session, participantId)) {
+      return reply.code(404).send({ error: 'Unknown participant' });
+    }
+    broadcastParticipantJoined(session, participantId);
+    return reply.send({ ok: true });
+  });
+
   // ── Agent lifecycle (§3.1) ────────────────────────────────────────────────
 
   app.post('/api/sessions/:sessionId/agent/start', async (request, reply) => {
@@ -242,19 +279,7 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
       // enforcement path treats it as an uninvited turn and cuts it off after
       // the first two words.
       grantSpeakPermit(session, 'TEACHER_INVOKED');
-      // Best-effort: a Netless outage or missing credentials must not stop the
-      // agent joining. The overlay still opens and renders spoken board cards;
-      // only the collaborative canvas behind them is absent.
-      try {
-        await openWhiteboard(session);
-      } catch (boardError) {
-        request.log.warn({ err: boardError }, 'whiteboard room create failed; overlay opens without canvas');
-        session.whiteboard.open = true;
-        publish(session.sessionId, {
-          kind: 'echosphere:whiteboard',
-          board: publicWhiteboard(session),
-        });
-      }
+      await openWhiteboard(session);
       publish(session.sessionId, { kind: 'echosphere:room-state', state: roomState(session) });
       return reply.send({ agentId, state: 'RUNNING' });
     } catch (error) {
@@ -402,22 +427,12 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     }
     session.whiteboard.annotating = annotating;
     if (annotating) {
-      // Opening the board also creates the Netless room if one does not exist
-      // yet. Without this the teacher could switch annotation on and get an
-      // open-but-empty board, because the room was previously only created
-      // when the agent joined — and annotation does not require an agent.
-      try {
-        await openWhiteboard(session);
-      } catch (boardError) {
-        request.log.warn({ err: boardError }, 'whiteboard room create failed; annotating without canvas');
-        session.whiteboard.open = true;
-      }
+      await openWhiteboard(session);
     }
     broadcastWhiteboard(session);
     return reply.send({
       ok: true,
       annotating,
-      agoraReady: publicWhiteboard(session).agoraReady,
     });
   });
 
@@ -431,16 +446,9 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!participant || participant.leftAt !== undefined) {
       return reply.code(403).send({ error: 'Unknown participant' });
     }
-    try {
-      return reply.send(
-        await joinPayload(session, participant.uid, participant.role === 'teacher'),
-      );
-    } catch (error) {
-      request.log.error({ err: error }, 'whiteboard join failed');
-      return reply.code(502).send({
-        error: error instanceof Error ? error.message : 'Whiteboard join failed',
-      });
-    }
+    return reply.send(
+      await joinPayload(session, participant.uid, participant.role === 'teacher'),
+    );
   });
 
   app.post('/api/sessions/:sessionId/catchup', async (request, reply) => {
@@ -1112,6 +1120,26 @@ export async function classroomRoutes(app: FastifyInstance): Promise<void> {
     if (!isTeacher(session, participantId)) {
       return reply.code(403).send({ error: 'The report is teacher-only' });
     }
+
+    // Second gate, on top of the in-room teacher check above. That check only
+    // proves the caller holds a teacher participantId for this session, which
+    // is a value that travels in a URL and outlives the class. Once a lesson
+    // has a signed-in owner, the report — the most sensitive artefact here,
+    // since it names students and characterises their understanding — is
+    // restricted to that account.
+    if (session.owner) {
+      const auth = await requireTeacher(request, reply);
+      if (!auth.ok) return;
+      if (auth.teacher && auth.teacher.userId !== session.owner.userId) {
+        return reply
+          .code(403)
+          .send({ error: 'This lesson belongs to another teacher.' });
+      }
+      // auth.teacher === null only when AUTH_REQUIRED is off, which is the
+      // pre-auth behaviour this deployment still runs on; the participantId
+      // check above remains the gate in that case.
+    }
+
     const report = await generateReport(session);
     return reply.send(report);
   });
@@ -1183,4 +1211,3 @@ function roomState(session: ClassroomSession): RoomState {
     activeModel: session.activeModel,
   };
 }
-

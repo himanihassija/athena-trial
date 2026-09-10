@@ -1,20 +1,6 @@
 /**
- * The shared board: Athena's written lines over a paper ground.
- *
- * **Why there is no collaborative canvas here.** Agora Interactive Whiteboard's
- * client SDK cannot run on this app. `white-web-sdk` — which every Fastboard
- * package sits on — declares `react-dom: ^16.8.0` as a direct dependency and
- * calls `ReactDOM.render` and `unmountComponentAtNode`, both removed in React
- * 18. This app is on React 19. pnpm does nest a React 16 copy for it, but Next
- * dedupes react-dom to one version at build time, so the nesting is defeated
- * and those calls fail at runtime. There is no fixed release: 2.16.58 is the
- * latest and still asks for React 16.
- *
- * Dropping it costs nothing today. Athena's annotation is orchestrator state
- * broadcast over SSE and rendered below, which is the actual feature; the
- * canvas would only add human freehand drawing, and that needs the Fastboard
- * toolbar, which is React 16 as well. The server-side Netless room code is
- * intact, so this can come back if Netless ships React 18 support.
+ * The shared local board: Athena's written lines and Excalidraw scene over a
+ * paper ground. Scene changes are synchronized by the orchestrator over SSE.
  */
 
 'use client';
@@ -84,4 +70,3 @@ function PaperGrid() {
     />
   );
 }
-

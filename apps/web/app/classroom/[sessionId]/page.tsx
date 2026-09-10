@@ -79,6 +79,7 @@ export default function ClassroomPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('workspace');
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [transcriptPinned, setTranscriptPinned] = useState(false);
 
   useEffect(() => {
     const stored = loadIdentity(sessionId);
@@ -338,6 +339,21 @@ export default function ClassroomPage() {
 
           <button
             type="button"
+            onClick={() => setTranscriptPinned((on) => !on)}
+            data-active={transcriptPinned}
+            className="eco-action-chip"
+            style={{ '--chip-accent': 'var(--eco-blue)' } as CSSProperties}
+            title={
+              transcriptPinned
+                ? 'Unpin the transcript sidebar'
+                : 'Pin the transcript alongside the room'
+            }
+          >
+            {transcriptPinned ? 'Unpin Transcript' : 'Pin Transcript'}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setMicEnabled((on) => !on)}
             className="eco-mic-button flex h-9 w-9 items-center justify-center border text-xs font-medium transition-colors"
             style={
@@ -435,37 +451,68 @@ export default function ClassroomPage() {
               onSpeakingChange={setSpeakingUid}
             />
 
-            <div className="flex min-h-0 flex-1 flex-col">
-              {view.activeScreenShare ? (
-                <ScreenShareStage
-                  isSharing={isScreenSharing}
-                  onSharingEnded={stopScreenShareFromBrowser}
-                  activeScreenShare={view.activeScreenShare}
-                  selfUid={identity.uid}
-                />
-              ) : view.activeWhiteboard ? (
-                <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
-                  {/* Students watch: drawing is teacher-and-Athena only, and the
-                      orchestrator rejects a student scene post regardless. */}
-                  <ExcalidrawBoard
-                    scene={view.boardScene}
-                    canDraw={false}
-                    onSceneChange={() => undefined}
+            {/* Stage + optional pinned transcript sidebar, side by side. */}
+            <div className="flex min-h-0 flex-1 gap-3">
+              <div className="flex min-h-0 flex-1 flex-col">
+                {view.activeScreenShare ? (
+                  <ScreenShareStage
+                    isSharing={isScreenSharing}
+                    onSharingEnded={stopScreenShareFromBrowser}
+                    activeScreenShare={view.activeScreenShare}
+                    selfUid={identity.uid}
                   />
-                </div>
-              ) : view.activeModel ? (
-                <Model3DStage model={view.activeModel} />
-              ) : (
-                <ParticipantGrid
-                  sessionId={sessionId}
-                  participants={view.participants}
-                  agentPresent={Boolean(view.room?.agentId)}
-                  agentUid={identity.agentUid}
-                  speakingUid={speakingUid}
-                  selfUid={identity.uid}
-                  selfMicEnabled={micEnabled}
-                  raisedHands={view.raisedHands}
-                />
+                ) : view.activeWhiteboard ? (
+                  <div className="eco-panel relative min-h-0 flex-1 overflow-hidden">
+                    {/* Students watch: drawing is teacher-and-Athena only, and the
+                        orchestrator rejects a student scene post regardless. */}
+                    <ExcalidrawBoard
+                      scene={view.boardScene}
+                      canDraw={false}
+                      onSceneChange={() => undefined}
+                    />
+                  </div>
+                ) : view.activeModel ? (
+                  <Model3DStage modelId={view.activeModel} />
+                ) : (
+                  <ParticipantGrid
+                    sessionId={sessionId}
+                    participants={view.participants}
+                    agentPresent={Boolean(view.room?.agentId)}
+                    agentUid={identity.agentUid}
+                    speakingUid={speakingUid}
+                    selfUid={identity.uid}
+                    selfMicEnabled={micEnabled}
+                    raisedHands={view.raisedHands}
+                  />
+                )}
+              </div>
+
+              {transcriptPinned && (
+                <aside className="eco-panel flex w-80 shrink-0 flex-col overflow-hidden">
+                  <div
+                    className="flex items-center justify-between border-b px-3 py-2"
+                    style={{ borderColor: 'var(--eco-rule)' }}
+                  >
+                    <h2 className="eco-label">Transcript</h2>
+                    <button
+                      type="button"
+                      onClick={() => setTranscriptPinned(false)}
+                      className="text-xs text-[var(--eco-cream-faint)] hover:text-[var(--eco-cream)]"
+                      aria-label="Unpin transcript"
+                      title="Unpin transcript"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                    <TranscriptFeed
+                      transcript={view.transcript}
+                      participants={view.participants}
+                      agentPresent={Boolean(view.room?.agentId)}
+                      language={lang}
+                    />
+                  </div>
+                </aside>
               )}
             </div>
           </>
@@ -519,3 +566,4 @@ export default function ClassroomPage() {
     </main>
   );
 }
+

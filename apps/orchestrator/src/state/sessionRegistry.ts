@@ -33,7 +33,6 @@ import {
   type InterventionRecord,
   type WhiteboardPublicState,
 } from '@echosphere/shared-types';
-import { config } from '../config.js';
 import { initialFloor } from '../floor/floorMachine.js';
 import type { LessonStore } from '../lesson/lessonStore.js';
 import { createLessonStore } from '../lesson/lessonStore.js';
@@ -44,6 +43,19 @@ const ROLLING_TRANSCRIPT_WINDOW = 40;
 /** Agora RTC uid reserved for the AI co-teacher. Matches the web client's constant. */
 export const AGENT_UID = '123456';
 
+/**
+ * The teacher account a lesson belongs to.
+ *
+ * Mirrors the verified JWT claims rather than re-reading them from Supabase:
+ * by the time a session exists the token has already been checked, and a class
+ * must not stop working because an auth lookup is slow mid-lesson.
+ */
+export interface SessionOwner {
+  userId: string;
+  email: string;
+  displayName: string | null;
+}
+
 export interface ClassroomSession {
   sessionId: string;
   /** Agora RTC/RTM channel name. Derived from sessionId so both are guessable from either. */
@@ -51,6 +63,16 @@ export interface ClassroomSession {
   title: string;
   createdAt: number;
   endedAt: number | null;
+
+  /**
+   * The signed-in teacher who created this lesson, if any.
+   *
+   * Null for a lesson created anonymously — which is every lesson while
+   * AUTH_REQUIRED is off. Carried in memory so that `persistSessionEnd` can
+   * record ownership at the end without re-deriving who started the class, and
+   * so the report route can check the caller is the owner.
+   */
+  owner: SessionOwner | null;
 
   /** Runtime agent id returned by ConvoAI /join. Null until the agent is started. */
   agentId: string | null;
@@ -159,14 +181,10 @@ export interface ClassroomSession {
   interventionHistory: InterventionRecord[];
 
   /**
-   * Shared board. `uuid` is the Netless room; it stays null when Whiteboard
-   * credentials are absent, in which case the overlay still opens and the
-   * spoken `cards` render without the collaborative canvas behind them.
+   * Shared local Excalidraw board state.
    */
   whiteboard: {
     open: boolean;
-    region: string;
-    uuid: string | null;
     cards: WhiteboardPublicState['cards'];
     /**
      * Presence and scene, mirroring how screen share is modelled: one presenter
@@ -216,7 +234,10 @@ function generate4DigitShareCode(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-export function createSession(title: string): ClassroomSession {
+export function createSession(
+  title: string,
+  owner: SessionOwner | null = null,
+): ClassroomSession {
   const sessionId = generate4DigitShareCode();
   const now = Date.now();
   const session: ClassroomSession = {
@@ -226,6 +247,7 @@ export function createSession(title: string): ClassroomSession {
     language: 'en',
     createdAt: now,
     endedAt: null,
+    owner,
     agentId: null,
     participants: new Map(),
     uidToParticipantId: new Map(),
@@ -248,8 +270,6 @@ export function createSession(title: string): ClassroomSession {
     interventionHistory: [],
     whiteboard: {
       open: false,
-      region: config.whiteboardRegion,
-      uuid: null,
       cards: [],
       annotating: false,
       presenting: null,
@@ -337,6 +357,29 @@ export function removeParticipant(
   // Kept in the map with `leftAt` set: the post-class report (§3.9) still needs
   // their transcript attribution and quiz history after they disconnect.
   participant.leftAt = Date.now();
+}
+
+/**
+ * Undoes a `removeParticipant` that should not have stuck.
+ *
+ * The browser cannot reliably tell a tab closing for good from a page
+ * refresh — both fire the same `pagehide` event — so the client sends a
+ * leave beacon on either. A refresh is deliberately NOT a real departure
+ * (see `storeIdentity`'s comment: the same participantId reconnects rather
+ * than re-joining), so on every mount the client also calls this to clear
+ * whatever a stray beacon from a moment ago may have set. Safe to call on a
+ * participant who was never marked left at all — it is a no-op then, which
+ * is what makes it fine to call unconditionally on every mount rather than
+ * only ones the client can prove followed a refresh.
+ */
+export function resumeParticipant(
+  session: ClassroomSession,
+  participantId: string,
+): boolean {
+  const participant = session.participants.get(participantId);
+  if (!participant) return false;
+  participant.leftAt = undefined;
+  return true;
 }
 
 export function participantByUid(

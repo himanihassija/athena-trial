@@ -111,12 +111,16 @@ type AgoraRtcWithParameters = typeof AgoraRTC & {
  * Comfortably longer than the gap between two ASR snapshots of the same turn,
  * short enough that the transcript still feels live.
  */
-const TURN_SETTLE_MS = 400;
+const TURN_SETTLE_MS = 1200;
 
 /**
  * Longest a still-growing turn may go unpublished.
+ *
+ * Speech without a pause never settles, so the debounce alone would hide a long
+ * answer completely until the speaker stopped. This publishes the turn so far
+ * and lets the server update the same row in place.
  */
-const TURN_MAX_HOLD_MS = 1500;
+const TURN_MAX_HOLD_MS = 2500;
 
 type ToolkitItem = TranscriptHelperItem<
   Partial<UserTranscription | AgentTranscription>

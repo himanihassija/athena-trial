@@ -33,13 +33,9 @@ export interface WhiteboardCommand {
   at: number;
 }
 
-/** Public board state (no room tokens). */
+/** Public state for the shared local board. */
 export interface WhiteboardPublicState {
   open: boolean;
-  region: string;
-  uuid: string | null;
-  /** True when Agora Interactive Whiteboard credentials are configured. */
-  agoraReady: boolean;
   /** Teacher has asked Athena to annotate what she hears. */
   annotating: boolean;
   /** Set while the board is being presented to the room, like a screen share. */
@@ -49,14 +45,9 @@ export interface WhiteboardPublicState {
   cards: WhiteboardCard[];
 }
 
-/** Per-participant join payload for Fastboard (room token is role-scoped). */
+/** Per-participant state for the local board. */
 export interface WhiteboardJoin {
   open: boolean;
-  agoraReady: boolean;
-  appIdentifier: string | null;
-  region: string;
-  uuid: string | null;
-  roomToken: string | null;
   uid: string;
   writable: boolean;
   cards: WhiteboardCard[];

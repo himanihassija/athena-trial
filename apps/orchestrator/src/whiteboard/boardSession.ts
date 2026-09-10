@@ -8,20 +8,11 @@ import type {
 import { publish } from '../state/eventBus.js';
 import type { BoardElement } from '@echosphere/shared-types';
 import type { ClassroomSession } from '../state/sessionRegistry.js';
-import { config } from '../config.js';
-import {
-  createWhiteboardRoom,
-  mintRoomToken,
-  whiteboardConfigured,
-} from './netless.js';
 
 export function publicWhiteboard(session: ClassroomSession): WhiteboardPublicState {
   const board = session.whiteboard;
   return {
     open: board.open,
-    region: board.region,
-    uuid: board.uuid,
-    agoraReady: whiteboardConfigured() && Boolean(board.uuid),
     annotating: board.annotating,
     presenting: board.presenting,
     scene: board.scene,
@@ -37,26 +28,11 @@ export function broadcastWhiteboard(session: ClassroomSession): void {
 }
 
 /**
- * Opens the board when Athena is brought in. Creates an Agora Interactive
- * Whiteboard room when credentials exist; otherwise the voice overlay still
- * works so the classroom is not blocked on Console setup.
- */
-/**
- * Opens the board for the room.
- *
- * No Netless room is created. Nothing joins one: the client canvas was removed
- * because white-web-sdk requires React 16 and this app is on React 19 (see
- * ClassroomBoard for the full reasoning). Creating a room per session would be
- * an API call and a failure surface for a canvas nobody renders, so the call is
- * left out rather than made and ignored.
- *
- * `createWhiteboardRoom` and `joinPayload` are kept intact directly below, so
- * restoring the canvas is a one-line change here if Netless ships React 18
- * support.
+ * Opens the local Excalidraw board for the room. No separate Agora
+ * Interactive Whiteboard room or credential is needed.
  */
 export async function openWhiteboard(session: ClassroomSession): Promise<void> {
   session.whiteboard.open = true;
-  session.whiteboard.region = config.whiteboardRegion;
   broadcastWhiteboard(session);
 }
 
@@ -113,17 +89,8 @@ export async function joinPayload(
   writable: boolean,
 ): Promise<WhiteboardJoin> {
   const publicState = publicWhiteboard(session);
-  let roomToken: string | null = null;
-  if (session.whiteboard.uuid && whiteboardConfigured()) {
-    roomToken = await mintRoomToken(
-      session.whiteboard.uuid,
-      writable ? 'writer' : 'reader',
-    );
-  }
   return {
     ...publicState,
-    appIdentifier: config.whiteboardAppIdentifier || null,
-    roomToken,
     uid,
     writable,
   };
